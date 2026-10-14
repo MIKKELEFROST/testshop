@@ -1,0 +1,116 @@
+import "server-only";
+import type { z } from "zod";
+import { wooEnv } from "@/lib/env";
+
+/**
+ * Minimal, server-only WooCommerce REST client.
+ *
+ * - Credentials are sent as HTTP Basic auth over HTTPS and never leave the server.
+ * - Every request has a timeout; idempotent GETs are retried on network errors/5xx/429.
+ * - Responses are validated with Zod, so unexpected payloads fail loudly instead of
+ *   leaking into pricing logic.
+ * - Errors never include credentials, request bodies or customer data.
+ */
+
+export class WooCommerceError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code: string,
+    public readonly body?: unknown,
+  ) {
+    super(message);
+    this.name = "WooCommerceError";
+  }
+
+  /** Network errors, timeouts, 5xx, 429 and lock contention are worth retrying. */
+  get retryable(): boolean {
+    return this.status === 0 || this.status >= 500 || this.status === 429 || this.code === "busy";
+  }
+}
+
+type RequestOptions<T extends z.ZodType> = {
+  method?: "GET" | "POST" | "PUT";
+  query?: Record<string, string | number | boolean | undefined>;
+  body?: unknown;
+  schema: T;
+  /** Status codes whose JSON body is a valid, expected result (e.g. 409 conflicts). */
+  acceptStatus?: number[];
+  timeoutMs?: number;
+};
+
+export type WooResponse<T> = { status: number; data: T; headers: Headers };
+
+const RETRY_DELAYS_MS = [250, 750];
+
+export async function wooRequest<T extends z.ZodType>(
+  path: string,
+  options: RequestOptions<T>,
+): Promise<WooResponse<z.infer<T>>> {
+  const env = wooEnv();
+  const method = options.method ?? "GET";
+  const url = new URL(`${env.WOOCOMMERCE_URL}/wp-json/${path.replace(/^\/+/, "")}`);
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined) url.searchParams.set(key, String(value));
+  }
+
+  const auth = Buffer.from(`${env.WOOCOMMERCE_CONSUMER_KEY}:${env.WOOCOMMERCE_CONSUMER_SECRET}`).toString("base64");
+  const attempts = method === "GET" ? RETRY_DELAYS_MS.length + 1 : 1;
+  let lastError: WooCommerceError | undefined;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Basic ${auth}`,
+          Accept: "application/json",
+          ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        },
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: AbortSignal.timeout(options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS),
+        cache: "no-store",
+      });
+    } catch (error) {
+      const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+      lastError = new WooCommerceError(
+        timedOut ? "WooCommerce did not respond in time" : "WooCommerce is unreachable",
+        0,
+        timedOut ? "timeout" : "network_error",
+      );
+      continue;
+    }
+
+    const json = await response.json().catch(() => undefined);
+    const accepted = response.ok || (options.acceptStatus ?? []).includes(response.status);
+
+    if (!accepted) {
+      const code = isRecord(json) && typeof json.code === "string" ? json.code : `http_${response.status}`;
+      lastError = new WooCommerceError(`WooCommerce request failed (${method} ${path}: ${response.status} ${code})`, response.status, code, json);
+      if (lastError.retryable) continue;
+      throw lastError;
+    }
+
+    const parsed = options.schema.safeParse(json);
+    if (!parsed.success) {
+      throw new WooCommerceError(`Unexpected WooCommerce response for ${method} ${path}`, 502, "invalid_response", {
+        issues: parsed.error.issues.slice(0, 5).map((issue) => `${issue.path.join(".")}: ${issue.message}`),
+      });
+    }
+
+    return { status: response.status, data: parsed.data, headers: response.headers };
+  }
+
+  throw lastError ?? new WooCommerceError("WooCommerce request failed", 0, "unknown");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

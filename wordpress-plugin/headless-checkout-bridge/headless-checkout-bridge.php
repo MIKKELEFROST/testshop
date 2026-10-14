@@ -1,0 +1,66 @@
+<?php
+/**
+ * Plugin Name:       Headless Checkout Bridge
+ * Description:       Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe). Uses WooCommerce's own cart, tax, shipping, order and stock-reservation logic.
+ * Version:           1.0.0
+ * Requires at least: 6.4
+ * Requires PHP:      7.4
+ * Requires Plugins:  woocommerce
+ * WC requires at least: 8.5
+ * License:           GPL-2.0-or-later
+ * Text Domain:       headless-checkout-bridge
+ *
+ * @package HeadlessCheckoutBridge
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+define( 'WCHC_VERSION', '1.0.0' );
+define( 'WCHC_PATH', plugin_dir_path( __FILE__ ) );
+
+/*
+ * Minimum number of minutes stock is reserved for a headless order, used when the shop's
+ * "Hold stock (minutes)" setting is empty. Reservations expire automatically in WooCommerce.
+ */
+if ( ! defined( 'WCHC_MIN_RESERVE_MINUTES' ) ) {
+	define( 'WCHC_MIN_RESERVE_MINUTES', 15 );
+}
+
+/** Order meta keys. */
+define( 'WCHC_META_CHECKOUT_ID', '_wchc_checkout_id' );
+define( 'WCHC_META_FINGERPRINT', '_wchc_fingerprint' );
+define( 'WCHC_META_STORE_ID', '_wchc_store_id' );
+define( 'WCHC_META_PAYMENT_INTENT', '_wchc_payment_intent_id' );
+define( 'WCHC_META_PAYMENT_INTENT_HISTORY', '_wchc_payment_intent_history' );
+define( 'WCHC_META_REFUND_REQUIRED', '_wchc_refund_required' );
+define( 'WCHC_PAYMENT_METHOD_ID', 'wchc_stripe' );
+
+// Declare HPOS compatibility.
+add_action(
+	'before_woocommerce_init',
+	static function () {
+		if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
+		}
+	}
+);
+
+add_action(
+	'plugins_loaded',
+	static function () {
+		if ( ! class_exists( 'WooCommerce' ) ) {
+			return;
+		}
+
+		require_once WCHC_PATH . 'includes/class-wchc-lock.php';
+		require_once WCHC_PATH . 'includes/class-wchc-memory-session.php';
+		require_once WCHC_PATH . 'includes/class-wchc-cart-builder.php';
+		require_once WCHC_PATH . 'includes/class-wchc-orders.php';
+		require_once WCHC_PATH . 'includes/class-wchc-rest-controller.php';
+		require_once WCHC_PATH . 'includes/class-wchc-product-fields.php';
+
+		add_action( 'rest_api_init', array( new WCHC_REST_Controller(), 'register_routes' ) );
+		WCHC_Product_Fields::init();
+		WCHC_Orders::init_hooks();
+	}
+);
