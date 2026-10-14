@@ -47,10 +47,22 @@ Kørt 14. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen fak
 | Forkert beløb / forkert ordrenøgle / anden butik | Integration | Bestået |
 | Betaling efter udløbet reservation, varen solgt | Integration: automatisk refundering, intet oversalg | Bestået |
 | Ugyldig/forfalsket webhook-signatur | Unit (rigtig Stripe-signaturverifikation) | Bestået |
-| **Rigtig Stripe-testbetaling** (Payment Element, 3-D Secure) | Manuelt, se nedenfor | **Ikke kørt** |
-| **Forbindelse til test.piece.dk** | Manuelt | **Ikke kørt** |
+| **Rigtig Stripe-testbetaling** (kort 4242, Vercel-produktion → test.piece.dk) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
+| Rigtig 3-D Secure- og afvist-betaling | Manuelt, se testplanen | **Ikke kørt** |
+| **Forbindelse til test.piece.dk** (WooCommerce 11.2.1, HPOS) | Manuelt | **Bestået** |
 
-De to sidste er ikke kørt, fordi udviklingsmiljøets netværkspolitik blokerede `test.piece.dk`, `api.stripe.com` og `js.stripe.com`. Alt andet er kørt mod en rigtig WooCommerce 11.1.2 lokalt.
+Alt andet er kørt mod en rigtig WooCommerce 11.1.2 lokalt.
+
+### Rigtigt testkøb 14-10-2026
+
+Købt på `https://testshop-weld.vercel.app` med kort 4242. Tjekket i Vercels request-statistik og via WooCommerce REST API:
+
+- Ordre #23 (1 × Superheltekappe, 179 kr.): PaymentIntent tilknyttet, noten "Betaling gennemført via Stripe", status *Behandler* (senere sat manuelt til *Gennemført*), transaktions-ID `pi_…`.
+- Lageret faldt én gang (12 → 11). "Behandler ordre" og "Ny ordre" blev sendt én gang hver.
+- `/api/checkout` 200, `/api/stripe/webhook` 200 (signatur verificeret), `/ordre/bekraeftelse` 200.
+- De første forsøg fejlede med `503`, fordi `STRIPE_SECRET_KEY` i Vercel indeholdt et ugyldigt tegn (`Invalid character in header content ["Authorization"]`). Det blev rettet ved at indsætte nøglen igen. Miljøvariabler trimmes nu, og loggen viser den underliggende årsag.
+- Ordre #21 (715 kr.) og #22 (179 kr.) blev oprettet under de fejlede forsøg og står som *Afventer betaling*. Der blev ikke trukket penge for dem. #22 og #23 har hver sit checkout-ID, så kurven blev betalt i en ny browsersession (for eksempel et nyt inkognitovindue). En ny session giver altid en ny ordre.
+- **Åbent punkt:** WooCommerce har endnu ikke annulleret de ubetalte ordrer automatisk, selvom "Hold lager" er 60 minutter og WP-Cron er slået til. Lagerreservationerne udløber af sig selv, så de blokerer ikke varer.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
