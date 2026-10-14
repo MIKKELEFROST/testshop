@@ -18,8 +18,9 @@ export class WooCommerceError extends Error {
     public readonly status: number,
     public readonly code: string,
     public readonly body?: unknown,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = "WooCommerceError";
   }
 
@@ -76,10 +77,13 @@ export async function wooRequest<T extends z.ZodType>(
       });
     } catch (error) {
       const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+      // Keep the low-level error (e.g. "other side closed") so logs show the real cause.
       lastError = new WooCommerceError(
-        timedOut ? "WooCommerce did not respond in time" : "WooCommerce is unreachable",
+        `${timedOut ? "WooCommerce did not respond in time" : "WooCommerce is unreachable"} (${method} ${path}, attempt ${attempt + 1}/${attempts})`,
         0,
         timedOut ? "timeout" : "network_error",
+        undefined,
+        { cause: error },
       );
       continue;
     }

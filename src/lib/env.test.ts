@@ -45,6 +45,12 @@ describe("describeError", () => {
     );
     expect(describeError(new Error("outer", { cause: new Error("inner") }))).toBe("outer (cause: inner)");
     expect(describeError(new Error("plain"))).toBe("plain");
+
+    const socket = Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" });
+    const fetchFailed = new TypeError("fetch failed", { cause: socket });
+    expect(describeError(new Error("WooCommerce is unreachable (POST x, attempt 1/1)", { cause: fetchFailed }))).toBe(
+      "WooCommerce is unreachable (POST x, attempt 1/1) (cause: fetch failed <- other side closed [UND_ERR_SOCKET])",
+    );
     expect(describeError("not an error")).toBe("unknown error");
   });
 });
