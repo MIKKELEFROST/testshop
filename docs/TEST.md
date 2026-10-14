@@ -64,6 +64,10 @@ Købt på `https://testshop-weld.vercel.app` med kort 4242. Tjekket i Vercels re
 - Ordre #21 (715 kr.) og #22 (179 kr.) blev oprettet under de fejlede forsøg og står som *Afventer betaling*. Der blev ikke trukket penge for dem. #22 og #23 har hver sit checkout-ID, så kurven blev betalt i en ny browsersession (for eksempel et nyt inkognitovindue). En ny session giver altid en ny ordre.
 - **3-D Secure** (`4000 0025 0000 3155`), ordre #28: godkendt i Stripes dialog og betalt 9 sekunder efter oprettelsen. Lageret faldt én gang (11 → 10), og mails blev sendt én gang.
 - **Afvist kort** (`4000 0000 0000 9995`), ordre #29: noten "Betalingsforsøg afvist: card_declined". Ordren står fortsat som *Afventer betaling* med sin PaymentIntent, så kunden kan prøve igen med et andet kort. Lageret er ikke trukket.
+- **Afvist kort og derefter betalt**, ordre #30: kortet blev afvist kl. 21:38:59 og samme ordre blev betalt kl. 21:39:22 med samme PaymentIntent (ingen ny ordre, ingen ny PaymentIntent). Lageret faldt én gang (10 → 7).
+- **Dobbeltklik på Betal**, ordre #31: én ordre, én PaymentIntent, ét lagertræk (20 → 18). Vercel modtog kun én `POST /api/checkout`, så knappen stoppede de ekstra klik allerede i browseren. Idempotensen på serveren er dækket af integrationstesten.
+- **Prisændring under checkout**, ordre #32: prisen blev ændret fra 99 til 119 kr. i WooCommerce, mens kassen var åben. Ordren og betalingen blev på 119 kr. Kassen hentede den nye pris, før der blev trykket Betal, så `total_changed` (409) blev ikke udløst i denne test. Den gren er dækket af integrationstesten.
+- Klarna og Amazon Pay er slået fra i Stripe, så kun kort tilbydes.
 - **Åbent punkt:** Confirmation-siden loggede to gange `WooCommerce is unreachable` (18:28 og 21:01 dansk tid). Der var ingen konsekvens for ordrerne. Loggen viser nu den underliggende netværksfejl, så årsagen kan findes, hvis det sker igen.
 - **Åbent punkt:** WooCommerce har endnu ikke annulleret de ubetalte ordrer automatisk, selvom "Hold lager" er 60 minutter og WP-Cron er slået til. Lagerreservationerne udløber af sig selv, så de blokerer ikke varer.
 
