@@ -42,6 +42,39 @@ final class WCHC_Orders {
 	}
 
 	/**
+	 * Load an order bypassing this request's in-memory caches.
+	 *
+	 * Call after acquiring a lock: the order (and its meta, e.g. the "stock reduced" flag)
+	 * may have been loaded before another request changed it, and acting on that stale copy
+	 * would e.g. run payment_complete() twice.
+	 *
+	 * @param int $order_id Order ID.
+	 */
+	public static function load_fresh( int $order_id ): ?WC_Order {
+		self::flush_runtime_cache( $order_id );
+		$order = wc_get_order( $order_id );
+		return $order instanceof WC_Order ? $order : null;
+	}
+
+	/**
+	 * Drop runtime-cached order data.
+	 *
+	 * @param int $order_id Order ID (0 = only flush the runtime cache).
+	 */
+	public static function flush_runtime_cache( int $order_id = 0 ): void {
+		if ( function_exists( 'wp_cache_flush_runtime' ) && wp_cache_supports( 'flush_runtime' ) ) {
+			wp_cache_flush_runtime();
+		}
+		if ( $order_id > 0 ) {
+			clean_post_cache( $order_id );
+			wp_cache_delete( $order_id, 'post_meta' );
+			if ( OrderUtil::custom_orders_table_usage_is_enabled() && class_exists( \Automattic\WooCommerce\Caches\OrderCache::class ) ) {
+				wc_get_container()->get( \Automattic\WooCommerce\Caches\OrderCache::class )->remove( $order_id );
+			}
+		}
+	}
+
+	/**
 	 * Find the order that belongs to a checkout session.
 	 *
 	 * @param string $checkout_id Checkout session ID.
@@ -65,7 +98,7 @@ final class WCHC_Orders {
 			);
 		}
 
-		$order = $order_id ? wc_get_order( (int) $order_id ) : null;
+		$order = $order_id ? self::load_fresh( (int) $order_id ) : null;
 
 		return $order instanceof WC_Order && hash_equals( (string) $order->get_meta( WCHC_META_CHECKOUT_ID ), $checkout_id ) ? $order : null;
 	}
@@ -381,14 +414,20 @@ final class WCHC_Orders {
 			return self::response( 409, array( 'code' => 'amount_mismatch', 'message' => 'Beløbet matcher ikke ordren.', 'order' => self::summary( $order ) ) );
 		}
 
-		if ( $order->has_status( 'cancelled' ) ) {
-			// Paid after the hold expired and the order was cancelled: only reopen if stock is still available.
-			if ( ! self::stock_available_for( $order ) ) {
-				$order->update_meta_data( WCHC_META_REFUND_REQUIRED, $intent_id );
-				$order->save();
+		// If the stock hold expired (or the order was cancelled) before the money arrived, the
+		// items may have been sold to someone else. Never oversell: refund instead.
+		if ( $order->has_status( array( 'pending', 'failed', 'cancelled' ) ) && ! self::stock_available_for( $order ) ) {
+			$order->update_meta_data( WCHC_META_REFUND_REQUIRED, $intent_id );
+			$order->save();
+			if ( $order->has_status( 'cancelled' ) ) {
 				$order->add_order_note( sprintf( 'Betaling %s modtaget efter annullering, men varerne er ikke længere på lager – refunderes.', $intent_id ) );
-				return self::result( 'refund_required', $order );
+			} else {
+				$order->update_status( 'cancelled', sprintf( 'Betaling %s modtaget, men varerne er ikke længere på lager – refunderes.', $intent_id ) );
 			}
+			return self::result( 'refund_required', $order );
+		}
+
+		if ( $order->has_status( 'cancelled' ) ) {
 			$order->add_order_note( 'Betaling modtaget efter at ordren var annulleret. Varerne er stadig på lager – ordren genåbnes.' );
 		}
 

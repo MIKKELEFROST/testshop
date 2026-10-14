@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "WC_INTEGRATION=1 vitest run tests/integration",
+    "typecheck": "next typegen && tsc --noEmit",
+    "plugin:zip": "cd wordpress-plugin && rm -f ../dist/headless-checkout-bridge.zip && mkdir -p ../dist && zip -qr ../dist/headless-checkout-bridge.zip headless-checkout-bridge"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

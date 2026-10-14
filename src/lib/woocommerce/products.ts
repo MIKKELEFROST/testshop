@@ -11,13 +11,19 @@ import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas"
  * demand by WooCommerce webhooks (see /api/revalidate). Prices and stock shown here are
  * informational: the checkout always re-validates them against WooCommerce.
  *
- * Failures are cached only for seconds, so a WooCommerce outage never sticks.
+ * Failures are cached only briefly, so a WooCommerce outage never sticks.
  */
 
 export const CATALOG_TAG = "wc-catalog";
 export const productTag = (id: number) => `wc-product-${id}`;
 
 const UNAVAILABLE = "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt.";
+
+/**
+ * Lifetime for a failed read: retried after 30 s. (Kept at the 5-minute "expire" minimum so
+ * Next.js can still prerender the friendly error state, e.g. when building without access.)
+ */
+const FAILURE_LIFE = { stale: 30, revalidate: 30, expire: 300 };
 
 export async function getProducts(options: { categoryId?: number; perPage?: number } = {}): Promise<Loadable<ProductSummary[]>> {
   "use cache";
@@ -38,7 +44,7 @@ export async function getProducts(options: { categoryId?: number; perPage?: numb
     return { ok: true, data: data.map(mapProductSummary) };
   } catch (error) {
     logCatalogError("getProducts", error);
-    cacheLife("seconds");
+    cacheLife(FAILURE_LIFE);
     return { ok: false, error: UNAVAILABLE };
   }
 }
@@ -73,7 +79,7 @@ export async function getProductBySlug(slug: string): Promise<Loadable<Product |
     return { ok: true, data: mapProduct(product, variations) };
   } catch (error) {
     logCatalogError("getProductBySlug", error);
-    cacheLife("seconds");
+    cacheLife(FAILURE_LIFE);
     return { ok: false, error: UNAVAILABLE };
   }
 }
@@ -91,7 +97,7 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
     return { ok: true, data: data.filter((c) => c.slug !== "uncategorized").map(mapCategory) };
   } catch (error) {
     logCatalogError("getCategories", error);
-    cacheLife("seconds");
+    cacheLife(FAILURE_LIFE);
     return { ok: false, error: UNAVAILABLE };
   }
 }

@@ -314,8 +314,11 @@ final class WCHC_REST_Controller {
 		}
 
 		try {
-			// Re-read after acquiring the lock so we act on the latest state.
-			$order  = wc_get_order( $order->get_id() );
+			// Re-read from the database after acquiring the lock so we act on the latest state.
+			$order = WCHC_Orders::load_fresh( $order->get_id() );
+			if ( ! $order ) {
+				return $this->error( new WP_Error( 'order_not_found', 'Ordren blev ikke fundet.' ), 404 );
+			}
 			$result = $callback( $order );
 		} finally {
 			WCHC_Lock::release( $lock );
