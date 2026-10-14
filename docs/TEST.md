@@ -48,7 +48,7 @@ Kørt 14. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen fak
 | Betaling efter udløbet reservation, varen solgt | Integration: automatisk refundering, intet oversalg | Bestået |
 | Ugyldig/forfalsket webhook-signatur | Unit (rigtig Stripe-signaturverifikation) | Bestået |
 | **Rigtig Stripe-testbetaling** (kort 4242, Vercel-produktion → test.piece.dk) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
-| Rigtig 3-D Secure- og afvist-betaling | Manuelt, se testplanen | **Ikke kørt** |
+| Rigtig 3-D Secure- og afvist-betaling (kort 3155 og 9995) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
 | **Forbindelse til test.piece.dk** (WooCommerce 11.2.1, HPOS) | Manuelt | **Bestået** |
 
 Alt andet er kørt mod en rigtig WooCommerce 11.1.2 lokalt.
@@ -62,6 +62,9 @@ Købt på `https://testshop-weld.vercel.app` med kort 4242. Tjekket i Vercels re
 - `/api/checkout` 200, `/api/stripe/webhook` 200 (signatur verificeret), `/ordre/bekraeftelse` 200.
 - De første forsøg fejlede med `503`, fordi `STRIPE_SECRET_KEY` i Vercel indeholdt et ugyldigt tegn (`Invalid character in header content ["Authorization"]`). Det blev rettet ved at indsætte nøglen igen. Miljøvariabler trimmes nu, og loggen viser den underliggende årsag.
 - Ordre #21 (715 kr.) og #22 (179 kr.) blev oprettet under de fejlede forsøg og står som *Afventer betaling*. Der blev ikke trukket penge for dem. #22 og #23 har hver sit checkout-ID, så kurven blev betalt i en ny browsersession (for eksempel et nyt inkognitovindue). En ny session giver altid en ny ordre.
+- **3-D Secure** (`4000 0025 0000 3155`), ordre #28: godkendt i Stripes dialog og betalt 9 sekunder efter oprettelsen. Lageret faldt én gang (11 → 10), og mails blev sendt én gang.
+- **Afvist kort** (`4000 0000 0000 9995`), ordre #29: noten "Betalingsforsøg afvist: card_declined". Ordren står fortsat som *Afventer betaling* med sin PaymentIntent, så kunden kan prøve igen med et andet kort. Lageret er ikke trukket.
+- **Åbent punkt:** Confirmation-siden loggede to gange `WooCommerce is unreachable` (18:28 og 21:01 dansk tid). Der var ingen konsekvens for ordrerne. Loggen viser nu den underliggende netværksfejl, så årsagen kan findes, hvis det sker igen.
 - **Åbent punkt:** WooCommerce har endnu ikke annulleret de ubetalte ordrer automatisk, selvom "Hold lager" er 60 minutter og WP-Cron er slået til. Lagerreservationerne udløber af sig selv, så de blokerer ikke varer.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
