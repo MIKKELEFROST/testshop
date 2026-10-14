@@ -69,7 +69,9 @@ export function CheckoutView() {
   const [options] = useState<StripeElementsOptions>(() => ({
     mode: "payment",
     // Placeholder until the first WooCommerce quote arrives; updated via elements.update().
-    amount: 100,
+    // Kept above Stripe's minimum charge (2.50 DKK): a smaller placeholder can make the first
+    // Payment Element load fail even though the real total is fine.
+    amount: 1000,
     currency: storeConfig.currency.toLowerCase(),
     appearance,
     locale: "da",
@@ -109,6 +111,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [paymentReady, setPaymentReady] = useState(false);
+  const [paymentLoadError, setPaymentLoadError] = useState<string | null>(null);
   const inFlight = useRef(false);
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
@@ -476,14 +479,27 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               <Alert tone="error" title="Betalingsformularen kunne ikke indlæses">
                 Kontrollér din internetforbindelse, slå eventuelle annonceblokkere fra, og genindlæs siden.
               </Alert>
+            ) : paymentLoadError ? (
+              <Alert tone="error" title="Betalingsformularen kunne ikke indlæses">
+                Genindlæs siden.
+                <span className="mt-1 block text-xs opacity-80">{paymentLoadError}</span>
+              </Alert>
             ) : !paymentReady && (
               <div className="flex items-center gap-2 py-6 text-sm text-muted">
                 <Spinner /> Indlæser betalingsmetoder…
               </div>
             )}
             <PaymentElement
-              onReady={() => setPaymentReady(true)}
-              onLoadError={() => setFormError("Betalingsformularen kunne ikke indlæses. Genindlæs siden.")}
+              onReady={() => {
+                // A later successful load (e.g. after the real amount is set) clears an earlier failure.
+                setPaymentReady(true);
+                setPaymentLoadError(null);
+              }}
+              onChange={() => setPaymentLoadError(null)}
+              onLoadError={(event) => {
+                console.error("[checkout] Payment Element failed to load:", event.error.type, event.error.message);
+                setPaymentLoadError(event.error.message ?? event.error.type);
+              }}
               options={{
                 layout: { type: "accordion", defaultCollapsed: false, radios: "if_multiple", spacedAccordionItems: false },
                 fields: { billingDetails: { email: "never", address: "never" } },
