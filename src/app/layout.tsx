@@ -1,8 +1,8 @@
 import "@fontsource-variable/inter";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { CartDrawer } from "@/components/cart/cart-drawer";
 import { CartProvider } from "@/components/cart/cart-provider";
-import { AddedToCartToast } from "@/components/cart/added-to-cart-toast";
 import { Footer } from "@/components/layout/footer";
 import { Header } from "@/components/layout/header";
 import { storeConfig } from "@/config/store";
@@ -33,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {children}
           </main>
           <Footer />
-          <AddedToCartToast />
+          <CartDrawer />
         </CartProvider>
       </body>
     </html>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { storeConfig } from "@/config/store";
 import { getCategories } from "@/lib/woocommerce/products";
-import { CartLink } from "./cart-link";
+import { CartButton } from "./cart-button";
 
 export function Header() {
   return (
@@ -23,7 +23,7 @@ export function Header() {
           </Suspense>
         </nav>
         <div className="ml-auto flex items-center gap-1 md:ml-0">
-          <CartLink />
+          <CartButton />
         </div>
       </div>
       <nav aria-label="Kategorier" className="container-shop -mt-1 flex gap-5 overflow-x-auto pb-3 text-sm md:hidden">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OpenCartButton } from "@/components/cart/cart-drawer";
 import { storeConfig } from "@/config/store";
 
 export function Footer() {
@@ -18,9 +19,7 @@ export function Footer() {
               </Link>
             </li>
             <li>
-              <Link href="/kurv" className="hover:text-ink">
-                Kurv
-              </Link>
+              <OpenCartButton className="hover:text-ink">Kurv</OpenCartButton>
             </li>
           </ul>
         </div>

@@ -1,15 +1,15 @@
 "use client";
 
-import Link from "next/link";
+import { OpenCartButton } from "@/components/cart/cart-drawer";
 import { useCart } from "@/components/cart/cart-provider";
 
-export function CartLink() {
+/** Header cart icon. Opens the cart drawer instead of going to /kurv. */
+export function CartButton() {
   const { count, hydrated } = useCart();
   const label = hydrated && count > 0 ? `Kurv, ${count} ${count === 1 ? "vare" : "varer"}` : "Kurv";
 
   return (
-    <Link
-      href="/kurv"
+    <OpenCartButton
       aria-label={label}
       className="relative inline-flex size-11 items-center justify-center rounded-full hover:bg-black/5"
     >
@@ -22,6 +22,6 @@ export function CartLink() {
           {count > 99 ? "99+" : count}
         </span>
       )}
-    </Link>
+    </OpenCartButton>
   );
 }

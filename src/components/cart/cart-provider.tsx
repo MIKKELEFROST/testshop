@@ -21,8 +21,12 @@ type CartContextValue = {
   setQuantity: (key: string, quantity: number) => void;
   remove: (key: string) => void;
   clear: () => void;
+  /** The line from the latest "Læg i kurv", confirmed at the top of the drawer. */
   lastAdded: CartLine | null;
-  dismissLastAdded: () => void;
+  /** The cart drawer (see cart-drawer.tsx). `add` opens it too. */
+  isOpen: boolean;
+  openCart: () => void;
+  closeCart: () => void;
 };
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -34,11 +38,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const lines = useSyncExternalStore(subscribeCart, () => readCart(storageKey), serverCartSnapshot);
   const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [lastAdded, setLastAdded] = useState<CartLine | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   const add = useCallback(
     (line: Omit<CartLine, "key">) => {
       dispatchCart(storageKey, { type: "add", line });
       setLastAdded({ ...line, key: lineKey(line.productId, line.variationId) });
+      setIsOpen(true);
     },
     [storageKey],
   );
@@ -48,7 +54,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
   const remove = useCallback((key: string) => dispatchCart(storageKey, { type: "remove", key }), [storageKey]);
   const clear = useCallback(() => dispatchCart(storageKey, { type: "replace", lines: [] }), [storageKey]);
-  const dismissLastAdded = useCallback(() => setLastAdded(null), []);
+  // Opened from a cart button: nothing was just added, so no confirmation.
+  const openCart = useCallback(() => {
+    setLastAdded(null);
+    setIsOpen(true);
+  }, []);
+  const closeCart = useCallback(() => setIsOpen(false), []);
 
   const value = useMemo(
     () => ({
@@ -60,9 +71,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
       remove,
       clear,
       lastAdded,
-      dismissLastAdded,
+      isOpen,
+      openCart,
+      closeCart,
     }),
-    [lines, hydrated, add, setQuantity, remove, clear, lastAdded, dismissLastAdded],
+    [lines, hydrated, add, setQuantity, remove, clear, lastAdded, isOpen, openCart, closeCart],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
