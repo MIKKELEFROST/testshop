@@ -10,7 +10,7 @@ import { CATALOG_TAG, productTag } from "@/lib/woocommerce/products";
  * WooCommerce show up in the storefront within seconds.
  */
 export async function POST(request: Request) {
-  const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET;
+  const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET?.trim();
   if (!secret) return Response.json({ error: "not configured" }, { status: 503 });
 
   const body = await request.text();

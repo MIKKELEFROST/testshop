@@ -1,6 +1,7 @@
 import { readCheckoutId } from "@/lib/checkout/session";
 import { toClientQuote } from "@/lib/checkout/quote";
 import { ConfigError } from "@/lib/env";
+import { describeError } from "@/lib/log";
 import { createRateLimiter } from "@/lib/security/rate-limit";
 import { clientIp, isSameOrigin, jsonError, rateLimited, readJson } from "@/lib/security/request";
 import { quoteRequestSchema } from "@/lib/validation/checkout";
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
       console.error("[quote] configuration:", error.message);
       return jsonError(503, "not_configured", "Butikken er ikke konfigureret endnu.");
     }
-    console.error("[quote] failed:", error instanceof Error ? error.message : "unknown error");
+    console.error("[quote] failed:", describeError(error));
     return jsonError(503, "backend_unavailable", "Vi kan ikke beregne priser lige nu. Prøv igen om lidt.");
   }
 }

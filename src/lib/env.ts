@@ -5,21 +5,24 @@ import { z } from "zod";
  * Server-side configuration. Validated lazily (on first use) so `next build` can run
  * without secrets, and so a missing variable produces a clear error naming the variable
  * — never its value.
+ *
+ * Values are trimmed: a key pasted with a trailing newline would otherwise end up in an
+ * HTTP header and fail every request with an opaque connection error.
  */
 
 const wooSchema = z.object({
-  WOOCOMMERCE_URL: z.url().transform((url) => url.replace(/\/+$/, "")),
-  WOOCOMMERCE_CONSUMER_KEY: z.string().startsWith("ck_"),
-  WOOCOMMERCE_CONSUMER_SECRET: z.string().startsWith("cs_"),
+  WOOCOMMERCE_URL: z.string().trim().pipe(z.url()).transform((url) => url.replace(/\/+$/, "")),
+  WOOCOMMERCE_CONSUMER_KEY: z.string().trim().startsWith("ck_"),
+  WOOCOMMERCE_CONSUMER_SECRET: z.string().trim().startsWith("cs_"),
   WOOCOMMERCE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
 });
 
 const stripeSchema = z.object({
-  STRIPE_SECRET_KEY: z.string().regex(/^(sk|rk)_(test|live)_/),
+  STRIPE_SECRET_KEY: z.string().trim().regex(/^(sk|rk)_(test|live)_/),
 });
 
 const webhookSchema = z.object({
-  STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
+  STRIPE_WEBHOOK_SECRET: z.string().trim().startsWith("whsec_"),
 });
 
 export class ConfigError extends Error {

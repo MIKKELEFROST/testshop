@@ -4,6 +4,7 @@ import { toClientQuote } from "@/lib/checkout/quote";
 import { CheckoutError, startCheckout, type StartCheckoutOutcome } from "@/lib/checkout/service";
 import { ensureCheckoutId, rotateCheckoutId } from "@/lib/checkout/session";
 import { ConfigError } from "@/lib/env";
+import { describeError } from "@/lib/log";
 import { createRateLimiter } from "@/lib/security/rate-limit";
 import { clientIp, isSameOrigin, jsonError, rateLimited, readJson } from "@/lib/security/request";
 import { checkoutRequestSchema, fieldErrors } from "@/lib/validation/checkout";
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
       return jsonError(503, "not_configured", "Betaling er ikke konfigureret endnu.");
     }
     const retryable = !(error instanceof CheckoutError) || error.retryable;
-    console.error("[checkout] failed:", error instanceof Error ? error.message : "unknown error");
+    console.error("[checkout] failed:", describeError(error));
     return jsonError(503, "unavailable", retryable ? "Vi kan ikke gennemføre betalingen lige nu. Prøv igen om lidt." : "Betalingen kunne ikke startes.");
   }
 }

@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
 import { checkoutDeps } from "@/lib/checkout/deps";
 import { finalizePayment } from "@/lib/checkout/service";
+import { describeError } from "@/lib/log";
 import { formatPrice } from "@/lib/money";
 import { stripeGateway } from "@/lib/stripe/server";
 import { getOrderDetails } from "@/lib/woocommerce/checkout-api";
@@ -51,7 +52,7 @@ async function Confirmation({ searchParams }: { searchParams: Promise<Record<str
       order = await getOrderDetails(orderId, orderKey);
     }
   } catch (error) {
-    console.error("[confirmation] failed:", error instanceof Error ? error.message : "unknown error");
+    console.error("[confirmation] failed:", describeError(error));
     return (
       <Alert tone="warning" title="Vi kan ikke vise din ordre lige nu">
         Din betaling er registreret hos Stripe, hvis du har gennemført den. Genindlæs siden om lidt, eller kontakt{" "}

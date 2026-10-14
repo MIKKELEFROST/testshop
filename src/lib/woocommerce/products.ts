@@ -1,6 +1,7 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { z } from "zod";
+import { describeError } from "@/lib/log";
 import type { Loadable, Product, ProductCategory, ProductSummary } from "@/types/commerce";
 import { wooRequest } from "./client";
 import { mapCategory, mapProduct, mapProductSummary } from "./mappers";
@@ -104,5 +105,5 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
 
 function logCatalogError(operation: string, error: unknown) {
   // Messages from our client never contain credentials or customer data.
-  console.error(`[catalog] ${operation} failed:`, error instanceof Error ? error.message : "unknown error");
+  console.error(`[catalog] ${operation} failed:`, describeError(error));
 }

@@ -1,3 +1,4 @@
+import { describeError } from "@/lib/log";
 import { finalizePayment, type CheckoutDeps, type FinalizeOutcome } from "./service";
 
 /** Stripe events that can change an order. Everything else is acknowledged and ignored. */
@@ -40,7 +41,7 @@ export async function handleStripeEvent(event: StripeEventLike, deps: CheckoutDe
     }
     return { status: 200, body: { received: true, handled: true, outcome: outcome.type }, outcome };
   } catch (error) {
-    console.error(`[stripe-webhook] ${event.id} (${event.type}) failed:`, error instanceof Error ? error.message : "unknown error");
+    console.error(`[stripe-webhook] ${event.id} (${event.type}) failed:`, describeError(error));
     return { status: 500, body: { received: false } };
   }
 }
