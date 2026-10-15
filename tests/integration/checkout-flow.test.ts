@@ -47,13 +47,17 @@ type Line = { productId: number; variationId?: number; quantity: number };
 
 const customerEmail = "integration@example.com";
 
+// These tests run as the default store ("piece-dk"), which is not a webshop in the local
+// WooCommerce, so it sells every product (webshops are tested in webshops.test.ts).
+const storeId = "piece-dk";
+
 /** Quote as the storefront requests it; `checkoutId` identifies the session's own pending order. */
 async function quoteFor(lines: Line[], rateMethod = "flat_rate", coupons: string[] = [], email = customerEmail, checkoutId?: string) {
   const items = lines.map((l) => ({ product_id: l.productId, variation_id: l.variationId ?? 0, quantity: l.quantity }));
   const where = { country: "DK", postcode: address.postcode, city: address.city };
-  const first = await fetchQuote({ items, address: where, coupons, email, checkout_id: checkoutId });
+  const first = await fetchQuote({ store_id: storeId, items, address: where, coupons, email, checkout_id: checkoutId });
   const rate = first.shipping_rates.find((r) => r.method_id === rateMethod) ?? first.shipping_rates[0];
-  return fetchQuote({ items, address: where, shipping_rate_id: rate?.id ?? null, coupons, email, checkout_id: checkoutId });
+  return fetchQuote({ store_id: storeId, items, address: where, shipping_rate_id: rate?.id ?? null, coupons, email, checkout_id: checkoutId });
 }
 
 async function requestFor(lines: Line[], rateMethod = "flat_rate", coupons: string[] = [], checkoutId?: string): Promise<CheckoutRequest> {
@@ -536,7 +540,7 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       await expect(readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }])).resolves.toMatchObject({ type: "ready" });
 
       const status = await pluginStatus();
-      expect(status).toMatchObject({ version: "1.1.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
+      expect(status).toMatchObject({ version: "1.2.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
       expect((status.unpaid_orders as { last_cleanup: string | null }).last_cleanup).not.toBeNull();
     });
   });

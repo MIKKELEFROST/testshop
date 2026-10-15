@@ -7,7 +7,7 @@ export function ProductCard({ product, priority = false }: { product: ProductSum
   const soldOut = product.stockStatus === "outofstock";
   return (
     <Link href={`/produkter/${product.slug}`} className="group block">
-      <div className="relative aspect-[4/5] overflow-hidden rounded-[var(--radius-card)] bg-[#efe9e1]">
+      <div className="relative aspect-[4/5] overflow-hidden rounded-[var(--radius-card)] bg-tint">
         <ProductImage
           image={product.image}
           name={product.name}

@@ -43,12 +43,15 @@ const emptyAddress: Address = {
   country: storeConfig.defaultCountry,
 };
 
+// Stripe needs real colour values, not CSS variables.
+const action = storeConfig.theme.action ?? "#1d1b19";
+
 const appearance: StripeElementsOptions["appearance"] = {
   theme: "stripe",
   // Floating labels, like the checkout's own fields.
   labels: "floating",
   variables: {
-    colorPrimary: "#1d1b19",
+    colorPrimary: action,
     colorText: "#1d1b19",
     colorDanger: "#b42318",
     colorBackground: "#ffffff",
@@ -57,8 +60,8 @@ const appearance: StripeElementsOptions["appearance"] = {
     spacingUnit: "4px",
   },
   rules: {
-    ".Input": { borderColor: "#d4cdc4", boxShadow: "none", padding: "13px 14px" },
-    ".Input:focus": { borderColor: "#1d1b19", boxShadow: "0 0 0 1px #1d1b19" },
+    ".Input": { borderColor: storeConfig.theme["line-strong"] ?? "#d4cdc4", boxShadow: "none", padding: "13px 14px" },
+    ".Input:focus": { borderColor: action, boxShadow: `0 0 0 1px ${action}` },
   },
 };
 
@@ -641,7 +644,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               type="submit"
               disabled={payDisabled}
               aria-describedby="betal-total"
-              className="flex h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-ink text-base font-semibold text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-action text-base font-semibold text-white transition-colors hover:bg-action-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? (
                 <>

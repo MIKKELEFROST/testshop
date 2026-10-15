@@ -65,7 +65,7 @@ export function ProductDetail({ product }: { product: Product }) {
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:gap-14">
       <div>
-        <div className="relative aspect-[4/5] overflow-hidden rounded-[var(--radius-card)] bg-[#efe9e1]">
+        <div className="relative aspect-[4/5] overflow-hidden rounded-[var(--radius-card)] bg-tint">
           <ProductImage image={activeImage} name={product.name} priority sizes="(min-width: 1024px) 55vw, 100vw" />
         </div>
         {images.length > 1 && (

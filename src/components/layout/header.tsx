@@ -7,7 +7,7 @@ import { CartButton } from "./cart-button";
 export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/75">
-      <div className="bg-ink py-2 text-center text-xs font-medium tracking-wide text-white">
+      <div className="bg-action py-2 text-center text-xs font-medium tracking-wide text-white">
         Sikker betaling · Levering i hele Danmark
       </div>
       <div className="container-shop flex h-16 items-center gap-6">

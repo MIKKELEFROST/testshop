@@ -108,7 +108,7 @@ export function CartLineItem({
       <Link
         href={`/produkter/${line.slug}`}
         onNavigate={onNavigate}
-        className={`relative aspect-[4/5] shrink-0 overflow-hidden rounded-xl bg-[#efe9e1] ${compact ? "w-20" : "w-24 sm:w-28"}`}
+        className={`relative aspect-[4/5] shrink-0 overflow-hidden rounded-xl bg-tint ${compact ? "w-20" : "w-24 sm:w-28"}`}
       >
         <ProductImage image={line.image ?? null} name={line.name} sizes={compact ? "80px" : "112px"} />
       </Link>

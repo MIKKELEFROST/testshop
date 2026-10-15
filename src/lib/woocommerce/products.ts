@@ -1,10 +1,11 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { z } from "zod";
+import { storeConfig } from "@/config/store";
 import { describeError } from "@/lib/log";
 import type { Loadable, Product, ProductCategory, ProductSummary } from "@/types/commerce";
 import { wooRequest } from "./client";
-import { mapCategory, mapProduct, mapProductSummary } from "./mappers";
+import { mapCategory, mapProduct, mapProductSummary, shopCategoryCounts } from "./mappers";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 /**
@@ -13,6 +14,10 @@ import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas"
  * informational: the checkout always re-validates them against WooCommerce.
  *
  * Failures are cached only briefly, so a WooCommerce outage never sticks.
+ *
+ * Only this storefront's products are read: `wchc_shop` limits the results to the products
+ * of its webshop in WooCommerce (Headless Checkout Bridge 1.2+). A store ID that is not a
+ * webshop there sees every product.
  */
 
 export const CATALOG_TAG = "wc-catalog";
@@ -26,6 +31,11 @@ const UNAVAILABLE = "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt."
  */
 const FAILURE_LIFE = { stale: 30, revalidate: 30, expire: 300 };
 
+const SHOP = { wchc_shop: storeConfig.id };
+
+/** Safety limit for reading the whole catalogue (100 products per page). */
+const MAX_CATALOG_PAGES = 10;
+
 export async function getProducts(options: { categoryId?: number; perPage?: number } = {}): Promise<Loadable<ProductSummary[]>> {
   "use cache";
   cacheTag(CATALOG_TAG);
@@ -33,6 +43,7 @@ export async function getProducts(options: { categoryId?: number; perPage?: numb
   try {
     const { data } = await wooRequest("wc/v3/products", {
       query: {
+        ...SHOP,
         status: "publish",
         per_page: options.perPage ?? 50,
         orderby: "date",
@@ -56,7 +67,7 @@ export async function getProductBySlug(slug: string): Promise<Loadable<Product |
 
   try {
     const { data } = await wooRequest("wc/v3/products", {
-      query: { slug, status: "publish" },
+      query: { ...SHOP, slug, status: "publish" },
       schema: z.array(wcProductSchema),
     });
     const product = data[0];
@@ -90,17 +101,42 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
   cacheTag(CATALOG_TAG);
 
   try {
-    const { data } = await wooRequest("wc/v3/products/categories", {
-      query: { per_page: 100, hide_empty: true, orderby: "name" },
-      schema: z.array(wcCategorySchema),
-    });
+    const [{ data }, products] = await Promise.all([
+      wooRequest("wc/v3/products/categories", {
+        query: { per_page: 100, hide_empty: true, orderby: "name" },
+        schema: z.array(wcCategorySchema),
+      }),
+      getCatalogIndex(),
+    ]);
+    // WooCommerce counts every webshop's products; count (and show) only this shop's.
+    const counts = shopCategoryCounts(data, products);
     cacheLife("minutes");
-    return { ok: true, data: data.filter((c) => c.slug !== "uncategorized").map(mapCategory) };
+    return {
+      ok: true,
+      data: data
+        .filter((c) => c.slug !== "uncategorized" && (counts.get(c.id) ?? 0) > 0)
+        .map((c) => ({ ...mapCategory(c), count: counts.get(c.id) ?? 0 })),
+    };
   } catch (error) {
     logCatalogError("getCategories", error);
     cacheLife(FAILURE_LIFE);
     return { ok: false, error: UNAVAILABLE };
   }
+}
+
+/** Categories of every published product of this shop. */
+async function getCatalogIndex(): Promise<{ id: number; categories: { id: number }[] }[]> {
+  const schema = z.array(z.object({ id: z.number(), categories: z.array(z.object({ id: z.number() })).default([]) }));
+  const products: z.infer<typeof schema> = [];
+  for (let page = 1; page <= MAX_CATALOG_PAGES; page++) {
+    const { data, headers } = await wooRequest("wc/v3/products", {
+      query: { ...SHOP, status: "publish", per_page: 100, page, _fields: "id,categories" },
+      schema,
+    });
+    products.push(...data);
+    if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+  }
+  return products;
 }
 
 function logCatalogError(operation: string, error: unknown) {

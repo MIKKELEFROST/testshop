@@ -1,3 +1,4 @@
+import { storeConfig } from "@/config/store";
 import { readCheckoutId } from "@/lib/checkout/session";
 import { toClientQuote } from "@/lib/checkout/quote";
 import { ConfigError } from "@/lib/env";
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
 
   try {
     const quote = await fetchQuote({
+      store_id: storeConfig.id,
       items: items.map((i) => ({ product_id: i.productId, variation_id: i.variationId, quantity: i.quantity })),
       address: {
         country: address.country,

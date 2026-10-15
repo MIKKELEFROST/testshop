@@ -31,6 +31,8 @@ export type AddressInput = {
 };
 
 export type QuoteInput = {
+  /** The storefront's webshop; products it does not sell come back as errors. */
+  store_id: string;
   items: LineInput[];
   address: Partial<Pick<AddressInput, "country" | "postcode" | "city" | "address_1" | "address_2" | "state">>;
   shipping_rate_id?: string | null;

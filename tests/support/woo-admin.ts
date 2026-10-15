@@ -31,7 +31,15 @@ async function admin<T>(path: string, init: { method?: string; body?: unknown } 
   return (await response.json()) as T;
 }
 
-type Product = { id: number; price: string; regular_price: string; stock_quantity: number | null; stock_status: string };
+type Product = {
+  id: number;
+  slug: string;
+  price: string;
+  regular_price: string;
+  stock_quantity: number | null;
+  stock_status: string;
+  webshops?: string[];
+};
 type Order = {
   id: number;
   status: string;
@@ -94,9 +102,30 @@ export async function deleteCoupon(id: number) {
 
 /** The plugin's health endpoint. */
 export async function pluginStatus(): Promise<Record<string, unknown>> {
+  return (await plugin("status")).body as Record<string, unknown>;
+}
+
+/** Call a Headless Checkout Bridge route; returns status and JSON body. */
+export async function plugin(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: unknown }> {
   const auth = Buffer.from(`${process.env.WOOCOMMERCE_CONSUMER_KEY}:${process.env.WOOCOMMERCE_CONSUMER_SECRET}`).toString("base64");
-  const response = await fetch(`${process.env.WOOCOMMERCE_URL}/wp-json/wc-headless/v1/status`, { headers: { Authorization: `Basic ${auth}` } });
-  return (await response.json()) as Record<string, unknown>;
+  const response = await fetch(`${process.env.WOOCOMMERCE_URL}/wp-json/wc-headless/v1/${path}`, {
+    method: init.method ?? "GET",
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+/** Create or rename a webshop (slug = store ID). */
+export async function saveWebshop(slug: string, name: string) {
+  const { status, body } = await plugin(`shops/${slug}`, { method: "PUT", body: { name } });
+  if (status !== 200) throw new Error(`PUT shops/${slug} failed: ${status} ${JSON.stringify(body)}`);
+  return body as { slug: string; name: string; products: number };
+}
+
+/** Product IDs and slugs as a storefront lists them (REST API v3, optional `wchc_shop`). */
+export async function listProducts(query: Record<string, string>): Promise<{ id: number; slug: string; webshops?: string[] }[]> {
+  return admin(`products?${new URLSearchParams({ per_page: "100", status: "publish", ...query })}`);
 }
 
 /** Cancel every unpaid order (releases stock holds) so tests don't affect each other. */

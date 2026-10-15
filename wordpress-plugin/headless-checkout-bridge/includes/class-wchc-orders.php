@@ -281,7 +281,8 @@ final class WCHC_Orders {
 			array_merge( $input['shipping'], array( 'email' => $input['billing']['email'] ) ),
 			$input['shipping_rate_id'],
 			$own_order_id,
-			$input['coupons']
+			$input['coupons'],
+			$input['store_id']
 		);
 
 		if ( $resumable && WC()->cart->get_applied_coupons() ) {

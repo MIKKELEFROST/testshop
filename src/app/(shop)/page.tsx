@@ -3,33 +3,45 @@ import { Suspense } from "react";
 import { ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
-import { storeConfig } from "@/config/store";
+import { isDark, storeConfig } from "@/config/store";
 import { getCategories, getProducts } from "@/lib/woocommerce/products";
 
 export default function HomePage() {
+  const dark = isDark(storeConfig.theme.hero);
   return (
     <>
       <section className="container-shop pt-6 sm:pt-10">
-        <div className="relative overflow-hidden rounded-[1.5rem] bg-[#e9e2d8] px-6 py-16 sm:px-12 sm:py-24 lg:py-28">
+        <div
+          className={`relative overflow-hidden rounded-[1.5rem] bg-hero px-6 py-16 sm:px-12 sm:py-24 lg:py-28 ${dark ? "text-white" : ""}`}
+        >
           <div
-            className="pointer-events-none absolute -right-24 -top-24 size-96 rounded-full bg-[#d8cdbf] opacity-70 blur-2xl"
+            className="pointer-events-none absolute -right-24 -top-24 size-96 rounded-full bg-hero-blob opacity-70 blur-2xl"
             aria-hidden="true"
           />
           <div
-            className="pointer-events-none absolute -bottom-32 right-24 size-80 rounded-full bg-accent-soft opacity-80 blur-2xl"
+            className={`pointer-events-none absolute -bottom-32 right-24 size-80 rounded-full bg-accent-soft blur-2xl ${dark ? "opacity-20" : "opacity-80"}`}
             aria-hidden="true"
           />
           <div className="relative max-w-xl">
-            <p className="text-sm font-medium uppercase tracking-[0.16em] text-ink-soft">Ny kollektion</p>
+            <p className={`text-sm font-medium uppercase tracking-[0.16em] ${dark ? "text-white/75" : "text-ink-soft"}`}>
+              {storeConfig.heroEyebrow}
+            </p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
               {storeConfig.tagline}
             </h1>
-            <p className="mt-5 max-w-md text-lg leading-relaxed text-ink-soft">{storeConfig.description}</p>
+            <p className={`mt-5 max-w-md text-lg leading-relaxed ${dark ? "text-white/80" : "text-ink-soft"}`}>
+              {storeConfig.description}
+            </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <ButtonLink href="/produkter" size="lg">
+              <ButtonLink href="/produkter" size="lg" className={dark ? "bg-white! text-ink! hover:bg-white/90!" : ""}>
                 Se alle produkter
               </ButtonLink>
-              <ButtonLink href="#udvalgte" size="lg" variant="secondary">
+              <ButtonLink
+                href="#udvalgte"
+                size="lg"
+                variant="secondary"
+                className={dark ? "border-white/40! bg-transparent! text-white! hover:border-white!" : ""}
+              >
                 Udvalgte varer
               </ButtonLink>
             </div>

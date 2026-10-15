@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Requires PHP: 7.4
 WC requires at least: 8.5
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 
 Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe).
@@ -23,10 +23,19 @@ use WooCommerce's own cart, tax, shipping, order and stock-reservation logic:
   WooCommerce core (payment_complete) and exactly once. Records the payment method
   actually used and notes each declined attempt once
 * GET  /orders/{id}?order_key=… – order summary for the confirmation page
+* GET  /shops, PUT /shops/{store-id} – list webshops, create or rename one
 
 All routes require a WooCommerce REST API key (read/write) of a user with the
 manage_woocommerce capability; order routes additionally require the order key.
-The plugin does not change the shop's normal checkout and adds no admin screens.
+The plugin does not change the shop's normal checkout.
+
+Several storefronts can share this WooCommerce ("webshops"). Products → Webshops lists
+them; the slug of a webshop is its storefront's store ID. Tick the webshops that sell a
+product in the "Webshops" box on the product. A storefront then lists only its own
+products (GET /wc/v3/products?wchc_shop=<store-id>), and /quote and /orders refuse
+products its webshop does not sell. A store ID that is not a webshop sells every product,
+as before. Product responses include `webshops`, which can also be set through the REST
+API, and the orders list shows which webshop each headless order came from.
 
 Unpaid headless orders are cancelled after the shop's "Hold stock (minutes)" (60 when
 empty), by WP-Cron every 15 minutes and, throttled, from the storefront's own API calls,
@@ -42,6 +51,12 @@ To update, upload the new zip the same way and choose "Replace current with uplo
 Check: GET /wp-json/wc-headless/v1/status with the API key.
 
 == Changelog ==
+
+= 1.2.0 =
+* Webshops: assign products to one or more storefronts (Products → Webshops). Each
+  storefront lists only its own products, and quotes and orders refuse other products.
+* Product REST responses include `webshops` (slugs), which can be set through the API.
+* "Webshop" column in the orders list. /status lists the webshops.
 
 = 1.1.0 =
 * Coupons: /quote and /orders apply WooCommerce coupons (all of WooCommerce's rules,

@@ -43,6 +43,13 @@ final class WCHC_Cart_Builder {
 	private $own_holds = array();
 
 	/**
+	 * Store ID of the requesting storefront; its webshop must sell every product.
+	 *
+	 * @var string
+	 */
+	private $store_id = '';
+
+	/**
 	 * Build the cart.
 	 *
 	 * @param array       $items             List of [product_id, variation_id, quantity].
@@ -50,8 +57,10 @@ final class WCHC_Cart_Builder {
 	 * @param string|null $shipping_rate_id  Requested shipping rate ID.
 	 * @param int         $own_order_id      Pending order for this checkout; its own stock and coupon holds are ignored.
 	 * @param string[]    $coupons           Coupon codes to apply.
+	 * @param string      $store_id          Requesting storefront (see WCHC_Shops); '' skips the check.
 	 */
-	public function build( array $items, array $address, ?string $shipping_rate_id, int $own_order_id = 0, array $coupons = array() ): void {
+	public function build( array $items, array $address, ?string $shipping_rate_id, int $own_order_id = 0, array $coupons = array(), string $store_id = '' ): void {
+		$this->store_id      = $store_id;
 		$this->errors        = array();
 		$this->coupon_errors = array();
 		$this->own_order     = $own_order_id > 0 ? wc_get_order( $own_order_id ) : null;
@@ -379,6 +388,11 @@ final class WCHC_Cart_Builder {
 
 		if ( ! $product || ( $variation_id > 0 && $product->get_parent_id() !== $product_id ) ) {
 			$this->add_error( 'product_not_found', __( 'Produktet findes ikke længere.', 'headless-checkout-bridge' ), $product_id, $variation_id );
+			return;
+		}
+
+		if ( ! WCHC_Shops::sells( $this->store_id, $product_id ) ) {
+			$this->add_error( 'not_in_shop', __( 'Produktet sælges ikke i denne webshop.', 'headless-checkout-bridge' ), $product_id, $variation_id );
 			return;
 		}
 

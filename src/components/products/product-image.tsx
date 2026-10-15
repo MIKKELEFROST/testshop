@@ -18,7 +18,7 @@ export function ProductImage({
   if (!image) {
     return (
       <div
-        className={`flex size-full items-center justify-center bg-gradient-to-br from-[#efe9e1] to-[#e2dad0] ${className}`}
+        className={`flex size-full items-center justify-center bg-gradient-to-br from-tint to-tint-strong ${className}`}
         role="img"
         aria-label={name}
       >

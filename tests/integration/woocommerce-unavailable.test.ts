@@ -28,7 +28,7 @@ const request = {
 
 describe("WooCommerce unavailable", () => {
   it("quote fails with a retryable error", async () => {
-    const error = await fetchQuote({ items: [{ product_id: 10, variation_id: 0, quantity: 1 }], address: {} }).catch((e) => e);
+    const error = await fetchQuote({ store_id: "piece-dk", items: [{ product_id: 10, variation_id: 0, quantity: 1 }], address: {} }).catch((e) => e);
     expect(error).toBeInstanceOf(WooCommerceError);
     expect(error.retryable).toBe(true);
   });

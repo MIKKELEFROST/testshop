@@ -11,7 +11,7 @@
    ```
    Svaret viser plugin- og WooCommerce-version, moms- og lagerindstillinger, om rabatkoder er slået til, og hvornår ubetalte ordrer sidst blev ryddet op.
 
-Pluginet kræver WooCommerce 8.5+ og PHP 7.4+. Det understøtter både HPOS og det klassiske ordrelager. Det tilføjer ingen admin-sider og ændrer ikke butikkens normale checkout.
+Pluginet kræver WooCommerce 8.5+ og PHP 7.4+. Det understøtter både HPOS og det klassiske ordrelager. Det ændrer ikke butikkens normale checkout. Fra version 1.2 tilføjer det **Produkter → Webshops**, boksen **Webshops** på produkterne og kolonnen **Webshop** i ordrelisten (se afsnit 8).
 
 ## 2. REST API-nøgle
 
@@ -61,8 +61,9 @@ Alle routes ligger under `/wp-json/wc-headless/v1` og kræver API-nøglen. De ka
 | `POST /orders/{id}/payment-intent` | Tilknyt Stripe PaymentIntent (compare-and-set) |
 | `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) og den betalingsmetode, kunden brugte |
 | `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden |
+| `GET /shops` · `PUT /shops/{butiks-id}` | Webshops: list, opret eller omdøb |
 
-Produkt-svar i REST API v3 får desuden feltet `headless_prices` med priser beregnet efter butikkens momsvisning.
+Produkt-svar i REST API v3 får desuden feltet `headless_prices` med priser beregnet efter butikkens momsvisning og feltet `webshops` med de webshops, der sælger produktet. `webshops` kan også sættes via API'et, og `GET /wc/v3/products?wchc_shop=<butiks-id>` viser kun webshoppens produkter.
 
 ## 6. Rabatkoder
 
@@ -76,6 +77,14 @@ WooCommerce afgør alt: rabattype, minimumsbeløb, produkter og kategorier, udl�
 - Pluginet annullerer selv ubetalte headless-ordrer, når "Hold lager"-tiden er gået. Det sker hvert kvarter via WP-Cron og desuden, når shoppen kalder pluginet (højst hvert 5. minut). Oprydningen virker derfor også, når ingen besøger WordPress-siden. Lager og reserverede rabatkoder frigives.
 - Ordren viser den betalingsmetode, kunden faktisk brugte, f.eks. "MobilePay (Stripe)" eller "Visa-kort (Stripe)". Indtil betalingen står der "Stripe".
 - Et afvist betalingsforsøg noteres én gang på ordren, selv om både webhooken og kundens browser melder det.
+
+## 8. Webshops (flere frontends)
+
+Flere webshops kan dele denne WooCommerce. Opret hver webshop under **Produkter → Webshops** med webshoppens butiks-ID (`NEXT_PUBLIC_STORE_ID`) som slug. Kryds derefter af i boksen **Webshops** på hvert produkt, hvilke webshops der sælger det (kan også gøres for mange produkter ad gangen med **Masseredigering** i produktlisten). Se [MULTISHOP.md](MULTISHOP.md).
+
+- En webshop viser og sælger kun sine egne produkter. Kassen afviser andre produkter.
+- Et nyt produkt sælges ingen steder, før en webshop er krydset af.
+- Et butiks-ID, der ikke er oprettet som webshop, sælger alle produkter (som før version 1.2).
 
 ## Kendte begrænsninger
 

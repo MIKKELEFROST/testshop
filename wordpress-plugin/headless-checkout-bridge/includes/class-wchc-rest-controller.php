@@ -75,6 +75,26 @@ final class WCHC_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/shops',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'list_shops' ),
+				'permission_callback' => array( $this, 'permission' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
+			'/shops/(?P<slug>' . WCHC_Shops::SLUG_PATTERN . ')',
+			array(
+				'methods'             => WP_REST_Server::EDITABLE,
+				'callback'            => array( $this, 'save_shop' ),
+				'permission_callback' => array( $this, 'permission' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/orders/(?P<id>\d+)',
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -111,6 +131,7 @@ final class WCHC_REST_Controller {
 				'manage_stock'       => 'yes' === get_option( 'woocommerce_manage_stock' ),
 				'hold_stock_minutes' => (int) get_option( 'woocommerce_hold_stock_minutes', 0 ),
 				'coupons_enabled'    => wc_coupons_enabled(),
+				'shops'              => WCHC_Shops::all(),
 				'unpaid_orders'      => array(
 					'cancel_after_minutes' => WCHC_Orders::unpaid_order_minutes(),
 					'last_cleanup'         => $this->iso_time( (int) get_option( 'wchc_unpaid_cleanup_last_run', 0 ) ),
@@ -119,6 +140,29 @@ final class WCHC_REST_Controller {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Webshops and their number of published products.
+	 */
+	public function list_shops(): WP_REST_Response {
+		return new WP_REST_Response( WCHC_Shops::all(), 200 );
+	}
+
+	/**
+	 * Create a webshop (slug = the storefront's store ID) or rename it.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function save_shop( WP_REST_Request $request ): WP_REST_Response {
+		$body = (array) $request->get_json_params();
+		$slug = (string) $request['slug'];
+		$name = isset( $body['name'] ) ? sanitize_text_field( substr( (string) $body['name'], 0, 100 ) ) : '';
+		if ( sanitize_key( $slug ) !== $slug || '' === $name ) {
+			return $this->error( new WP_Error( 'invalid_webshop', 'Ugyldigt butiks-ID eller navn.' ), 400 );
+		}
+		$result = WCHC_Shops::upsert( $slug, $name );
+		return is_wp_error( $result ) ? $this->error( $result ) : new WP_REST_Response( $result, 200 );
 	}
 
 	/**
@@ -154,8 +198,10 @@ final class WCHC_REST_Controller {
 			}
 		}
 
+		$store_id = isset( $body['store_id'] ) ? sanitize_key( (string) $body['store_id'] ) : '';
+
 		$builder = new WCHC_Cart_Builder();
-		$builder->build( $items, $address, $rate, $own_order_id, $this->parse_coupons( $body['coupons'] ?? array() ) );
+		$builder->build( $items, $address, $rate, $own_order_id, $this->parse_coupons( $body['coupons'] ?? array() ), $store_id );
 		$quote = $builder->to_quote();
 
 		WCHC_Orders::maybe_cancel_unpaid_orders();

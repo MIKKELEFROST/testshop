@@ -7,7 +7,7 @@ Proof of concept for en headless webshop:
 - **Stripe** (Payment Intents + Payment Element + webhooks) står for betalingen.
 - Et lille **WordPress-plugin** ([`wordpress-plugin/headless-checkout-bridge`](wordpress-plugin/headless-checkout-bridge)) giver sikre server-til-server-endpoints. Det bruger WooCommerces egen kurv, moms, fragt, ordreoprettelse og lagerreservation.
 
-Testbrandet hedder **"Hverdag"**. Navn, farver og butiks-ID kan ændres via miljøvariabler og designtokens.
+Der kører to testwebshops på samme WooCommerce: **"Hverdag"** (`piece-dk`) og **"Maskerade"** (`halloween-kostumer-dk`). De har hvert sit design og deler nogle produkter, mens andre kun findes i den ene. Se [docs/MULTISHOP.md](docs/MULTISHOP.md).
 
 ## Hurtig start (lokalt)
 
@@ -24,7 +24,7 @@ npm run dev                    # http://localhost:3000
 | `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe Dashboard → Developers → API keys. Brug **kun `sk_test_`/`pk_test_`** uden for produktion. |
 | `STRIPE_WEBHOOK_SECRET` | Webhookens signing secret (`whsec_…`). Se [docs/STRIPE.md](docs/STRIPE.md). |
 | `NEXT_PUBLIC_SITE_URL` | Butikkens offentlige URL |
-| `NEXT_PUBLIC_STORE_ID` | Mærker ordrer og betalinger med den butik, de kommer fra (klar til flere butikker) |
+| `NEXT_PUBLIC_STORE_ID` | Webshoppens butiks-ID: vælger brand og de produkter, webshoppen sælger, og mærker ordrer og betalinger |
 | `WOOCOMMERCE_WEBHOOK_SECRET` | Valgfri. Lader WooCommerce invalidere produktcachen med det samme. |
 
 Secrets læses kun på serveren. De bliver aldrig sendt til browseren eller logget. `.env.local` er i `.gitignore`.
@@ -38,6 +38,7 @@ Secrets læses kun på serveren. De bliver aldrig sendt til browseren eller logg
 - [docs/STRIPE.md](docs/STRIPE.md): nøgler, webhooks og testkort
 - [docs/TEST.md](docs/TEST.md): automatiserede tests, manuel testplan og testresultater
 - [docs/DEPLOY.md](docs/DEPLOY.md): GitHub og Vercel
+- [docs/MULTISHOP.md](docs/MULTISHOP.md): flere webshops på samme WooCommerce
 
 ## Scripts
 

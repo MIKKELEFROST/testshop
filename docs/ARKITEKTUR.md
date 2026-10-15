@@ -99,9 +99,11 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 - Katalogdata hentes med `'use cache'` + `cacheLife('minutes')` + tags. WooCommerce-produktwebhooks (`/api/revalidate`) og betalte ordrer invaliderer cachen.
 - Lager og priser på produktsider er informative. Kurv og checkout henter altid friske tal fra WooCommerce.
 
-## Klar til flere webshops
+## Flere webshops
 
-- `src/config/store.ts` + `NEXT_PUBLIC_STORE_*`: navn, butiks-ID, lande, betalingsmetodens titel. Designtokens findes i `globals.css` (`@theme`).
-- Hver ordre får `_wchc_store_id`, og hver PaymentIntent får `metadata.store_id`. Webhooks for andre butikkers betalinger ignoreres, så flere butikker kan dele én Stripe-konto og én WooCommerce.
-- Data- og checkoutlaget (`lib/woocommerce`, `lib/checkout`) er uafhængigt af UI'et og kan genbruges af andre frontends.
-- Ikke implementeret endnu: produktfordeling pr. butik (f.eks. via kategori eller tag i `getProducts`) og separate Vercel-projekter pr. domæne.
+Se [MULTISHOP.md](MULTISHOP.md).
+
+- Én kodebase, ét Vercel-projekt pr. webshop. `NEXT_PUBLIC_STORE_ID` vælger brand (navn, tekster, farver i `src/config/store.ts`, sat som designtokens fra `globals.css`) og webshop i WooCommerce.
+- Produktfordelingen ligger i WooCommerce (taksonomien "Webshops" fra pluginet). Kataloget hentes med `wchc_shop`, og `/quote` og `/orders` afviser produkter, webshoppen ikke sælger. Reglen håndhæves altså i backenden, ikke kun i frontenden.
+- Hver ordre får `_wchc_store_id`, og hver PaymentIntent får `metadata.store_id`. Webhooks for andre webshops' betalinger ignoreres, så alle webshops kan dele én Stripe-konto og én WooCommerce.
+- Data- og checkoutlaget (`lib/woocommerce`, `lib/checkout`) er uafhængigt af UI'et.

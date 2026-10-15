@@ -80,6 +80,26 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
   };
 }
 
+/**
+ * Number of products per category, counting a product in its categories' parent categories
+ * too (as WooCommerce does), and each product once per category.
+ */
+export function shopCategoryCounts(
+  categories: { id: number; parent: number }[],
+  products: { categories: { id: number }[] }[],
+): Map<number, number> {
+  const parents = new Map(categories.map((c) => [c.id, c.parent]));
+  const counts = new Map<number, number>();
+  for (const product of products) {
+    const seen = new Set<number>();
+    for (const category of product.categories) {
+      for (let id: number | undefined = category.id; id && !seen.has(id); id = parents.get(id)) seen.add(id);
+    }
+    for (const id of seen) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 export function mapCategory(category: WcCategory): ProductCategory {
   return {
     id: category.id,

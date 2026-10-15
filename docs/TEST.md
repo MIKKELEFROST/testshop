@@ -53,6 +53,8 @@ Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at test
 | Pluginet annullerer forladte ubetalte ordrer og frigiver lageret; nye ordrer røres ikke | Integration | Bestået |
 | Ordren viser den brugte betalingsmetode (MobilePay, Apple Pay) | Integration | Bestået |
 | Afvist betalingsforsøg noteres én gang, selv om det meldes flere gange | Integration | Bestået |
+| **Webshops**: hver webshop viser kun sine produkter (også produktsider via slug); delte produkter i begge; quote og ordre afviser andre webshops' produkter; ukendt butiks-ID sælger alt; ordren får webshoppens ID | Integration (`webshops.test.ts`) + browsertest af begge brands mod lokal WooCommerce | Bestået |
+| Webshops i WordPress-admin: boks på produktet, kolonne i produktlisten, masseredigering, kolonnen "Webshop" i ordrelisten (HPOS og klassisk) | Browsertest (Playwright) mod lokal WooCommerce | Bestået |
 | **Rigtig Stripe-testbetaling** (kort 4242, Vercel-produktion → test.piece.dk) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
 | Rigtig 3-D Secure- og afvist-betaling (kort 3155 og 9995) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
 | **Forbindelse til test.piece.dk** (WooCommerce 11.2.1, HPOS) | Manuelt | **Bestået** |

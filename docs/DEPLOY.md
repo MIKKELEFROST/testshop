@@ -17,7 +17,7 @@ Projektet er en standard Next.js-app, så Vercel registrerer den automatisk. Der
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_test_…` |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` (trin 3) |
 | `NEXT_PUBLIC_SITE_URL` | `https://<projekt>.vercel.app` |
-| `NEXT_PUBLIC_STORE_ID` | `piece-dk` |
+| `NEXT_PUBLIC_STORE_ID` | `piece-dk` (webshoppens butiks-ID, se [MULTISHOP.md](MULTISHOP.md)) |
 | `WOOCOMMERCE_WEBHOOK_SECRET` | (valgfri) tilfældig lang streng |
 
 4. **Deploy.**
@@ -43,6 +43,6 @@ Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet
 - Rate limiting er pr. serverinstans. Ved rigtig trafik bør du slå Vercel Firewall-rate limiting til på `/api/checkout*`.
 - Logs (Vercel → Logs) indeholder kun fejlkoder og ordre-/event-ID'er. Der logges ingen nøgler eller kundedata.
 
-## Flere webshops senere
+## Flere webshops
 
-Opret ét Vercel-projekt pr. domæne fra samme repo med sit eget `NEXT_PUBLIC_STORE_ID`, `NEXT_PUBLIC_STORE_NAME` og `NEXT_PUBLIC_SITE_URL`. WooCommerce-backenden og Stripe-kontoen kan deles. Ordrer og betalinger er mærket med butiks-ID.
+Opret ét Vercel-projekt pr. webshop fra samme repo, med sit eget `NEXT_PUBLIC_STORE_ID`, `NEXT_PUBLIC_SITE_URL` og `STRIPE_WEBHOOK_SECRET`. WooCommerce-backenden og Stripe-kontoen deles. Se [MULTISHOP.md](MULTISHOP.md).

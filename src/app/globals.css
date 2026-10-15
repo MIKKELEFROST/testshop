@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /*
- * Design tokens. Each future storefront (piece.dk, nuttetbaby.dk, …) can re-brand by
- * overriding these variables — components only use the semantic names.
+ * Design tokens. Each storefront re-brands by overriding these variables (its brand's
+ * `theme` in src/config/store.ts, set on <html>) — components only use the semantic names.
  */
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -16,6 +16,14 @@
   --color-line-strong: #d4cdc4;
   --color-accent: #3f5b4b;
   --color-accent-soft: #e7eee9;
+  /* Primary buttons. */
+  --color-action: #1d1b19;
+  --color-action-hover: #3d3935;
+  /* Image placeholders and the front page hero. */
+  --color-tint: #efe9e1;
+  --color-tint-strong: #e2dad0;
+  --color-hero: #e9e2d8;
+  --color-hero-blob: #d8cdbf;
   --color-sale: #a4402a;
   --color-success: #2f7a4f;
   --color-warning: #9a6a12;
