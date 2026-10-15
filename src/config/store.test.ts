@@ -34,6 +34,22 @@ describe("store config", () => {
     expect(new Set(Object.values(brands).map((b) => b.statementDescriptorSuffix)).size).toBe(Object.keys(brands).length);
   });
 
+  it("gives text fields an edge with at least 3:1 contrast on the light pages", () => {
+    const luminance = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const contrast = (a: string, b: string) => {
+      const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+      return (high! + 0.05) / (low! + 0.05);
+    };
+    for (const brand of Object.values(brands)) {
+      for (const background of ["#ffffff", brand.theme.paper!, brand.theme.canvas!]) {
+        expect(contrast(brand.theme.field!, background)).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
   it("knows when a hero colour needs light text", () => {
     expect(isDark(brands["halloween-kostumer-dk"]!.theme.hero)).toBe(true);
     expect(isDark("#e9e2d8")).toBe(false);

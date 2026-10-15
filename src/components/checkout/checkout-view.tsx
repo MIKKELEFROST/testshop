@@ -65,7 +65,7 @@ const appearance: StripeElementsOptions["appearance"] = {
     spacingUnit: "4px",
   },
   rules: {
-    ".Input": { borderColor: storeConfig.theme["line-strong"] ?? "#d4cdc4", boxShadow: "none", padding: "13px 14px" },
+    ".Input": { borderColor: storeConfig.theme.field ?? "#878078", boxShadow: "none", padding: "13px 14px" },
     ".Input:focus": { borderColor: action, boxShadow: `0 0 0 1px ${action}` },
   },
 };
@@ -640,7 +640,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
                   autoFocus={noteOpen && !note}
-                  className="w-full rounded-[var(--radius-control)] border border-line-strong bg-surface px-3.5 py-3 text-[15px] outline-none focus:border-ink focus:ring-1 focus:ring-ink"
+                  className="w-full rounded-[var(--radius-control)] border border-field bg-surface px-3.5 py-3 text-base outline-none focus:border-ink focus:ring-1 focus:ring-ink sm:text-[15px]"
                 />
               </>
             ) : (

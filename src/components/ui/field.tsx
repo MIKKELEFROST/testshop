@@ -2,8 +2,9 @@ import type { ComponentProps } from "react";
 
 type FieldProps = Omit<ComponentProps<"input">, "placeholder"> & { label: string; error?: string; hint?: string };
 
+// 16px text on phones: iOS Safari zooms into any field with smaller text.
 const box =
-  "w-full rounded-[var(--radius-control)] border bg-surface px-3.5 text-[15px] text-ink outline-none transition-colors focus:border-ink focus:ring-1 focus:ring-ink";
+  "w-full rounded-[var(--radius-control)] border bg-surface px-3.5 text-base text-ink outline-none transition-colors focus:border-ink focus:ring-1 focus:ring-ink sm:text-[15px]";
 
 /**
  * Text input with a floating label: the label sits inside the empty field like a placeholder
@@ -22,7 +23,7 @@ export function Field({ label, error, hint, id, name, className = "", ...props }
           placeholder=" "
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
-          className={`peer h-[52px] pb-1.5 pt-5 ${box} ${error ? "border-danger" : "border-line-strong"}`}
+          className={`peer h-[52px] pb-1.5 pt-5 ${box} ${error ? "border-danger" : "border-field"}`}
           {...props}
         />
         <label
@@ -57,7 +58,7 @@ export function SelectField({ label, error, id, name, children, className = "", 
           id={inputId}
           name={name}
           aria-invalid={error ? true : undefined}
-          className={`h-[52px] appearance-none pb-1.5 pr-10 pt-5 ${box} ${error ? "border-danger" : "border-line-strong"}`}
+          className={`h-[52px] appearance-none pb-1.5 pr-10 pt-5 ${box} ${error ? "border-danger" : "border-field"}`}
           {...props}
         >
           {children}

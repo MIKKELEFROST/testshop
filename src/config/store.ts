@@ -33,6 +33,7 @@ export type StoreTheme = Partial<
     | "highlight"
     | "line"
     | "line-strong"
+    | "field"
     | "tint"
     | "tint-strong"
     | "hero"
@@ -125,6 +126,7 @@ export const brands: Record<string, StoreBrand> = {
       highlight: "#e8336f",
       line: "#efe6d8",
       "line-strong": "#ded2bf",
+      field: "#8c8270",
       tint: "#fff1d6",
       "tint-strong": "#ffe3a6",
       hero: "#ffd84d",
@@ -169,6 +171,7 @@ export const brands: Record<string, StoreBrand> = {
       highlight: "#6d28d9",
       line: "#e7e1e8",
       "line-strong": "#d4cbd7",
+      field: "#8a8090",
       tint: "#f1edf3",
       "tint-strong": "#e3dbe8",
       hero: "#140f1d",

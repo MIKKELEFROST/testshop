@@ -16,6 +16,8 @@
   --color-muted: #75706a;
   --color-line: #e8e3dc;
   --color-line-strong: #d4cdc4;
+  /* Edges of text fields and selects: at least 3:1 against the page (WCAG 1.4.11). Lines stay decorative. */
+  --color-field: #878078;
   --color-accent: #3f5b4b;
   --color-accent-soft: #e7eee9;
   /* Primary buttons, and the text on them. */

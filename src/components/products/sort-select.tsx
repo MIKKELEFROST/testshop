@@ -21,7 +21,7 @@ export function SortSelect({ value, options }: { value: SortKey; options: { key:
           const search = next.toString();
           router.push(search ? `${pathname}?${search}` : pathname, { scroll: false });
         }}
-        className="h-10 rounded-[var(--radius-control)] border border-line-strong bg-surface pr-8 pl-3 text-sm font-semibold text-ink focus:border-ink focus:outline-none"
+        className="h-10 rounded-[var(--radius-control)] border border-field bg-surface pr-8 pl-3 text-base font-semibold text-ink focus:border-ink focus:outline-none sm:text-sm"
       >
         {options.map((option) => (
           <option key={option.key} value={option.key}>
