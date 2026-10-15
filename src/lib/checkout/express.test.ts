@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkoutRequestSchema } from "@/lib/validation/checkout";
-import { expressCheckoutRequest, splitName, walletPostcode, walletShippingRates } from "./express";
+import { checkoutRequestSchema, quoteRequestSchema } from "@/lib/validation/checkout";
+import { ESTIMATE_ADDRESS, expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates } from "./express";
 import type { ClientQuote } from "./quote";
 
 const quote: ClientQuote = {
@@ -42,6 +42,21 @@ describe("express checkout helpers", () => {
       { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900 },
       { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375 },
     ]);
+  });
+
+  it("opens the wallet with rates before the customer has typed an address", () => {
+    // WooCommerce only prices shipping for an address with a postcode: the form's first quote has no rates.
+    const noAddress: ClientQuote = { ...quote, shippingRates: [], shippingRateId: null, totals: { ...quote.totals, shipping: "0.00", total: "161.10" } };
+    expect(walletOpeningQuote(noAddress, quote)).toBe(quote);
+    expect(walletShippingRates(walletOpeningQuote(noAddress, quote)!)).toHaveLength(2);
+    // Without the estimate (still loading or failed) the wallet cannot open.
+    expect(walletOpeningQuote(noAddress, null)).toBeNull();
+    expect(walletOpeningQuote(noAddress, { ...quote, errors: [{ code: "out_of_stock", message: "", productId: 18, variationId: 0, available: 0 }] })).toBeNull();
+    // Once the form has rates, or nothing is shipped, the form's quote is used.
+    expect(walletOpeningQuote(quote, null)).toBe(quote);
+    const nothingShipped = { ...noAddress, needsShipping: false };
+    expect(walletOpeningQuote(nothingShipped, null)).toBe(nothingShipped);
+    expect(quoteRequestSchema.safeParse({ items: [{ productId: 18, quantity: 1 }], address: ESTIMATE_ADDRESS }).success).toBe(true);
   });
 
   it("builds a valid checkout request from an Apple Pay payment", () => {

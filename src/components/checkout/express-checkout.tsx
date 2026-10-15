@@ -8,11 +8,11 @@ import type {
   StripeExpressCheckoutElementShippingRateChangeEvent,
 } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { storeConfig } from "@/config/store";
 import type { CartLine } from "@/lib/cart/cart";
-import { expressCheckoutRequest, quoteAmount, walletPostcode, walletShippingRates } from "@/lib/checkout/express";
+import { ESTIMATE_ADDRESS, expressCheckoutRequest, quoteAmount, walletOpeningQuote, walletPostcode, walletShippingRates } from "@/lib/checkout/express";
 import type { ClientQuote } from "@/lib/checkout/quote";
 import { checkoutRequestSchema } from "@/lib/validation/checkout";
 import { TermsNotice } from "./legal-links";
@@ -38,6 +38,30 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
   const sheetQuote = useRef(quote);
   const sheetAddress = useRef<{ country?: string; postcode?: string; city?: string }>({});
   const inFlight = useRef(false);
+
+  // Before the customer has typed a postcode the form's quote has no shipping rates, but the
+  // sheet needs them the moment it opens (within a second): price a sample address in advance.
+  const estimateRequest =
+    quote.needsShipping && quote.shippingRates.length === 0
+      ? JSON.stringify({
+          items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity })),
+          address: ESTIMATE_ADDRESS,
+          shippingRateId: null,
+          coupons: quote.coupons.map((c) => c.code),
+        })
+      : null;
+  const [estimate, setEstimate] = useState<{ request: string; quote: ClientQuote } | null>(null);
+  const [estimateAttempt, setEstimateAttempt] = useState(0);
+  useEffect(() => {
+    if (!estimateRequest) return;
+    const controller = new AbortController();
+    fetch("/api/checkout/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: estimateRequest, signal: controller.signal })
+      .then(async (response) => {
+        if (response.ok) setEstimate({ request: estimateRequest, quote: (await response.json()) as ClientQuote });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [estimateRequest, estimateAttempt]);
 
   const options = useMemo<StripeExpressCheckoutElementOptions>(
     () => ({
@@ -200,17 +224,19 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
           options={options}
           onReady={({ availablePaymentMethods }) => setAvailable(Boolean(availablePaymentMethods))}
           onClick={(event) => {
-            // Must answer within a second: use the quote already on screen.
+            // Must answer within a second: use a quote that is already here.
             setError(null);
-            sheetQuote.current = quote;
             sheetAddress.current = {};
-            if (!quote.needsShipping) return event.resolve({});
-            const shippingRates = walletShippingRates(quote);
-            if (shippingRates.length === 0) {
-              setError("Vi kan ikke beregne fragt lige nu. Udfyld formularen nedenfor.");
+            const opening = walletOpeningQuote(quote, estimate?.request === estimateRequest ? estimate.quote : null);
+            if (!opening) {
+              setError("Vi kan ikke beregne fragt lige nu. Prøv igen om lidt, eller udfyld formularen nedenfor.");
+              setEstimateAttempt((n) => n + 1);
               return event.reject();
             }
-            event.resolve({ shippingRates });
+            sheetQuote.current = opening;
+            if (opening !== quote) elements?.update({ amount: quoteAmount(opening) });
+            if (!opening.needsShipping) return event.resolve({});
+            event.resolve({ shippingRates: walletShippingRates(opening) });
           }}
           onShippingAddressChange={onShippingAddressChange}
           onShippingRateChange={onShippingRateChange}
