@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, minutesToCutoff } from "./delivery";
+import { DELIVERY_ESTIMATE, DISPATCH_PROMISE, formatDuration, minutesToCutoff } from "./delivery";
 
 describe("same-day dispatch countdown", () => {
   it("counts down to 19:00 Danish time on working days", () => {
@@ -14,6 +14,11 @@ describe("same-day dispatch countdown", () => {
     expect(minutesToCutoff(new Date("2026-10-18T09:00:00Z"))).toBeNull(); // Sunday
     expect(minutesToCutoff(new Date("2026-12-24T09:00:00Z"))).toBeNull(); // Juleaften
     expect(minutesToCutoff(new Date("2027-03-25T09:00:00Z"))).toBeNull(); // Skærtorsdag 2027
+  });
+
+  it("states the promise with the cut-off, and never a date", () => {
+    expect(DISPATCH_PROMISE).toContain("før kl. 19 på en hverdag");
+    for (const text of [DISPATCH_PROMISE, DELIVERY_ESTIMATE]) expect(text).not.toMatch(/\d+\.\s*(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)|\d+\/\d+/i);
   });
 
   it("formats the time left", () => {

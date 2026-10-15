@@ -4,6 +4,14 @@ import { closedDays, danishTime } from "./seasons";
 export const CUTOFF_MINUTES = 19 * 60;
 
 /**
+ * The delivery promise ("1-dags levering"): sent the same day when ordered before 19:00 on a
+ * working day, delivered normally the next working day. Never a date.
+ */
+export const DISPATCH_PROMISE = `Bestil før kl. ${CUTOFF_MINUTES / 60} på en hverdag, så sender vi samme dag.`;
+/** With each shipping method in the checkout and the Apple Pay / Google Pay sheet. */
+export const DELIVERY_ESTIMATE = "Levering normalt næste hverdag";
+
+/**
  * Minutes left to order for same-day dispatch, or null when nothing is sent today (after
  * 19:00, weekends and the days in `closedDays`). No delivery date is promised.
  */

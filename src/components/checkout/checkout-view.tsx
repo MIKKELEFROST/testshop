@@ -12,7 +12,8 @@ import { ButtonLink } from "@/components/ui/button";
 import { Field, SelectField } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
-import type { ClientQuote } from "@/lib/checkout/quote";
+import { includesShipping, type ClientQuote } from "@/lib/checkout/quote";
+import { DELIVERY_ESTIMATE, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { getStripeClient } from "@/lib/stripe/client";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
@@ -511,30 +512,36 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
                 ) : quote && quote.shippingRates.length === 0 ? (
                   <Alert tone="warning">Vi kan desværre ikke levere til den adresse.</Alert>
                 ) : (
-                  <fieldset className="overflow-hidden rounded-[var(--radius-control)] border border-line-strong">
-                    <legend className="sr-only">Vælg leveringsmetode</legend>
-                    {quote?.shippingRates.map((rate) => (
-                      <label
-                        key={rate.id}
-                        className={`flex cursor-pointer items-center gap-3 border-b border-line px-4 py-4 last:border-b-0 ${
-                          selectedRateId === rate.id ? "bg-accent-soft/60 outline outline-1 -outline-offset-1 outline-ink" : ""
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="shippingRate"
-                          value={rate.id}
-                          checked={selectedRateId === rate.id}
-                          onChange={() => setShippingRateId(rate.id)}
-                          className="size-4 accent-ink"
-                        />
-                        <span className="flex-1 text-[15px]">{rate.label}</span>
-                        <span className="text-[15px] font-medium tabular-nums">
-                          {Number(rate.price) === 0 ? "Gratis" : formatPrice(rate.price)}
-                        </span>
-                      </label>
-                    ))}
-                  </fieldset>
+                  <>
+                    <fieldset className="overflow-hidden rounded-[var(--radius-control)] border border-line-strong">
+                      <legend className="sr-only">Vælg leveringsmetode</legend>
+                      {quote?.shippingRates.map((rate) => (
+                        <label
+                          key={rate.id}
+                          className={`flex cursor-pointer items-center gap-3 border-b border-line px-4 py-4 last:border-b-0 ${
+                            selectedRateId === rate.id ? "bg-accent-soft/60 outline outline-1 -outline-offset-1 outline-ink" : ""
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="shippingRate"
+                            value={rate.id}
+                            checked={selectedRateId === rate.id}
+                            onChange={() => setShippingRateId(rate.id)}
+                            className="size-4 accent-ink"
+                          />
+                          <span className="flex-1">
+                            <span className="block text-[15px]">{rate.label}</span>
+                            <span className="block text-xs text-muted">{DELIVERY_ESTIMATE}</span>
+                          </span>
+                          <span className="text-[15px] font-medium tabular-nums">
+                            {Number(rate.price) === 0 ? "Gratis" : formatPrice(rate.price)}
+                          </span>
+                        </label>
+                      ))}
+                    </fieldset>
+                    <p className="mt-2 text-xs text-muted">{DISPATCH_PROMISE}</p>
+                  </>
                 )}
               </div>
             </section>
@@ -665,7 +672,11 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               )}
             </button>
             <p id="betal-total" className="text-center text-xs leading-relaxed text-muted">
-              {quote ? `Du betaler ${formatPrice(quote.totals.total)} inkl. moms og levering. ` : ""}
+              {quote
+                ? includesShipping(quote, selectedRateId)
+                  ? `Du betaler ${formatPrice(quote.totals.total)} inkl. moms og levering. `
+                  : `Du betaler ${formatPrice(quote.totals.total)} inkl. moms. Levering beregnes, når du har angivet din adresse. `
+                : ""}
               <TermsNotice action="trykke på Betal nu" />
             </p>
           </div>

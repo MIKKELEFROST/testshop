@@ -1,4 +1,5 @@
 import type { CartLine } from "@/lib/cart/cart";
+import { DELIVERY_ESTIMATE } from "@/lib/delivery";
 import { stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import type { ClientQuote } from "./quote";
 
@@ -18,7 +19,8 @@ export type WalletAddress = {
 
 export type WalletContact = { name?: string | null; address?: WalletAddress | null };
 
-export type WalletShippingRate = { id: string; amount: number; displayName: string };
+/** `deliveryEstimate` is text: the structured form can make a wallet show dates, and no date is promised. */
+export type WalletShippingRate = { id: string; amount: number; displayName: string; deliveryEstimate: string };
 
 /** Wallets give one name field; WooCommerce wants first and last name. */
 export function splitName(fullName: string | null | undefined): { firstName: string; lastName: string } {
@@ -53,7 +55,12 @@ function isComplete(address: ReturnType<typeof toFormAddress>): boolean {
 /** The quote's shipping rates for the wallet sheet, WooCommerce's current choice first. */
 export function walletShippingRates(quote: ClientQuote): WalletShippingRate[] {
   const exponent = stripeCurrencyExponent(quote.currency);
-  const rates = quote.shippingRates.map((rate) => ({ id: rate.id, displayName: rate.label, amount: toMinorUnits(rate.price, exponent) }));
+  const rates = quote.shippingRates.map((rate) => ({
+    id: rate.id,
+    displayName: rate.label,
+    amount: toMinorUnits(rate.price, exponent),
+    deliveryEstimate: DELIVERY_ESTIMATE,
+  }));
   return [...rates.filter((r) => r.id === quote.shippingRateId), ...rates.filter((r) => r.id !== quote.shippingRateId)];
 }
 

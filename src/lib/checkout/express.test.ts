@@ -39,8 +39,8 @@ describe("express checkout helpers", () => {
 
   it("offers WooCommerce's rates in the wallet, its current choice first, in øre", () => {
     expect(walletShippingRates(quote)).toEqual([
-      { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900 },
-      { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375 },
+      { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900, deliveryEstimate: "Levering normalt næste hverdag" },
+      { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375, deliveryEstimate: "Levering normalt næste hverdag" },
     ]);
   });
 

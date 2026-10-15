@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { quoteSchema } from "@/lib/woocommerce/schemas";
-import { toClientQuote } from "./quote";
+import { includesShipping, toClientQuote } from "./quote";
 
 const base = {
   currency: "DKK",
@@ -35,5 +35,20 @@ describe("toClientQuote", () => {
   it("works with plugin 1.0, which knows no coupons (the coupon field stays hidden)", () => {
     const client = toClientQuote(quoteSchema.parse(base));
     expect(client).toMatchObject({ couponsEnabled: false, coupons: [], couponErrors: [], totals: { discount: "0.00", total: "298.00" } });
+  });
+});
+
+describe("includesShipping", () => {
+  const client = toClientQuote(quoteSchema.parse({ ...base, coupons_enabled: false, coupons: [], coupon_errors: [] }));
+
+  it("is false until a shipping method is chosen", () => {
+    expect(includesShipping(client, null)).toBe(false);
+    const priced = { ...client, shippingRates: [{ id: "flat_rate:3", label: "PostNord – nærmeste pakkeshop", price: "39.00" }], shippingRateId: "flat_rate:3" };
+    expect(includesShipping(priced, "flat_rate:3")).toBe(true);
+    expect(includesShipping(priced, "flat_rate:9")).toBe(false);
+  });
+
+  it("is true when nothing is shipped", () => {
+    expect(includesShipping({ ...client, needsShipping: false }, null)).toBe(true);
   });
 });

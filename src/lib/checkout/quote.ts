@@ -32,6 +32,11 @@ export type ClientQuote = {
   freeShippingFrom?: string | null;
 };
 
+/** Whether the quote's total includes delivery: nothing is shipped, or a shipping method is chosen. */
+export function includesShipping(quote: ClientQuote, selectedRateId: string | null): boolean {
+  return !quote.needsShipping || (selectedRateId !== null && quote.shippingRates.some((r) => r.id === selectedRateId));
+}
+
 const EXP = 4; // WooCommerce never returns more than 4 decimals.
 
 function add(a: string, b: string): string {
