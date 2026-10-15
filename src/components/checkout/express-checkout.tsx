@@ -40,9 +40,10 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
   const inFlight = useRef(false);
 
   // Before the customer has typed a postcode the form's quote has no shipping rates, but the
-  // sheet needs them the moment it opens (within a second): price a sample address in advance.
+  // sheet needs them the moment it opens (within a second): price a sample address in advance,
+  // once a wallet button is shown.
   const estimateRequest =
-    quote.needsShipping && quote.shippingRates.length === 0
+    available && quote.needsShipping && quote.shippingRates.length === 0
       ? JSON.stringify({
           items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity })),
           address: ESTIMATE_ADDRESS,
