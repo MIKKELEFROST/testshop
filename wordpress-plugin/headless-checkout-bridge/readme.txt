@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Requires PHP: 7.4
 WC requires at least: 8.5
-Stable tag: 1.3.0
+Stable tag: 1.3.1
 License: GPLv2 or later
 
 Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe).
@@ -55,6 +55,10 @@ To update, upload the new zip the same way and choose "Replace current with uplo
 Check: GET /wp-json/wc-headless/v1/status with the API key.
 
 == Changelog ==
+
+= 1.3.1 =
+* Flat rates saved before 1.3 get the empty "Fri fragt fra" setting. Without it, WooCommerce's
+  REST API printed PHP warnings into its shipping method responses on sites that display errors.
 
 = 1.3.0 =
 * Shipping: "Fri fragt fra" on flat rates. From that amount (goods after discounts, as the

@@ -121,6 +121,17 @@ Guircas ark `5_PRODUCTS_INFORMATIONS_1.xlsx`: 12.642 rækker i to faner (GUIRCA 
 
 En build lavet midt under importen viste den gamle menu, indtil kategoricachen blev fornyet (højst 15 minutter). Brug derfor en build fra efter importen.
 
+### Fragt og fri fragt 15-10-2026 (plugin 1.3)
+
+Zonen "Danmark" på test.piece.dk, i kassens rækkefølge: PostNord, GLS og DAO "– nærmeste pakkeshop" til 39 kr. med fri fragt fra 599 kr., DAO til Døren 49 kr. og GLS til Døren 59 kr. (alle inkl. moms).
+
+| Tjek (quote via pluginet og live-kassen i Maskerade) | Resultat |
+| --- | --- |
+| 1 hekseparyk (89 kr.) | Pakkeshop 39 kr., PostNord valgt, i alt 128 kr. |
+| 7 hekseparykker (623 kr.) | Pakkeshop "Gratis", til døren 49/59 kr., i alt 623 kr. Det samme i live-kassen: Levering "Gratis". Ingen JavaScript-fejl. |
+| 7 hekseparykker med `TEST10` (560,70 kr.) | Under 599 kr. efter rabat, så pakkeshop koster 39 kr. igen, i alt 599,70 kr. |
+| WooCommerces REST API for fragtmetoderne | Med plugin 1.3.0 skrev REST API'et PHP-advarslen "Undefined array key wchc_free_from" ind i JSON-svaret, fordi metoderne var gemt før feltet fandtes. Rettet på test.piece.dk ved at gemme feltet på alle fem metoder. Plugin 1.3.1 gør det selv for gamle fragtmetoder. |
+
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
 Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe listen` kører, eller webhooken er oprettet i Stripe.

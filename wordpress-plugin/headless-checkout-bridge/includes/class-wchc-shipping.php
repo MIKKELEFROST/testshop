@@ -18,12 +18,56 @@ final class WCHC_Shipping {
 	/** Flat rate instance setting: the amount from which the rate is free ('' = never). */
 	const FREE_FROM = 'wchc_free_from';
 
+	/** Plugin version that last gave the saved flat rates the setting. */
+	const SAVED_RATES_VERSION = 'wchc_shipping_settings_version';
+
 	/**
 	 * Register filters.
 	 */
 	public static function init(): void {
 		add_filter( 'woocommerce_shipping_instance_form_fields_flat_rate', array( __CLASS__, 'add_free_from_field' ) );
 		add_filter( 'woocommerce_package_rates', array( __CLASS__, 'apply_free_from' ), 20, 2 );
+		add_filter( 'pre_update_option', array( __CLASS__, 'keep_free_from_setting' ), 10, 2 );
+
+		if ( get_option( self::SAVED_RATES_VERSION ) !== WCHC_VERSION ) {
+			self::add_free_from_to_saved_rates();
+			update_option( self::SAVED_RATES_VERSION, WCHC_VERSION );
+		}
+	}
+
+	/**
+	 * WooCommerce's REST API reads every setting of a shipping method straight from its saved
+	 * settings, so a flat rate saved before this setting existed makes it emit PHP warnings
+	 * (which break the JSON on sites that display errors). Give those rates the empty setting.
+	 */
+	private static function add_free_from_to_saved_rates(): void {
+		global $wpdb;
+		$instance_ids = $wpdb->get_col(
+			$wpdb->prepare( "SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = %s", 'flat_rate' ) // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		);
+		foreach ( $instance_ids as $instance_id ) {
+			$option   = 'woocommerce_flat_rate_' . absint( $instance_id ) . '_settings';
+			$settings = get_option( $option );
+			if ( is_array( $settings ) && ! array_key_exists( self::FREE_FROM, $settings ) ) {
+				$settings[ self::FREE_FROM ] = '';
+				update_option( $option, $settings );
+			}
+		}
+	}
+
+	/**
+	 * Keep the setting when flat rate settings are saved without it (e.g. by code that writes
+	 * the option directly), for the same reason.
+	 *
+	 * @param mixed  $value  New option value.
+	 * @param string $option Option name.
+	 * @return mixed
+	 */
+	public static function keep_free_from_setting( $value, $option ) {
+		if ( is_array( $value ) && ! array_key_exists( self::FREE_FROM, $value ) && 1 === preg_match( '/^woocommerce_flat_rate_\d+_settings$/', (string) $option ) ) {
+			$value[ self::FREE_FROM ] = '';
+		}
+		return $value;
 	}
 
 	/**

@@ -107,6 +107,16 @@ export async function updateShippingMethod(instanceId: number, settings: Record<
   return admin<ShippingMethod>(`shipping/zones/1/methods/${instanceId}`, { method: "PUT", body: { settings } });
 }
 
+export async function getShippingMethod(instanceId: number): Promise<ShippingMethod> {
+  return admin<ShippingMethod>(`shipping/zones/1/methods/${instanceId}`);
+}
+
+/** Run PHP inside the local WordPress (WP-CLI `eval`). */
+export async function wpEval(php: string): Promise<string> {
+  const { execFileSync } = await import("node:child_process");
+  return execFileSync("docker", ["exec", "wcwp", "wp", "--allow-root", "--path=/var/www/html", "eval", php]).toString();
+}
+
 /** The plugin's health endpoint. */
 export async function pluginStatus(): Promise<Record<string, unknown>> {
   return (await plugin("status")).body as Record<string, unknown>;

@@ -14,6 +14,7 @@ import {
   deleteCoupon,
   expireStockHolds,
   getCoupon,
+  getShippingMethod,
   getOrder,
   getProduct,
   orderNotes,
@@ -22,6 +23,7 @@ import {
   runUnpaidOrderCleanup,
   updateProduct,
   updateShippingMethod,
+  wpEval,
   configureLocalWooEnv,
   variationBySku,
 } from "../support/woo-admin";
@@ -155,6 +157,17 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
         await updateShippingMethod(1, { wchc_free_from: "" });
         await deleteCoupon(discount.id);
       }
+    });
+
+    it('gives flat rates saved without "Fri fragt fra" the setting, so the REST API does not warn', async () => {
+      // WooCommerce's REST API reads each saved setting directly: a missing one is null plus a PHP warning.
+      const seeded = "['title' => 'GLS Pakkeshop', 'tax_status' => 'taxable', 'cost' => '39.20']";
+      // Saved before plugin 1.3 (past the plugin's filter); the first request after a plugin update adds it.
+      await wpEval(`remove_all_filters('pre_update_option'); update_option('woocommerce_flat_rate_1_settings', ${seeded}); delete_option('wchc_shipping_settings_version');`);
+      expect((await getShippingMethod(1)).settings.wchc_free_from.value).toBe("");
+      // Saved later by code that does not know the setting.
+      await wpEval(`update_option('woocommerce_flat_rate_1_settings', ${seeded});`);
+      expect((await getShippingMethod(1)).settings.wchc_free_from.value).toBe("");
     });
 
     it("reports sold-out and insufficient stock", async () => {
@@ -567,7 +580,7 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       await expect(readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }])).resolves.toMatchObject({ type: "ready" });
 
       const status = await pluginStatus();
-      expect(status).toMatchObject({ version: "1.3.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
+      expect(status).toMatchObject({ version: "1.3.1", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
       expect((status.unpaid_orders as { last_cleanup: string | null }).last_cleanup).not.toBeNull();
     });
   });
