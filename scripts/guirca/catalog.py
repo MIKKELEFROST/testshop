@@ -334,8 +334,15 @@ def simple_spec(row: dict, translations: Translations, images: rules.ImageStatus
     )
 
 
+def name_facts(spec: ProductSpec) -> rules.NameFacts:
+    """What tells the product apart from others with its name (see rules.unique_names)."""
+    code = sorted(spec.codes, key=code_key)[0]
+    return rules.name_facts(text=spec.description, groups=spec.groups, colours=spec.colours, code=code)
+
+
 def disambiguate(specs: list[ProductSpec]) -> None:
-    """Products that would share a name get their colours added ('…, rød og gul')."""
+    """Products that would share a name get their colours added ('…, rød og gul'). Those that
+    still share one get the first fact that tells them apart ('…, ca. 23,5 cm', '…, model 20113')."""
     by_name = collections.defaultdict(list)
     for spec in specs:
         by_name[spec.name.lower()].append(spec)
@@ -345,3 +352,6 @@ def disambiguate(specs: list[ProductSpec]) -> None:
         for spec in same:
             if spec.colours:
                 spec.name = f"{spec.name}, {rules.join_da(c.lower() for c in spec.colours)}"
+    by_key = {spec.key: spec for spec in specs}
+    for key, name in rules.unique_names({s.key: (s.name, name_facts(s)) for s in specs}).items():
+        by_key[key].name = name

@@ -99,6 +99,114 @@ class Categories(unittest.TestCase):
         self.assertEqual(rules.tag_themes({"THEME": "Pirates, Black Colour, Halloween, White Collour"}), ["Pirates"])
 
 
+class Merchandising(unittest.TestCase):
+    def test_tiers_by_category(self):
+        tier = lambda *paths: rules.merchandising_tier(paths)  # noqa: E731
+        self.assertEqual(tier(("kostumer", "pigekostumer")), 0)
+        self.assertEqual(tier(("kostumer", "hundekostumer")), 0)
+        self.assertEqual(tier(("kostumer",)), 0)
+        self.assertEqual(tier(("tilbehoer", "masker")), 1)
+        self.assertEqual(tier(("tilbehoer", "parykker")), 1)
+        self.assertEqual(tier(("tilbehoer", "skaeg-og-overskaeg")), 1)
+        self.assertEqual(tier(("tilbehoer", "hatte-og-hjelme")), 1)
+        self.assertEqual(tier(("make-up", "blod-og-effekter")), 1)
+        self.assertEqual(tier(("make-up", "sminke-og-ansigtsmaling")), 1)
+        self.assertEqual(tier(("tilbehoer", "briller")), 2)
+        self.assertEqual(tier(("tilbehoer",)), 2)
+        self.assertEqual(tier(("toej", "kapper")), 2)
+        self.assertEqual(tier(("pynt-og-fest", "halloweenpynt")), 3)
+        self.assertEqual(tier(("pynt-og-fest", "julepynt")), 3)
+        self.assertEqual(tier(("halloween",)), 4)
+        self.assertEqual(tier(("polterabend-18",)), 4)
+        self.assertEqual(tier(), 4)
+        # The best of the product's categories wins; the season categories never help.
+        self.assertEqual(tier(("halloween",), ("pynt-og-fest", "halloweenpynt"), ("tilbehoer", "masker")), 1)
+
+    def test_every_category_the_import_creates_has_its_tier(self):
+        tiers = {path: rules.merchandising_tier([rules.slug_path(path)]) for path in rules.CATEGORY_ORDER}
+        self.assertEqual(tiers[("Kostumer", "Babykostumer")], 0)
+        self.assertEqual(tiers[("Tilbehør", "Hatte og hjelme")], 1)
+        self.assertEqual(tiers[("Tøj", "Strømper og leggings")], 2)
+        self.assertEqual(tiers[("Pynt og fest", "Figurer og animatronics")], 3)
+        others = {path for path, tier in tiers.items() if tier == rules.OTHER_TIER}
+        self.assertEqual(others, {rules.HALLOWEEN, rules.CHRISTMAS, rules.ADULT_ONLY})
+
+    def test_category_slug_paths(self):
+        categories = [{"id": 17, "slug": "tilbehoer", "parent": 0}, {"id": 81, "slug": "masker", "parent": 17}, {"id": 5, "slug": "loes", "parent": 99}]
+        self.assertEqual(rules.category_slug_paths(categories), {17: ("tilbehoer",), 81: ("tilbehoer", "masker"), 5: ("loes",)})
+
+    def test_menu_order_is_tier_then_newest_first(self):
+        orders = rules.menu_orders([
+            (1, "2020-01-01T00:00:00", 0),
+            (2, "2026-01-01T00:00:00", 0),
+            (3, "2026-01-01T00:00:00", 0),  # same date: the highest id first
+            (4, "2026-10-15T17:33:32", 3),
+            (5, None, 1),
+        ])
+        self.assertEqual(orders, {3: 0, 2: 1, 1: 2, 5: 100_000, 4: 300_000})
+        self.assertEqual(sorted(orders, key=orders.get), [3, 2, 1, 5, 4])
+
+
+class UniqueNames(unittest.TestCase):
+    def test_facts_from_the_shop_texts(self):
+        self.assertEqual(rules.measure("<p>Mål: ca. 23,5 × 17,8 × 7,8 cm.</p>"), "ca. 23,5 cm")
+        self.assertEqual(rules.measure("<p>Mål: ca. 7 × 12,4 cm.</p>"), "ca. 12,4 cm")
+        self.assertEqual(rules.measure("<p>Farve: hvid.</p>"), "")
+        self.assertEqual(rules.pack_size("Sæt med 12 servietter"), "12 stk.")
+        self.assertEqual(rules.pack_size("<p>Indhold: 2 ark.</p>"), "2 stk.")
+        self.assertEqual(rules.pack_size("Kræver 3 × AA-batterier (medfølger ikke). Blond paryk"), "")
+        facts = rules.name_facts(text="<p>Mål: ca. 21,4 × 12,3 cm.</p>", groups=["Damer", "Herrer"], colours=["Hvid", "Rød"], code="1135")
+        self.assertEqual(facts, rules.NameFacts(size="ca. 21,4 cm", audience="til voksne", colour="hvid og rød", model="model 1135"))
+        self.assertEqual(rules.name_facts(groups=["Piger"]).audience, "til piger")
+
+    def test_each_gets_the_first_fact_that_tells_it_apart(self):
+        voksne = dict(audience="til voksne", colour="hvid")
+        renamed = rules.unique_names({
+            1144: ("Kraniemaske, PVC, hvid", rules.NameFacts(size="ca. 23,5 cm", model="model 1144", **voksne)),
+            20113: ("Kraniemaske, PVC, hvid", rules.NameFacts(model="model 20113", **voksne)),
+            20118: ("Kraniemaske, PVC, hvid", rules.NameFacts(model="model 20118", **voksne)),
+            4256: ("Mellemlang grøn paryk (i æske)", rules.NameFacts(audience="til damer", colour="grøn", model="model 4256")),
+            4671: ("Mellemlang grøn paryk (i æske)", rules.NameFacts(audience="til herrer", colour="grøn", model="model 4671")),
+            2190: ("Vampyrtænder, hvid og rød", rules.NameFacts(size="ca. 7,9 cm", model="model 2190")),
+            2191: ("Vampyrtænder, hvid og rød", rules.NameFacts(size="ca. 6,8 cm", model="model 2191")),
+            2318: ("vampyrtænder,  hvid og rød", rules.NameFacts(size="ca. 7,9 cm", model="model 2318")),
+            1: ("Heksehat", rules.NameFacts(model="model 1")),
+        })
+        self.assertEqual(renamed, {
+            1144: "Kraniemaske, PVC, hvid, ca. 23,5 cm",
+            20113: "Kraniemaske, PVC, hvid, model 20113",
+            20118: "Kraniemaske, PVC, hvid, model 20118",
+            4256: "Mellemlang grøn paryk (i æske), til damer",
+            4671: "Mellemlang grøn paryk (i æske), til herrer",
+            2190: "Vampyrtænder, hvid og rød, model 2190",  # same size as 2318
+            2191: "Vampyrtænder, hvid og rød, ca. 6,8 cm",
+            2318: "vampyrtænder,  hvid og rød, model 2318",
+        })
+
+    def test_facts_the_name_already_states_are_skipped(self):
+        renamed = rules.unique_names({
+            1: ("Segl 47 cm", rules.NameFacts(size="ca. 47,2 cm", model="model 1")),
+            2: ("Segl 47 cm", rules.NameFacts(size="ca. 46,9 cm", model="model 2")),
+            3: ("Cowboyvest til børn", rules.NameFacts(audience="til drenge", model="model 3")),
+            4: ("Cowboyvest til børn", rules.NameFacts(audience="til børn", model="model 4")),
+            5: ("Kraniemaske, hvid", rules.NameFacts(colour="hvid og sort", model="model 5")),
+            6: ("Kraniemaske, hvid", rules.NameFacts(colour="hvid", model="model 6")),
+        })
+        self.assertEqual(set(renamed.values()), {
+            "Segl 47 cm, model 1", "Segl 47 cm, model 2",
+            "Cowboyvest til børn, model 3", "Cowboyvest til børn, model 4",
+            "Kraniemaske, hvid, model 5", "Kraniemaske, hvid, model 6",
+        })
+
+    def test_a_new_name_never_takes_another_products_name(self):
+        renamed = rules.unique_names({
+            1: ("Maske", rules.NameFacts(colour="rød", model="model 1")),
+            2: ("Maske", rules.NameFacts(colour="blå", model="model 2")),
+            3: ("Maske, rød", rules.NameFacts(model="model 3")),
+        })
+        self.assertEqual(renamed, {1: "Maske, model 1", 2: "Maske, blå"})
+
+
 class Texts(unittest.TestCase):
     def test_batteries(self):
         self.assertEqual(rules.battery_text("AA 3 No"), "Kræver 3 × AA-batterier (medfølger ikke).")
@@ -223,6 +331,32 @@ class Catalog(unittest.TestCase):
         translations = catalog.Translations(families={}, names={"MASK A": "Maske", "MASK B": "Maske"}, vocabulary={"CONTENT": {}, "MATERIALS": {}, "FABRIC": {}, "THEME": {}, "COLORS": {"RED": "rød", "BLUE": "blå"}})
         specs, _ = catalog.build([row("1", DESCRIPTION="MASK A", COLORS="RED"), row("2", DESCRIPTION="MASK B", COLORS="BLUE")], translations)
         self.assertEqual([s.name for s in specs], ["Maske, rød", "Maske, blå"])
+
+    def test_same_names_and_colours_get_what_tells_them_apart(self):
+        translations = catalog.Translations(
+            families={},
+            names={"SKULL MASK PVC": "Kraniemaske, PVC, hvid", "SKULL MASK, PVC": "Kraniemaske, PVC, hvid", "VAMPIRE TEETH": "Vampyrtænder"},
+            vocabulary={"CONTENT": {}, "MATERIALS": {}, "FABRIC": {}, "THEME": {}, "COLORS": {"WHITE": "hvid"}},
+        )
+        mask = {"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "MASKS", "USER": "ADULT UNISEX", "COLORS": "WHITE"}
+        sized = {"LENGTH PRODUCT W/O PACKAGING": "23.5", "WIDTH PRODUCT W/O PACKAGING": "17.8", "HEIGHT PRODUCT W/O PACKAGING": "7.8"}
+        rows = [
+            row("1144", DESCRIPTION="SKULL MASK PVC", **mask, **sized),
+            row("20113", DESCRIPTION="SKULL MASK PVC", **mask),
+            row("20118", DESCRIPTION="SKULL MASK, PVC", **mask),
+            row("2190", DESCRIPTION="VAMPIRE TEETH", **{**mask, "USER": "CHILD UNISEX"}),
+            row("2191", DESCRIPTION="VAMPIRE TEETH", **mask),
+        ]
+        specs, _ = catalog.build(rows, translations)
+        self.assertEqual([s.name for s in specs], [
+            "Kraniemaske, PVC, hvid, ca. 23,5 cm",
+            "Vampyrtænder, til børn",
+            "Vampyrtænder, til voksne",
+            "Kraniemaske, PVC, hvid, model 20113",
+            "Kraniemaske, PVC, hvid, model 20118",
+        ])
+        self.assertEqual(len({rules.name_key(s.name) for s in specs}), len(specs))
+        self.assertEqual({rules.merchandising_tier([rules.slug_path(c) for c in s.categories]) for s in specs}, {1})
 
 
 if __name__ == "__main__":
