@@ -15,6 +15,7 @@ import type { CartLine } from "@/lib/cart/cart";
 import { expressCheckoutRequest, quoteAmount, walletPostcode, walletShippingRates } from "@/lib/checkout/express";
 import type { ClientQuote } from "@/lib/checkout/quote";
 import { checkoutRequestSchema } from "@/lib/validation/checkout";
+import { TermsNotice } from "./legal-links";
 
 type CheckoutResponse =
   | { type: "ready"; clientSecret: string; returnPath: string }
@@ -222,6 +223,10 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
           <Alert tone="error">{error}</Alert>
         </div>
       )}
+      {/* A wallet payment binds the customer without the form's pay button, so the terms are linked here too. */}
+      <p className="mt-3 text-center text-xs leading-relaxed text-muted">
+        <TermsNotice action="betale med Apple Pay eller Google Pay" />
+      </p>
       <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted" aria-hidden="true">
         <span className="h-px flex-1 bg-line" />
         eller

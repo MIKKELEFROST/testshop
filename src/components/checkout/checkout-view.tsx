@@ -18,6 +18,7 @@ import { getStripeClient } from "@/lib/stripe/client";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
 import { CouponField } from "./coupon-field";
 import { ExpressCheckout } from "./express-checkout";
+import { LEGAL_LINKS, LegalLink, TermsNotice } from "./legal-links";
 import { OrderSummary } from "./order-summary";
 import { useQuote } from "./use-quote";
 
@@ -418,22 +419,30 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
             onClick={() => setSummaryOpen((open) => !open)}
             aria-expanded={summaryOpen}
             aria-controls="ordreoversigt"
-            className="mx-auto flex w-full max-w-[600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:hidden"
+            className="mx-auto flex w-full max-w-[600px] items-center justify-between gap-4 px-4 py-4 text-left sm:px-6 lg:hidden"
           >
-            <span className="flex items-center gap-2 text-sm font-medium text-accent">
-              {summaryOpen ? "Skjul ordreoversigt" : "Vis ordreoversigt"}
-              <svg
-                viewBox="0 0 16 16"
-                className={`size-4 transition-transform ${summaryOpen ? "rotate-180" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                aria-hidden="true"
-              >
-                <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium text-accent">
+                {summaryOpen ? "Skjul ordreoversigt" : "Vis ordreoversigt"}
+                <svg
+                  viewBox="0 0 16 16"
+                  className={`size-4 transition-transform ${summaryOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  aria-hidden="true"
+                >
+                  <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              {/* What is being bought stays visible while the summary is folded away. */}
+              {!summaryOpen && (
+                <span className="mt-0.5 block truncate text-xs text-muted">
+                  {lines.map((l) => `${l.quantity > 1 ? `${l.quantity} × ` : ""}${l.name}${l.variantLabel ? ` (${l.variantLabel})` : ""}`).join(", ")}
+                </span>
+              )}
             </span>
-            <span className="text-lg font-semibold tabular-nums">{quote ? formatPrice(quote.totals.total) : ""}</span>
+            <span className="shrink-0 text-lg font-semibold tabular-nums">{quote ? formatPrice(quote.totals.total) : ""}</span>
           </button>
           <div
             id="ordreoversigt"
@@ -654,19 +663,24 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
                 "Betal nu"
               )}
             </button>
-            <p id="betal-total" className="text-center text-xs text-muted">
+            <p id="betal-total" className="text-center text-xs leading-relaxed text-muted">
               {quote ? `Du betaler ${formatPrice(quote.totals.total)} inkl. moms og levering. ` : ""}
-              Ved at betale accepterer du handelsbetingelserne.
+              <TermsNotice action="trykke på Betal nu" />
             </p>
           </div>
 
-          <nav aria-label="Kundeservice" className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-5 text-xs">
+          <nav aria-label="Kundeservice" className="flex flex-wrap gap-x-4 gap-y-2 border-t border-line pt-5 text-xs">
             <Link href="/kurv" className="text-accent underline underline-offset-4 hover:text-ink">
               Tilbage til kurven
             </Link>
             <a href={`mailto:${storeConfig.supportEmail}`} className="text-accent underline underline-offset-4 hover:text-ink">
               Kontakt kundeservice
             </a>
+            {LEGAL_LINKS.map((link) => (
+              <LegalLink key={link.href} href={link.href} className="text-accent underline underline-offset-4 hover:text-ink">
+                {link.label}
+              </LegalLink>
+            ))}
             <span className="text-muted">Betaling håndteres af Stripe</span>
           </nav>
         </form>
