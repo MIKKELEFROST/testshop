@@ -30,12 +30,10 @@ Lageret er fælles: sælger begge webshops samme produkt, trækker de fra samme 
 
 | Produkt | Hverdag | Maskerade |
 | --- | --- | --- |
-| Piratkostume | ✓ | ✓ |
-| Superheltekappe | ✓ | ✓ |
-| Prinsessekostume | ✓ | |
-| Halloweenmaske | | ✓ |
-| Heksehat | | ✓ |
-| Guircas sortiment (ca. 8.600 varer, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) | | ✓ |
+| Guircas sortiment (8.569 varer, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) | ✓ | ✓ |
+| Guircas varer til 18+ (37 varer i "Polterabend (18+)") | | |
+
+De fem testprodukter fra opsætningen og en tom kladde ligger i papirkurven i WooCommerce (15-10-2026).
 
 ## Ny webshop – trin for trin
 

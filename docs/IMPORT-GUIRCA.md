@@ -22,7 +22,7 @@ python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --samp
 python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --log import.jsonl
 ```
 
-Andre valg: `--codes 78224,19000` (kun bestemte Guirca-numre), `--webshop SLUG` (standard `halloween-kostumer-dk`), `--workers` og `--batch` (samtidige forespørgsler og varer pr. forespørgsel), `--image-status FIL` (udelad døde billedlinks fundet ved et billedtjek).
+Andre valg: `--codes 78224,19000` (kun bestemte Guirca-numre), `--webshop SLUG,SLUG` (webshops til nye varer, standard `halloween-kostumer-dk,piece-dk`), `--workers` og `--batch` (samtidige forespørgsler og varer pr. forespørgsel), `--image-status FIL` (udelad døde billedlinks fundet ved et billedtjek).
 
 Arket skal ikke i Git. Det er Guircas forhandlerdata.
 
@@ -43,7 +43,7 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 | Billeder | Guircas fotos hentes ikke ind i WordPress. Links gemmes på varen (`_wchc_external_images`), og shoppen viser dem via Vercels billedoptimering. Døde links udelades. Se nedenfor. |
 | Lager | Lagerstyring slået fra og "på lager", fordi arket ikke har lagertal. Kommer der en lagerfil fra Guirca, kan importen opdatere lageret. |
 | Kladder | Varer uden brugbar pris (mangler eller f.eks. 1.455.985 EUR i arket) bliver kladder med forklaringen i `_wchc_import_issue`. Størrelser uden pris bliver private. |
-| Webshop | Alle varer tildeles Maskerade (`halloween-kostumer-dk`). Erotiske varer (Guirca-kategorien EROTIC) kommer i "Polterabend (18+)" uden webshop. |
+| Webshop | Alle varer tildeles begge webshops, Maskerade (`halloween-kostumer-dk`) og Hverdag (`piece-dk`). Erotiske varer (Guirca-kategorien EROTIC) kommer i "Polterabend (18+)" uden webshop. |
 | Springes over | Butiksdisplays (f.eks. "CHRISTMAS DISPLAY 187 x 30 x 61 CM") og rækker uden navn. |
 
 ## Når importen køres igen

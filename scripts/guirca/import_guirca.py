@@ -36,7 +36,7 @@ from woo import Woo, WooError  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 IMPORTER_VERSION = "1"
-DEFAULT_WEBSHOP = "halloween-kostumer-dk"
+DEFAULT_WEBSHOPS = "halloween-kostumer-dk,piece-dk"
 BRAND = "Guirca"
 SIZE, GROUP, COLOUR = "Størrelse", "Målgruppe", "Farve"
 SHOP_OWNED = ("texts", "categories", "tags", "status", "webshops", "stock")
@@ -221,12 +221,18 @@ def ensure_brand(woo: Woo) -> int:
     return woo.post("wc/v3/products/brands", {"name": BRAND, "description": "Fiestas Guirca, S.L. (Spanien)"})["id"]
 
 
-def setup(woo: Woo, specs: list[catalog.ProductSpec], webshop: str | None) -> Ids:
+def webshop_list(args) -> list[str]:
+    """The webshops new products get: --webshop (comma-separated), sorted; none with --no-webshop."""
+    return [] if args.no_webshop else sorted({s.strip() for s in args.webshop.split(",") if s.strip()})
+
+
+def setup(woo: Woo, specs: list[catalog.ProductSpec], webshops: list[str]) -> Ids:
     print("Forbereder WooCommerce (mærke, egenskaber, kategorier, tags) …")
-    if webshop:
-        shops = woo.get("wc-headless/v1/shops")
-        if webshop not in {s["slug"] for s in shops}:
-            raise SystemExit(f"Webshoppen '{webshop}' findes ikke i WooCommerce (Produkter → Webshops).")
+    if webshops:
+        known = {s["slug"] for s in woo.get("wc-headless/v1/shops")}
+        for webshop in webshops:
+            if webshop not in known:
+                raise SystemExit(f"Webshoppen '{webshop}' findes ikke i WooCommerce (Produkter → Webshops).")
     existing = woo.get("wc/v3/products/attributes")
     attributes = {
         SIZE: ensure_attribute(woo, existing, SIZE, "storrelse"),
@@ -247,8 +253,8 @@ def setup(woo: Woo, specs: list[catalog.ProductSpec], webshop: str | None) -> Id
 # ---------------------------------------------------------------- payloads
 
 
-def fingerprint(spec: catalog.ProductSpec, webshop: str | None) -> str:
-    return f"{IMPORTER_VERSION}:{webshop or '-'}:{spec.fingerprint()}"
+def fingerprint(spec: catalog.ProductSpec, webshops: list[str]) -> str:
+    return f"{IMPORTER_VERSION}:{','.join(webshops) or '-'}:{spec.fingerprint()}"
 
 
 def attributes_payload(spec: catalog.ProductSpec, ids: Ids) -> list[dict]:
@@ -262,9 +268,9 @@ def attributes_payload(spec: catalog.ProductSpec, ids: Ids) -> list[dict]:
     return attributes
 
 
-def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], webshop: str | None, creating: bool) -> dict:
+def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], webshops: list[str], creating: bool) -> dict:
     meta = dict(spec.meta)
-    meta["_wchc_import_hash"] = fingerprint(spec, webshop)
+    meta["_wchc_import_hash"] = fingerprint(spec, webshops)
     meta["_wchc_import_issue"] = " · ".join(spec.issues)
     meta["_wchc_import_note"] = " · ".join(spec.notes)
     payload = {
@@ -291,7 +297,7 @@ def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], websh
     if "status" in fields:
         payload["status"] = spec.status
     if "webshops" in fields:
-        payload["webshops"] = [webshop] if webshop and not spec.adult_only else []
+        payload["webshops"] = [] if spec.adult_only else list(webshops)
     if "stock" in fields:
         payload.update(manage_stock=False, stock_status="instock")
     return payload
@@ -354,7 +360,7 @@ def index_products(woo: Woo, workers: int) -> tuple[dict[str, Existing], dict[st
 class Importer:
     def __init__(self, woo: Woo, ids: Ids | None, args):
         self.woo, self.ids, self.args = woo, ids, args
-        self.webshop = None if args.no_webshop else args.webshop
+        self.webshops = webshop_list(args)
         self.overwrite = set(SHOP_OWNED) if args.overwrite == "all" else {f for f in (args.overwrite or "").split(",") if f}
         self.lock = threading.Lock()
         self.counts = collections.Counter()
@@ -381,7 +387,7 @@ class Importer:
 
     def create_chunk(self, chunk: list[catalog.ProductSpec]) -> None:
         fields = set(SHOP_OWNED)
-        body = {"create": [product_payload(s, self.ids, fields, self.webshop, creating=True) for s in chunk]}
+        body = {"create": [product_payload(s, self.ids, fields, self.webshops, creating=True) for s in chunk]}
         try:
             results = self.woo.post("wc/v3/products/batch", body).get("create", [])
         except WooError as error:
@@ -409,7 +415,7 @@ class Importer:
                     self.record("error", spec, error=message)
 
     def update_chunk(self, chunk: list[tuple[catalog.ProductSpec, Existing]]) -> None:
-        body = {"update": [{"id": e.id, **product_payload(s, self.ids, self.overwrite, self.webshop, creating=False)} for s, e in chunk]}
+        body = {"update": [{"id": e.id, **product_payload(s, self.ids, self.overwrite, self.webshops, creating=False)} for s, e in chunk]}
         try:
             results = self.woo.post("wc/v3/products/batch", body, safe_to_repeat=True).get("update", [])
         except WooError as error:
@@ -471,7 +477,7 @@ class Importer:
                 continue
             # A product whose sizes were never all saved (e.g. an interrupted run) is not "unchanged".
             complete = spec.kind != "variable" or existing.variations >= len(spec.variations)
-            if existing.hash == fingerprint(spec, self.webshop) and complete and not self.args.force:
+            if existing.hash == fingerprint(spec, self.webshops) and complete and not self.args.force:
                 unchanged += 1
             else:
                 updates.append((spec, existing))
@@ -501,7 +507,7 @@ def run_import(args) -> int:
     print(f"{len(specs)} produkter valgt ({len(skipped)} rækker i arket sprunget over)")
     woo = Woo.from_env()
     # A dry run only reads: it plans against the products already in WooCommerce.
-    ids = None if args.dry_run else setup(woo, specs, None if args.no_webshop else args.webshop)
+    ids = None if args.dry_run else setup(woo, specs, webshop_list(args))
     by_code, by_sku = index_products(woo, args.workers)
     return Importer(woo, ids, args).run(specs, by_code, by_sku)
 
@@ -519,7 +525,7 @@ def main(argv=None) -> int:
     p.add_argument("--sample", type=int, help="Kun N produkter, fordelt over kategorierne")
     p.add_argument("--limit", type=int, help="Kun de første N produkter")
     p.add_argument("--codes", help="Kun produkter med disse Guirca-numre (kommasepareret)")
-    p.add_argument("--webshop", default=DEFAULT_WEBSHOP, help=f"Webshop, nye produkter tildeles (standard: {DEFAULT_WEBSHOP})")
+    p.add_argument("--webshop", default=DEFAULT_WEBSHOPS, help=f"Webshops, nye produkter tildeles, kommasepareret (standard: {DEFAULT_WEBSHOPS})")
     p.add_argument("--no-webshop", action="store_true", help="Tildel ingen webshop")
     p.add_argument("--overwrite", help=f"Sæt også disse felter på eksisterende produkter: {','.join(SHOP_OWNED)} eller 'all'")
     p.add_argument("--force", action="store_true", help="Opdatér også produkter, der ikke er ændret")
