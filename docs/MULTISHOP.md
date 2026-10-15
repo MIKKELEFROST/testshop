@@ -14,7 +14,7 @@ Flere frontends (f.eks. piece.dk og halloween-kostumer.dk) deler **én WooCommer
 
 Reglerne håndhæves i WooCommerce (Headless Checkout Bridge 1.2):
 
-- Webshoppen viser kun sine egne produkter, kategorier og produktsider. En kategori uden produkter i webshoppen vises ikke.
+- Webshoppen viser kun sine egne produkter, kategorier og produktsider. En kategori uden produkter i webshoppen vises ikke. Antallet pr. kategori tælles for hver webshop og opdateres hvert kvarter, så en ny kategori kan være op til 15 minutter om at dukke op.
 - Kurv og kasse afviser et produkt, webshoppen ikke sælger ("Produktet sælges ikke i denne webshop."), også hvis nogen sender det direkte til API'et.
 - Et butiks-ID, der **ikke** er oprettet som webshop i WooCommerce, sælger alle produkter, som før. En enkelt webshop kræver altså ingen opsætning.
 - Et nyt produkt sælges ingen steder, før en webshop er krydset af.
@@ -35,6 +35,7 @@ Lageret er fælles: sælger begge webshops samme produkt, trækker de fra samme 
 | Prinsessekostume | ✓ | |
 | Halloweenmaske | | ✓ |
 | Heksehat | | ✓ |
+| Guircas sortiment (ca. 8.600 varer, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) | | ✓ |
 
 ## Ny webshop – trin for trin
 
@@ -48,4 +49,3 @@ Lageret er fælles: sælger begge webshops samme produkt, trækker de fra samme 
 
 - WooCommerces e-mails (ordrebekræftelse osv.) kommer fra WordPress og har samme afsender og design for alle webshops.
 - Priser, moms, fragt og rabatkoder er fælles. Forskellige priser pr. webshop understøttes ikke.
-- Kategorioptællingen læser højst 1.000 produkter pr. webshop.

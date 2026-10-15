@@ -322,12 +322,13 @@ class Existing:
     sku: str
     type: str
     hash: str
+    variations: int = 0
 
 
 def index_products(woo: Woo, workers: int) -> tuple[dict[str, Existing], dict[str, Existing]]:
     """Guirca products already in WooCommerce, by article number and by SKU."""
     print("Læser eksisterende produkter i WooCommerce …")
-    params = {"status": "any", "_fields": "id,sku,type,meta_data", "per_page": 100}
+    params = {"status": "any", "_fields": "id,sku,type,meta_data,variations", "per_page": 100}
     first, headers = woo.request("GET", "wc/v3/products", params={**params, "page": 1})
     pages = int(headers.get("X-WP-TotalPages") or 1)
     products = list(first)
@@ -337,7 +338,9 @@ def index_products(woo: Woo, workers: int) -> tuple[dict[str, Existing], dict[st
     by_code, by_sku = {}, {}
     for product in products:
         meta = {m["key"]: m["value"] for m in product.get("meta_data", [])}
-        existing = Existing(product["id"], product.get("sku", ""), product["type"], str(meta.get("_wchc_import_hash", "")))
+        existing = Existing(
+            product["id"], product.get("sku", ""), product["type"], str(meta.get("_wchc_import_hash", "")), len(product.get("variations") or [])
+        )
         if existing.sku:
             by_sku[existing.sku] = existing
         if meta.get("_supplier") == "Guirca":
@@ -383,7 +386,11 @@ class Importer:
             results = self.woo.post("wc/v3/products/batch", body).get("create", [])
         except WooError as error:
             print(f"  batch-fejl ({error}); tjekker hvad der blev gemt …")
-            results = [None] * len(chunk)
+            results = []
+        if not results:
+            # The connection broke, but WooCommerce may still be saving the batch: give it time
+            # before looking up what was saved (WooCommerce refuses duplicate SKUs on a retry).
+            time.sleep(self.args.settle)
         unresolved = []
         for spec, result in zip(chunk, results + [None] * (len(chunk) - len(results))):
             if result and result.get("id") and not result.get("error"):
@@ -462,7 +469,9 @@ class Importer:
             if existing.type != spec.kind:
                 conflicts.append(f"{spec.sku}: produkt {existing.id} er {existing.type}, arket siger {spec.kind} – springes over")
                 continue
-            if existing.hash == fingerprint(spec, self.webshop) and not self.args.force:
+            # A product whose sizes were never all saved (e.g. an interrupted run) is not "unchanged".
+            complete = spec.kind != "variable" or existing.variations >= len(spec.variations)
+            if existing.hash == fingerprint(spec, self.webshop) and complete and not self.args.force:
                 unchanged += 1
             else:
                 updates.append((spec, existing))
@@ -517,6 +526,7 @@ def main(argv=None) -> int:
     p.add_argument("--workers", type=int, default=3, help="Samtidige forespørgsler (standard 3)")
     p.add_argument("--batch", type=int, default=20, help="Produkter pr. forespørgsel (standard 20)")
     p.add_argument("--log", help="JSONL-log over hvert produkt")
+    p.add_argument("--settle", type=int, default=60, help="Sekunder at vente efter en afbrudt forespørgsel, før der tjekkes, hvad der blev gemt")
     args = parser.parse_args(argv)
     return report(args) if args.command == "report" else run_import(args)
 

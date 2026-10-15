@@ -4,6 +4,7 @@
 
 ```bash
 npm test                                   # unit-tests (ingen eksterne afhængigheder)
+python3 -m unittest discover -s scripts/guirca   # importreglerne for Guircas produktark
 ./scripts/local-woocommerce/setup.sh       # starter WordPress 7.1 + WooCommerce 11.1.2 + plugin i Docker
 npm run test:integration                   # hele ordre-/betalingsflowet mod den rigtige WooCommerce
 WC_HPOS=yes ./scripts/local-woocommerce/setup.sh && npm run test:integration   # samme med HPOS-ordrelager
@@ -19,7 +20,7 @@ Den lokale testbutik har dansk moms (25 %, priser inkl. moms), en fragtzone "Dan
 | LYS-001 | Duftlys | 179 | **0** (udsolgt) |
 | HOOD | Hættetrøje (S/M/L) | 449 | 5 / 2 / 0 |
 
-Integrationstestene kalder den rigtige WooCommerce via pluginet. Stripe erstattes af en in-memory-fake med samme kontrakt (idempotency keys, annullering, beløbsopdatering og refundering). Stripe-signaturverifikation testes med Stripe SDK'ets egen signaturgenerator. CI (`.github/workflows/ci.yml`) kører lint, typecheck, unit-tests, build og integrationstestene (begge ordrelagre) ved hvert push.
+Integrationstestene kalder den rigtige WooCommerce via pluginet. Stripe erstattes af en in-memory-fake med samme kontrakt (idempotency keys, annullering, beløbsopdatering og refundering). Stripe-signaturverifikation testes med Stripe SDK'ets egen signaturgenerator. CI (`.github/workflows/ci.yml`) kører lint, typecheck, unit-tests (også importreglerne), build og integrationstestene (begge ordrelagre) ved hvert push.
 
 ## Testresultater
 
@@ -103,6 +104,22 @@ Plugin 1.2.0 på test.piece.dk. Webshops oprettet: `piece-dk` (Hverdag, https://
 | Kassen i Hverdag afviser Heksehat, og Maskerade afviser Prinsessekostume ("Produktet sælges ikke i denne webshop.") | Bestået |
 | Delt vare (Piratkostume) kan købes i begge: quote 348,00 kr. inkl. DAO-fragt i Maskerade | Bestået |
 | Maskeradens domæne registreret til Apple Pay/Google Pay i Stripe (test), eget webhook-endpoint | Gjort |
+
+### Guirca-import 15-10-2026
+
+Guircas ark `5_PRODUCTS_INFORMATIONS_1.xlsx`: 12.642 rækker i to faner (GUIRCA 11.203, GUIRMA 1.439), heraf 20 varenumre i begge, så 12.622 varer. Importeret med `scripts/guirca/import_guirca.py` (se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)).
+
+| Trin | Resultat |
+| --- | --- |
+| Rapport | 8.623 produkter: 2.283 med størrelser (6.274 størrelser) og 6.340 uden. Sprunget over: 5 butiksdisplays og 3 rækker uden navn. 17 kladder på grund af prisfejl i arket. 37 varer er kun 18+ og har ingen webshop. |
+| Billedtjek | 59.037 billedlinks, 1.528 døde (404) udeladt. 2 varer har ingen billeder. |
+| Pilot | 100 varer fordelt over kategorierne, uden webshop: oprettet på 12 sekunder uden fejl. Variant- og simpelt produkt tjekket via REST, siderne tjekket i browseren. |
+| Fuld import | 8.511 oprettet og 103 opdateret (pilotvarerne og de 4 testvarer) på 13,7 minutter. Én forespørgsel blev afbrudt af netværket. Dens 9 varer blev meldt "ikke gemt", men WooCommerce gemte dem alligevel. Importen venter nu, før den tjekker. |
+| Genkørsel | 0 oprettet, 0 opdateret, 8.623 uændrede. Ingen dubletter, og alle varer med størrelser har alle størrelser. |
+| WooCommerce bagefter | 8.629 produkter (8.611 udgivet, 18 kladder), 2.284 variable. Maskerade sælger 8.573 varer, Hverdag stadig 3. |
+| Maskerade (preview af `ed1538f`) | "Alle produkter" viser 8.573 varer på 358 sider. Kostumer har 1.939 varer og 6 underkategorier, Pigekostumer 477 og Halloween 2.437. Søgning på "heks" giver 137 varer. Produktsiden har størrelser, brødkrummer, størrelsesguide og link til sikkerhedsmærkaten. Ingen JavaScript-fejl og ingen vandret scroll på mobil og desktop. |
+
+En build lavet midt under importen viste den gamle menu, indtil kategoricachen blev fornyet (højst 15 minutter). Brug derfor en build fra efter importen.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 

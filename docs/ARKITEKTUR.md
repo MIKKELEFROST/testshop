@@ -97,6 +97,8 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 ## Caching
 
 - Katalogdata hentes med `'use cache'` + `cacheLife('minutes')` + tags. WooCommerce-produktwebhooks (`/api/revalidate`) og betalte ordrer invaliderer cachen.
+- Produktlister, kategorier og søgning hentes 24 varer ad gangen (`?side=2`). Kategoriernes antal tælles pr. webshop med én lille forespørgsel pr. kategori og caches i et kvarter.
+- Produktbilleder: WooCommerces egne billeder, ellers leverandørens fotos, som en import har linket til (meta `_wchc_external_images`, kun fra værterne i `src/config/images.ts`). Alle billeder går gennem Next.js' billedoptimering og caches i 31 dage. Fejler et billede, vises en pladsholder.
 - Lager og priser på produktsider er informative. Kurv og checkout henter altid friske tal fra WooCommerce.
 
 ## Flere webshops

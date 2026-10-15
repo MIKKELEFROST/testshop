@@ -39,6 +39,7 @@ Secrets læses kun på serveren. De bliver aldrig sendt til browseren eller logg
 - [docs/TEST.md](docs/TEST.md): automatiserede tests, manuel testplan og testresultater
 - [docs/DEPLOY.md](docs/DEPLOY.md): GitHub og Vercel
 - [docs/MULTISHOP.md](docs/MULTISHOP.md): flere webshops på samme WooCommerce
+- [docs/IMPORT-GUIRCA.md](docs/IMPORT-GUIRCA.md): import af leverandørens produktark (Guirca)
 
 ## Scripts
 
@@ -49,6 +50,7 @@ Secrets læses kun på serveren. De bliver aldrig sendt til browseren eller logg
 | `npm test` | Unit-tests (Vitest) |
 | `npm run test:integration` | Ordre- og betalingsflow mod en rigtig WooCommerce i Docker (`./scripts/local-woocommerce/setup.sh` først) |
 | `npm run plugin:zip` | Bygger `dist/headless-checkout-bridge.zip` til upload i WordPress |
+| `python3 scripts/guirca/import_guirca.py` | Importerer Guircas produktark i WooCommerce (se docs/IMPORT-GUIRCA.md) |
 
 ## Projektstruktur
 

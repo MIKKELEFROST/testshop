@@ -86,6 +86,18 @@ Flere webshops kan dele denne WooCommerce. Opret hver webshop under **Produkter 
 - Et nyt produkt sælges ingen steder, før en webshop er krydset af.
 - Et butiks-ID, der ikke er oprettet som webshop, sælger alle produkter (som før version 1.2).
 
+## 9. Felter, shoppen læser fra en import
+
+Leverandørimporten ([IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) gemmer data på produktet, som shoppen bruger. De kan også sættes i hånden (Brugerdefinerede felter) eller via REST API'et (`meta_data`):
+
+| Meta-nøgle | Bruges til |
+| --- | --- |
+| `_wchc_external_images` | Liste med links til leverandørens fotos. Vises, når produktet ikke har egne billeder. Kun værter i `src/config/images.ts`. |
+| `_wchc_size_chart` | Link til størrelsesguide på produktsiden |
+| `_wchc_safety_info` | Link til leverandørens sikkerhedsmærkat med advarsler (EU's GPSR) |
+| `_supplier`, `_supplier_article_codes` | Leverandør og varenumre; importen finder varen igen med dem |
+| `_wchc_import_issue` | Hvorfor importen lavede varen som kladde (f.eks. manglende pris) |
+
 ## Kendte begrænsninger
 
 - "Enhver"-varianter (variant uden fast attributværdi) understøttes ikke. Varianter skal have konkrete værdier.
