@@ -44,6 +44,8 @@ const emptyAddress: Address = {
 
 const appearance: StripeElementsOptions["appearance"] = {
   theme: "stripe",
+  // Floating labels, like the checkout's own fields.
+  labels: "floating",
   variables: {
     colorPrimary: "#1d1b19",
     colorText: "#1d1b19",
@@ -108,6 +110,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const [note, setNote] = useState("");
   const [shippingRateId, setShippingRateId] = useState<string | null>(null);
   const [couponCodes, setCouponCodes] = useState<string[]>([]);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -140,11 +144,13 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
     if (elements && amountMinor && amountMinor > 0) elements.update({ amount: amountMinor });
   }, [elements, amountMinor]);
 
-  if (!hydrated) return <div className="mt-8 h-96 animate-pulse rounded-[var(--radius-card)] bg-black/5" aria-hidden="true" />;
+  if (!hydrated) {
+    return <div className="mx-auto mt-10 h-96 w-full max-w-[1120px] animate-pulse rounded-[var(--radius-card)] bg-black/5" aria-hidden="true" />;
+  }
 
   if (lines.length === 0) {
     return (
-      <div className="mt-10 rounded-[var(--radius-card)] border border-line bg-surface px-6 py-16 text-center">
+      <div className="mx-auto my-16 w-full max-w-md px-4 text-center">
         <p className="text-lg font-medium">Din kurv er tom</p>
         <div className="mt-6">
           <ButtonLink href="/produkter">Se alle produkter</ButtonLink>
@@ -299,7 +305,22 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   }
 
   const addressFields = (scope: "shipping" | "billing", value: Address, set: (a: Address) => void) => (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid grid-cols-2 gap-3">
+      <SelectField
+        className="col-span-2"
+        label="Land/område"
+        name={`${scope}.country`}
+        autoComplete={`${scope} country`}
+        value={value.country}
+        onChange={(e) => set({ ...value, country: e.target.value })}
+        error={errors[`${scope}.country`]}
+      >
+        {storeConfig.countries.map((c) => (
+          <option key={c.code} value={c.code}>
+            {c.name}
+          </option>
+        ))}
+      </SelectField>
       <Field
         label="Fornavn"
         name={`${scope}.firstName`}
@@ -321,7 +342,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         required
       />
       <Field
-        className="sm:col-span-2"
+        className="col-span-2"
         label="Adresse"
         name={`${scope}.address1`}
         autoComplete={`${scope} address-line1`}
@@ -332,8 +353,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         required
       />
       <Field
-        className="sm:col-span-2"
-        label="Etage, lejlighed m.m. (valgfrit)"
+        className="col-span-2"
+        label="Lejlighed, etage osv. (valgfrit)"
         name={`${scope}.address2`}
         autoComplete={`${scope} address-line2`}
         value={value.address2}
@@ -361,47 +382,82 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         error={errors[`${scope}.city`]}
         required
       />
-      <SelectField
-        className="sm:col-span-2"
-        label="Land"
-        name={`${scope}.country`}
-        autoComplete={`${scope} country`}
-        value={value.country}
-        onChange={(e) => set({ ...value, country: e.target.value })}
-        error={errors[`${scope}.country`]}
-      >
-        {storeConfig.countries.map((c) => (
-          <option key={c.code} value={c.code}>
-            {c.name}
-          </option>
-        ))}
-      </SelectField>
+      {scope === "shipping" && (
+        <Field
+          className="col-span-2"
+          label="Telefon (valgfrit)"
+          name="contact.phone"
+          type="tel"
+          autoComplete="tel"
+          value={contact.phone}
+          onChange={(e) => setContact({ ...contact, phone: e.target.value })}
+          onBlur={(e) => validateField("contact", "phone", e.target.value)}
+          error={errors["contact.phone"]}
+          hint="Bruges kun af fragtfirmaet ved levering."
+        />
+      )}
     </div>
   );
 
-  const summary = (
-    <OrderSummary lines={lines} quote={quote} loading={quoteLoading} addressComplete={postcodeValid} />
-  );
+  const couponField = (id: string) =>
+    quote?.couponsEnabled ? (
+      <CouponField id={id} quote={quote} loading={quoteLoading} requested={couponCodes} onChange={setCouponCodes} />
+    ) : null;
 
   return (
-    <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-14">
-      <details className="group rounded-[var(--radius-card)] border border-line bg-surface lg:hidden">
-        <summary className="flex cursor-pointer list-none items-center justify-between p-4 text-sm font-medium">
-          <span className="underline underline-offset-4 group-open:hidden">Vis ordreoversigt</span>
-          <span className="hidden underline underline-offset-4 group-open:inline">Skjul ordreoversigt</span>
-          <span className="text-base tabular-nums">{quote ? formatPrice(quote.totals.total) : ""}</span>
-        </summary>
-        <div className="border-t border-line p-4">{summary}</div>
-      </details>
+    <div className="flex flex-1 flex-col lg:grid lg:grid-cols-2">
+      {/* Order summary: a collapsible bar at the top on mobile, the right-hand column on desktop. */}
+      <aside aria-label="Ordreoversigt" className="border-b border-line bg-paper lg:order-2 lg:border-b-0 lg:border-l">
+        <div className="lg:sticky lg:top-0 lg:max-w-[480px] lg:px-10 lg:py-10 xl:px-12">
+          <button
+            type="button"
+            onClick={() => setSummaryOpen((open) => !open)}
+            aria-expanded={summaryOpen}
+            aria-controls="ordreoversigt"
+            className="mx-auto flex w-full max-w-[600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:hidden"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-accent">
+              {summaryOpen ? "Skjul ordreoversigt" : "Vis ordreoversigt"}
+              <svg
+                viewBox="0 0 16 16"
+                className={`size-4 transition-transform ${summaryOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                aria-hidden="true"
+              >
+                <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+            <span className="text-lg font-semibold tabular-nums">{quote ? formatPrice(quote.totals.total) : ""}</span>
+          </button>
+          <div
+            id="ordreoversigt"
+            className={`${summaryOpen ? "block" : "hidden"} mx-auto max-w-[600px] px-4 pb-6 sm:px-6 lg:block lg:max-w-none lg:p-0`}
+          >
+            <OrderSummary
+              lines={lines}
+              quote={quote}
+              loading={quoteLoading}
+              addressComplete={postcodeValid}
+              coupon={<div className="hidden lg:block">{couponField("couponCode")}</div>}
+            />
+          </div>
+        </div>
+      </aside>
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-10">
-        <section aria-labelledby="kontakt">
-          <h2 id="kontakt" className="text-lg font-semibold">
-            Kontakt
-          </h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      <div className="flex-1 bg-surface lg:order-1">
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          className="mx-auto max-w-[600px] space-y-9 px-4 py-8 sm:px-6 lg:ml-auto lg:mr-0 lg:px-10 lg:py-10 xl:px-12"
+        >
+          <section aria-labelledby="kontakt">
+            <h2 id="kontakt" className="text-[19px] font-semibold">
+              Kontaktoplysninger
+            </h2>
             <Field
-              className="sm:col-span-2"
+              className="mt-4"
               label="E-mail"
               name="contact.email"
               type="email"
@@ -410,190 +466,203 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               onChange={(e) => setContact({ ...contact, email: e.target.value })}
               onBlur={(e) => validateField("contact", "email", e.target.value)}
               error={errors["contact.email"]}
-              hint="Vi sender ordrebekræftelsen hertil."
+              hint="Ordrebekræftelsen sendes hertil."
               required
             />
-            <Field
-              className="sm:col-span-2"
-              label="Telefon (valgfrit)"
-              name="contact.phone"
-              type="tel"
-              autoComplete="tel"
-              value={contact.phone}
-              onChange={(e) => setContact({ ...contact, phone: e.target.value })}
-              onBlur={(e) => validateField("contact", "phone", e.target.value)}
-              error={errors["contact.phone"]}
-              hint="Bruges kun til fragtfirmaets levering."
-            />
-          </div>
-        </section>
-
-        <section aria-labelledby="levering">
-          <h2 id="levering" className="text-lg font-semibold">
-            Levering
-          </h2>
-          <div className="mt-4">{addressFields("shipping", shipping, setShipping)}</div>
-        </section>
-
-        {quote?.needsShipping !== false && (
-          <section aria-labelledby="fragt">
-            <h2 id="fragt" className="text-lg font-semibold">
-              Fragtmetode
-            </h2>
-            <div className="mt-4">
-              {!postcodeValid ? (
-                <p className="rounded-[var(--radius-control)] border border-dashed border-line-strong px-4 py-5 text-sm text-muted">
-                  Indtast din adresse for at se fragtmuligheder.
-                </p>
-              ) : !quote && quoteLoading ? (
-                <div className="flex items-center gap-2 px-1 py-5 text-sm text-muted">
-                  <Spinner /> Henter fragtmuligheder…
-                </div>
-              ) : quote && quote.shippingRates.length === 0 ? (
-                <Alert tone="warning">Vi kan desværre ikke levere til den adresse.</Alert>
-              ) : (
-                <fieldset className="overflow-hidden rounded-[var(--radius-control)] border border-line-strong bg-surface">
-                  <legend className="sr-only">Vælg fragtmetode</legend>
-                  {quote?.shippingRates.map((rate) => (
-                    <label
-                      key={rate.id}
-                      className={`flex cursor-pointer items-center gap-3 border-b border-line px-4 py-4 last:border-b-0 ${
-                        selectedRateId === rate.id ? "bg-accent-soft/60" : ""
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="shippingRate"
-                        value={rate.id}
-                        checked={selectedRateId === rate.id}
-                        onChange={() => setShippingRateId(rate.id)}
-                        className="size-4 accent-ink"
-                      />
-                      <span className="flex-1 text-[15px]">{rate.label}</span>
-                      <span className="text-[15px] font-medium tabular-nums">
-                        {Number(rate.price) === 0 ? "Gratis" : formatPrice(rate.price)}
-                      </span>
-                    </label>
-                  ))}
-                </fieldset>
-              )}
-            </div>
           </section>
-        )}
 
-        {quote?.couponsEnabled && (
-          <CouponField quote={quote} loading={quoteLoading} requested={couponCodes} onChange={setCouponCodes} />
-        )}
+          <section aria-labelledby="levering">
+            <h2 id="levering" className="text-[19px] font-semibold">
+              Levering
+            </h2>
+            <div className="mt-4">{addressFields("shipping", shipping, setShipping)}</div>
+          </section>
 
-        <section aria-labelledby="betaling">
-          <h2 id="betaling" className="text-lg font-semibold">
-            Betaling
-          </h2>
-          <p className="mt-1 text-sm text-muted">Alle transaktioner er krypterede og håndteres af Stripe.</p>
-          <div className="mt-4 rounded-[var(--radius-control)] border border-line-strong bg-surface p-4">
-            {stripeFailed ? (
-              <Alert tone="error" title="Betalingsformularen kunne ikke indlæses">
-                Kontrollér din internetforbindelse, slå eventuelle annonceblokkere fra, og genindlæs siden.
-              </Alert>
-            ) : paymentLoadError ? (
-              <Alert tone="error" title="Betalingsformularen kunne ikke indlæses">
-                Genindlæs siden.
-                <span className="mt-1 block text-xs opacity-80">{paymentLoadError}</span>
-              </Alert>
-            ) : !paymentReady && (
-              <div className="flex items-center gap-2 py-6 text-sm text-muted">
-                <Spinner /> Indlæser betalingsmetoder…
+          {quote?.needsShipping !== false && (
+            <section aria-labelledby="fragt">
+              <h2 id="fragt" className="text-base font-semibold">
+                Leveringsmetode
+              </h2>
+              <div className="mt-3">
+                {!postcodeValid ? (
+                  <p className="rounded-[var(--radius-control)] bg-paper px-4 py-4 text-sm text-muted">
+                    Angiv din leveringsadresse for at se de tilgængelige leveringsmetoder.
+                  </p>
+                ) : !quote && quoteLoading ? (
+                  <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-paper px-4 py-4 text-sm text-muted">
+                    <Spinner /> Henter leveringsmetoder…
+                  </div>
+                ) : quote && quote.shippingRates.length === 0 ? (
+                  <Alert tone="warning">Vi kan desværre ikke levere til den adresse.</Alert>
+                ) : (
+                  <fieldset className="overflow-hidden rounded-[var(--radius-control)] border border-line-strong">
+                    <legend className="sr-only">Vælg leveringsmetode</legend>
+                    {quote?.shippingRates.map((rate) => (
+                      <label
+                        key={rate.id}
+                        className={`flex cursor-pointer items-center gap-3 border-b border-line px-4 py-4 last:border-b-0 ${
+                          selectedRateId === rate.id ? "bg-accent-soft/60 outline outline-1 -outline-offset-1 outline-ink" : ""
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="shippingRate"
+                          value={rate.id}
+                          checked={selectedRateId === rate.id}
+                          onChange={() => setShippingRateId(rate.id)}
+                          className="size-4 accent-ink"
+                        />
+                        <span className="flex-1 text-[15px]">{rate.label}</span>
+                        <span className="text-[15px] font-medium tabular-nums">
+                          {Number(rate.price) === 0 ? "Gratis" : formatPrice(rate.price)}
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
               </div>
-            )}
-            <PaymentElement
-              onReady={() => {
-                // A later successful load (e.g. after the real amount is set) clears an earlier failure.
-                setPaymentReady(true);
-                setPaymentLoadError(null);
-              }}
-              onChange={() => setPaymentLoadError(null)}
-              onLoadError={(event) => {
-                console.error("[checkout] Payment Element failed to load:", event.error.type, event.error.message);
-                setPaymentLoadError(event.error.message ?? event.error.type);
-              }}
-              options={{
-                layout: { type: "accordion", defaultCollapsed: false, radios: "if_multiple", spacedAccordionItems: false },
-                fields: { billingDetails: { email: "never", address: "never" } },
-                business: { name: storeConfig.name },
-              }}
-            />
-          </div>
-
-          <label className="mt-5 flex items-center gap-3 text-[15px]">
-            <input
-              type="checkbox"
-              checked={billingSame}
-              onChange={(e) => setBillingSame(e.target.checked)}
-              className="size-4 accent-ink"
-            />
-            Faktureringsadressen er den samme som leveringsadressen
-          </label>
-          {!billingSame && <div className="mt-5">{addressFields("billing", billing, setBilling)}</div>}
-        </section>
-
-        <section aria-labelledby="note">
-          <label id="note" htmlFor="customerNote" className="mb-1.5 block text-sm font-medium text-ink-soft">
-            Bemærkning til ordren (valgfrit)
-          </label>
-          <textarea
-            id="customerNote"
-            value={note}
-            maxLength={500}
-            onChange={(e) => setNote(e.target.value)}
-            rows={3}
-            className="w-full rounded-[var(--radius-control)] border border-line-strong bg-surface px-3.5 py-3 text-[15px] outline-none focus:border-ink focus:ring-1 focus:ring-ink"
-          />
-        </section>
-
-        <div className="space-y-4">
-          {notice && <Alert tone="warning">{notice}</Alert>}
-          {formError && <Alert tone="error">{formError}</Alert>}
-          {quoteError && <Alert tone="error">{quoteError}</Alert>}
-          {quoteErrors.length > 0 && (
-            <Alert tone="error" title="Kurven skal rettes">
-              <ul className="list-disc pl-5">
-                {quoteErrors.map((e) => (
-                  <li key={`${e.productId}:${e.variationId}:${e.code}`}>
-                    {lines.find((l) => l.productId === e.productId && l.variationId === e.variationId)?.name ?? "Vare"}:{" "}
-                    {e.code === "insufficient_stock" ? `kun ${e.available} på lager` : e.code === "out_of_stock" ? "udsolgt" : e.message}
-                  </li>
-                ))}
-              </ul>
-              <Link href="/kurv" className="mt-2 inline-block font-medium underline">
-                Gå til kurven
-              </Link>
-            </Alert>
+            </section>
           )}
 
-          <button
-            type="submit"
-            disabled={payDisabled}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-ink text-base font-semibold text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submitting ? (
-              <>
-                <Spinner /> Behandler betaling…
-              </>
-            ) : quote ? (
-              `Betal ${formatPrice(quote.totals.total)}`
-            ) : (
-              "Betal"
-            )}
-          </button>
-          <p className="text-center text-xs text-muted">
-            Ved at betale accepterer du handelsbetingelserne. Totalen beregnes af butikken og kontrolleres igen, når du betaler.
-          </p>
-        </div>
-      </form>
+          <section aria-labelledby="betaling">
+            <h2 id="betaling" className="text-[19px] font-semibold">
+              Betaling
+            </h2>
+            <p className="mt-1 text-sm text-muted">Alle transaktioner er sikre og krypterede.</p>
+            <div className="mt-4">
+              {stripeFailed ? (
+                <Alert tone="error" title="Betalingsformularen kunne ikke indlæses">
+                  Kontrollér din internetforbindelse, slå eventuelle annonceblokkere fra, og genindlæs siden.
+                </Alert>
+              ) : paymentLoadError ? (
+                <Alert tone="error" title="Betalingsformularen kunne ikke indlæses">
+                  Genindlæs siden.
+                  <span className="mt-1 block text-xs opacity-80">{paymentLoadError}</span>
+                </Alert>
+              ) : (
+                !paymentReady && (
+                  <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-paper px-4 py-6 text-sm text-muted">
+                    <Spinner /> Indlæser betalingsmetoder…
+                  </div>
+                )
+              )}
+              <PaymentElement
+                onReady={() => {
+                  // A later successful load (e.g. after the real amount is set) clears an earlier failure.
+                  setPaymentReady(true);
+                  setPaymentLoadError(null);
+                }}
+                onChange={() => setPaymentLoadError(null)}
+                onLoadError={(event) => {
+                  console.error("[checkout] Payment Element failed to load:", event.error.type, event.error.message);
+                  setPaymentLoadError(event.error.message ?? event.error.type);
+                }}
+                options={{
+                  layout: { type: "accordion", defaultCollapsed: false, radios: "always", spacedAccordionItems: false },
+                  fields: { billingDetails: { email: "never", address: "never" } },
+                  business: { name: storeConfig.name },
+                }}
+              />
+            </div>
 
-      <aside className="hidden lg:block" aria-label="Ordreoversigt">
-        <div className="sticky top-28 rounded-[var(--radius-card)] border border-line bg-surface p-6">{summary}</div>
-      </aside>
+            <label className="mt-4 flex items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={billingSame}
+                onChange={(e) => setBillingSame(e.target.checked)}
+                className="size-4 accent-ink"
+              />
+              Brug leveringsadressen som faktureringsadresse
+            </label>
+            {!billingSame && (
+              <div className="mt-4">
+                <h3 className="mb-3 text-base font-semibold">Faktureringsadresse</h3>
+                {addressFields("billing", billing, setBilling)}
+              </div>
+            )}
+          </section>
+
+          {/* On mobile the summary is folded away, so the coupon field sits in the form instead. */}
+          {quote?.couponsEnabled && <div className="lg:hidden">{couponField("couponCodeMobile")}</div>}
+
+          <section aria-label="Bemærkning til ordren">
+            {noteOpen || note ? (
+              <>
+                <label htmlFor="customerNote" className="mb-1.5 block text-sm font-medium text-ink-soft">
+                  Bemærkning til ordren (valgfrit)
+                </label>
+                <textarea
+                  id="customerNote"
+                  value={note}
+                  maxLength={500}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                  autoFocus={noteOpen && !note}
+                  className="w-full rounded-[var(--radius-control)] border border-line-strong bg-surface px-3.5 py-3 text-[15px] outline-none focus:border-ink focus:ring-1 focus:ring-ink"
+                />
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setNoteOpen(true)}
+                className="text-sm font-medium text-accent underline underline-offset-4 hover:text-ink"
+              >
+                Tilføj en bemærkning til ordren
+              </button>
+            )}
+          </section>
+
+          <div className="space-y-4">
+            {notice && <Alert tone="warning">{notice}</Alert>}
+            {formError && <Alert tone="error">{formError}</Alert>}
+            {quoteError && <Alert tone="error">{quoteError}</Alert>}
+            {quoteErrors.length > 0 && (
+              <Alert tone="error" title="Kurven skal rettes">
+                <ul className="list-disc pl-5">
+                  {quoteErrors.map((e) => (
+                    <li key={`${e.productId}:${e.variationId}:${e.code}`}>
+                      {lines.find((l) => l.productId === e.productId && l.variationId === e.variationId)?.name ?? "Vare"}:{" "}
+                      {e.code === "insufficient_stock" ? `kun ${e.available} på lager` : e.code === "out_of_stock" ? "udsolgt" : e.message}
+                    </li>
+                  ))}
+                </ul>
+                <Link href="/kurv" className="mt-2 inline-block font-medium underline">
+                  Gå til kurven
+                </Link>
+              </Alert>
+            )}
+
+            <button
+              type="submit"
+              disabled={payDisabled}
+              aria-describedby="betal-total"
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-ink text-base font-semibold text-white transition-colors hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting ? (
+                <>
+                  <Spinner /> Behandler betaling…
+                </>
+              ) : (
+                "Betal nu"
+              )}
+            </button>
+            <p id="betal-total" className="text-center text-xs text-muted">
+              {quote ? `Du betaler ${formatPrice(quote.totals.total)} inkl. moms og levering. ` : ""}
+              Ved at betale accepterer du handelsbetingelserne.
+            </p>
+          </div>
+
+          <nav aria-label="Kundeservice" className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-5 text-xs">
+            <Link href="/kurv" className="text-accent underline underline-offset-4 hover:text-ink">
+              Tilbage til kurven
+            </Link>
+            <a href={`mailto:${storeConfig.supportEmail}`} className="text-accent underline underline-offset-4 hover:text-ink">
+              Kontakt kundeservice
+            </a>
+            <span className="text-muted">Betaling håndteres af Stripe</span>
+          </nav>
+        </form>
+      </div>
     </div>
   );
 }

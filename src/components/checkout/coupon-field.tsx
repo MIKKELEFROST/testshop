@@ -2,6 +2,7 @@
 
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import type { ClientQuote } from "@/lib/checkout/quote";
 import { formatPrice } from "@/lib/money";
 
@@ -11,13 +12,16 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
  * Coupon codes for the checkout. WooCommerce decides whether a code applies: a requested
  * code that is missing from the latest quote is shown as rejected, with WooCommerce's reason.
  * Lives inside the payment form, so Enter applies the code instead of submitting the payment.
+ * `id` keeps the input unique when the field appears in two places (summary and mobile form).
  */
 export function CouponField({
+  id,
   quote,
   loading,
   requested,
   onChange,
 }: {
+  id: string;
   quote: ClientQuote | null;
   loading: boolean;
   requested: string[];
@@ -34,7 +38,7 @@ export function CouponField({
   const rejection = rejected[0]
     ? (quote?.couponErrors.find((e) => same(e.code, rejected[0]!))?.message ?? `Rabatkoden "${rejected[0]}" kan ikke bruges.`)
     : null;
-  const error = inputError ?? rejection;
+  const error = inputError ?? rejection ?? undefined;
 
   function apply() {
     const code = input.trim();
@@ -55,14 +59,13 @@ export function CouponField({
   }
 
   return (
-    <section aria-labelledby="rabatkode">
-      <label id="rabatkode" htmlFor="couponCode" className="mb-1.5 block text-sm font-medium text-ink-soft">
-        Rabatkode (valgfrit)
-      </label>
-      <div className="flex gap-3">
-        <input
-          id="couponCode"
-          name="couponCode"
+    <div>
+      <div className="flex items-start gap-3">
+        <Field
+          id={id}
+          name={id}
+          label="Rabatkode"
+          className="min-w-0 flex-1"
           value={input}
           maxLength={100}
           autoComplete="off"
@@ -75,21 +78,22 @@ export function CouponField({
             if (rejected.length > 0) onChange(requested.filter(isApplied));
           }}
           onKeyDown={onKeyDown}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? "couponCode-error" : undefined}
-          className={`h-12 min-w-0 flex-1 rounded-[var(--radius-control)] border bg-surface px-3.5 text-[15px] text-ink outline-none transition-colors focus:border-ink focus:ring-1 focus:ring-ink ${
-            error ? "border-danger" : "border-line-strong"
-          }`}
+          error={error}
         />
-        <Button type="button" variant="secondary" className="h-12" onClick={apply} loading={checking}>
-          Anvend
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-[52px] shrink-0"
+          onClick={apply}
+          loading={checking}
+          disabled={!checking && input.trim() === ""}
+        >
+          Brug
         </Button>
       </div>
-      {error && (
-        <p id="couponCode-error" role="alert" className="mt-1.5 text-sm text-danger">
-          {error}
-        </p>
-      )}
+      <p className="sr-only" aria-live="polite">
+        {rejection ?? ""}
+      </p>
       {applied.length > 0 && (
         <ul className="mt-3 flex flex-wrap gap-2" aria-label="Anvendte rabatkoder">
           {applied.map((coupon) => (
@@ -97,6 +101,10 @@ export function CouponField({
               key={coupon.code}
               className="flex items-center gap-2 rounded-full border border-line-strong bg-accent-soft/60 py-1 pl-3 pr-1 text-sm"
             >
+              <svg viewBox="0 0 16 16" className="size-3.5 text-accent" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <path d="M2 2.5h5.2l6.3 6.3-4.7 4.7L2.5 7.2V2.5Z" strokeLinejoin="round" />
+                <circle cx="5" cy="5.5" r="1" fill="currentColor" stroke="none" />
+              </svg>
               <span className="font-medium uppercase tracking-wide">{coupon.code}</span>
               {Number(coupon.discount) > 0 && <span className="tabular-nums text-ink-soft">−{formatPrice(coupon.discount)}</span>}
               <button
@@ -113,6 +121,6 @@ export function CouponField({
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }

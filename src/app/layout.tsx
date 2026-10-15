@@ -1,10 +1,7 @@
 import "@fontsource-variable/inter";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
-import { CartDrawer } from "@/components/cart/cart-drawer";
 import { CartProvider } from "@/components/cart/cart-provider";
-import { Footer } from "@/components/layout/footer";
-import { Header } from "@/components/layout/header";
 import { storeConfig } from "@/config/store";
 
 export const metadata: Metadata = {
@@ -27,14 +24,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Gå til indhold
         </a>
-        <CartProvider>
-          <Header />
-          <main id="indhold" className="flex-1">
-            {children}
-          </main>
-          <Footer />
-          <CartDrawer />
-        </CartProvider>
+        {/* Shop pages add header, footer and cart drawer in app/(shop)/layout.tsx; the checkout has its own frame. */}
+        <CartProvider>{children}</CartProvider>
       </body>
     </html>
   );
