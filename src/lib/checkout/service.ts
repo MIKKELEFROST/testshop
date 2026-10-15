@@ -130,7 +130,7 @@ async function ensurePaymentIntent(
       amount,
       currency,
       description: `${storeConfig.name} ordre #${order.number}`,
-      receiptEmail: request.contact.email,
+      statementDescriptorSuffix: storeConfig.statementDescriptorSuffix,
       metadata: {
         wc_order_id: String(order.id),
         wc_order_key: order.order_key,

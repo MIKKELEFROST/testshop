@@ -25,6 +25,15 @@ describe("store config", () => {
     expect(brandStyle(brands["piece-dk"]!)["--display-case"]).toBe("none");
   });
 
+  it("gives each brand a card statement suffix Stripe accepts", () => {
+    // The shortened descriptor (2–10 characters) + "* " + the suffix must fit 22 characters.
+    for (const brand of Object.values(brands)) {
+      expect(brand.statementDescriptorSuffix).toMatch(/^[A-Z0-9 .-]{2,10}$/);
+      expect(brand.statementDescriptorSuffix).toMatch(/[A-Z]/);
+    }
+    expect(new Set(Object.values(brands).map((b) => b.statementDescriptorSuffix)).size).toBe(Object.keys(brands).length);
+  });
+
   it("knows when a hero colour needs light text", () => {
     expect(isDark(brands["halloween-kostumer-dk"]!.theme.hero)).toBe(true);
     expect(isDark("#e9e2d8")).toBe(false);

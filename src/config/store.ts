@@ -63,6 +63,12 @@ export type StoreBrand = {
   season: Season;
   font: DisplayFont;
   theme: StoreTheme;
+  /**
+   * On the customer's card statement after the Stripe account's shortened descriptor, e.g.
+   * "PREFIX* HALLOWEEN", since the shops share one Stripe account. Capital Latin letters (no
+   * æøå), at most 10 characters, so that Stripe's 22-character limit always fits.
+   */
+  statementDescriptorSuffix: string;
 };
 
 export type StoreConfig = StoreBrand & {
@@ -94,6 +100,7 @@ export const brands: Record<string, StoreBrand> = {
     description:
       "Fastelavnskostumer til børn og voksne: prinsesser, superhelte, dyr og alt det sjove tilbehør. Hurtig levering fra dansk webshop.",
     season: "fastelavn",
+    statementDescriptorSuffix: "FASTELAVN",
     font: { family: '"Fredoka Variable"', weight: 650, tracking: "-0.01em", uppercase: false },
     theme: {
       paper: "#fffaf2",
@@ -137,6 +144,7 @@ export const brands: Record<string, StoreBrand> = {
     description:
       "Halloweenkostumer til voksne og børn, masker, blod og effekter, make-up og pynt til huset. Hurtig levering fra dansk webshop.",
     season: "halloween",
+    statementDescriptorSuffix: "HALLOWEEN",
     font: { family: '"Bebas Neue"', weight: 400, tracking: "0.02em", uppercase: true },
     theme: {
       paper: "#f8f6f3",

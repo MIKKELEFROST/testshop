@@ -90,6 +90,17 @@ describe("startCheckout", () => {
     expect(pi.metadata).toMatchObject({ wc_order_id: "101", wc_order_key: "wc_order_abc123", store_id: "piece-dk" });
   });
 
+  it("names the shop on the card statement and leaves the receipt to WooCommerce", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const outcome = await startCheckout(request, ctx, { backend: woo.backend, gateway: stripe });
+    if (outcome.type !== "ready") throw new Error("expected ready");
+    const params = stripe.createParams.get(outcome.paymentIntentId)!;
+    expect(params.statementDescriptorSuffix).toBe("FASTELAVN");
+    expect(params).not.toHaveProperty("receiptEmail");
+    expect(JSON.stringify(params)).not.toContain(request.contact.email);
+  });
+
   it("merges duplicate cart lines before sending them to WooCommerce", () => {
     const input = toCreateOrderInput(request, ctx);
     expect(input.items).toEqual([{ product_id: 10, variation_id: 0, quantity: 2 }]);

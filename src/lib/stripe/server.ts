@@ -55,7 +55,9 @@ export const stripeGateway: PaymentGateway = {
         automatic_payment_methods: { enabled: true },
         metadata: params.metadata,
         description: params.description,
-        receipt_email: params.receiptEmail,
+        // No receipt_email: Stripe would send its own receipt, with the account's (one) brand, next
+        // to WooCommerce's order confirmation in the shop's name.
+        statement_descriptor_suffix: params.statementDescriptorSuffix,
         shipping: params.shipping,
       },
       { idempotencyKey },

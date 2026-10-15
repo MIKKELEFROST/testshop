@@ -42,7 +42,8 @@ export type CreatePaymentIntentParams = {
   currency: string;
   metadata: Record<string, string>;
   description: string;
-  receiptEmail?: string;
+  /** The shop on the card statement (see StoreBrand.statementDescriptorSuffix). */
+  statementDescriptorSuffix?: string;
   shipping?: {
     name: string;
     phone?: string;

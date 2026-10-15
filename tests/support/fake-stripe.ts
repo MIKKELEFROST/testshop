@@ -8,6 +8,8 @@ export class FakeStripe implements PaymentGateway {
   intents = new Map<string, PaymentIntentLike>();
   private byIdempotencyKey = new Map<string, { id: string; params: string }>();
   refunds: { paymentIntentId: string; idempotencyKey: string }[] = [];
+  /** What each PaymentIntent was created with, by id. */
+  createParams = new Map<string, CreatePaymentIntentParams>();
   calls = { create: 0, update: 0, cancel: 0 };
   private seq = 0;
 
@@ -37,6 +39,7 @@ export class FakeStripe implements PaymentGateway {
       last_payment_error: null,
     };
     this.intents.set(id, pi);
+    this.createParams.set(id, structuredClone(params));
     this.byIdempotencyKey.set(idempotencyKey, { id, params: fingerprint });
     return structuredClone(pi);
   }

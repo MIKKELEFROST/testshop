@@ -65,6 +65,14 @@ Brug enhver fremtidig udløbsdato, en vilkårlig CVC og et vilkårligt postnumme
 - I testtilstand kan du bruge dit rigtige kort i Wallet. Stripe trækker ingen penge.
 - Ordren får betalingsmetoden "Apple Pay (Stripe)" eller "Google Pay (Stripe)".
 
+## Kortudtog og kvitteringer
+
+Begge butikker deler én Stripe-konto. Hver betaling sender derfor butikkens eget suffiks til kortudtoget (`statementDescriptorSuffix` i `src/config/store.ts`: `FASTELAVN` og `HALLOWEEN`). Stripe sætter det efter kontoens forkortede beskrivelse, så kunden ser fx `PREFIX* HALLOWEEN`.
+
+- Sæt den forkortede beskrivelse (2–10 tegn) under **Settings → Business → Public details → Shortened descriptor**, i live-tilstand. Vælg en neutral tekst, der passer til begge butikker. Prefix, `* ` og suffiks må højst være 22 tegn tilsammen. Suffikset er højst 10 tegn, så det altid passer.
+- Sæt også det offentlige firmanavn og support-e-mailen samme sted. MobilePay viser kontoens navn.
+- Storefronten sender ikke `receipt_email` med betalingen, og der oprettes ingen Stripe-kunde. Stripe sender derfor ingen egen kvittering med kontoens navn. Kunden får WooCommerces ordrebekræftelse med butikkens navn.
+
 ## Refunderinger
 
 Storefronten refunderer kun automatisk i to tilfælde: en dobbeltbetaling, eller en betaling for en vare, der i mellemtiden er udsolgt. Almindelige refunderinger laves i Stripe Dashboard. Ordrens status i WooCommerce opdateres manuelt indtil videre.
