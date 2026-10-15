@@ -23,7 +23,7 @@ Integrationstestene kalder den rigtige WooCommerce via pluginet. Stripe erstatte
 
 ## Testresultater
 
-Kørt 14. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen faktisk er kørt og bestået.
+Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen faktisk er kørt og bestået.
 
 | Krav | Hvordan | Resultat |
 | --- | --- | --- |
@@ -47,6 +47,12 @@ Kørt 14. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen fak
 | Forkert beløb / forkert ordrenøgle / anden butik | Integration | Bestået |
 | Betaling efter udløbet reservation, varen solgt | Integration: automatisk refundering, intet oversalg | Bestået |
 | Ugyldig/forfalsket webhook-signatur | Unit (rigtig Stripe-signaturverifikation) | Bestået |
+| **Rabatkoder**: rabatten i quote, ordre og betaling; ukendt kode og minimumsbeløb afvises med WooCommerces begrundelse; kode begrænset til bestemte e-mails | Integration + browsertest (Playwright, mobil og desktop) | Bestået |
+| Rabatkode med brugsgrænse: kunden kan prøve igen efter afvist betaling, andre kan ikke bruge koden imens, forbrug tælles én gang | Integration | Bestået |
+| Ubetalt ordre ældre end "Hold lager" genoptages ikke: ny ordre, den gamle og dens PaymentIntent annulleres | Integration | Bestået |
+| Pluginet annullerer forladte ubetalte ordrer og frigiver lageret; nye ordrer røres ikke | Integration | Bestået |
+| Ordren viser den brugte betalingsmetode (MobilePay, Apple Pay) | Integration | Bestået |
+| Afvist betalingsforsøg noteres én gang, selv om det meldes flere gange | Integration | Bestået |
 | **Rigtig Stripe-testbetaling** (kort 4242, Vercel-produktion → test.piece.dk) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
 | Rigtig 3-D Secure- og afvist-betaling (kort 3155 og 9995) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
 | **Forbindelse til test.piece.dk** (WooCommerce 11.2.1, HPOS) | Manuelt | **Bestået** |
@@ -69,7 +75,8 @@ Købt på `https://testshop-weld.vercel.app` med kort 4242. Tjekket i Vercels re
 - **Prisændring under checkout**, ordre #32: prisen blev ændret fra 99 til 119 kr. i WooCommerce, mens kassen var åben. Ordren og betalingen blev på 119 kr. Kassen hentede den nye pris, før der blev trykket Betal, så `total_changed` (409) blev ikke udløst i denne test. Den gren er dækket af integrationstesten.
 - Klarna og Amazon Pay er slået fra i Stripe, så kun kort tilbydes.
 - **Åbent punkt:** Confirmation-siden loggede to gange `WooCommerce is unreachable` (18:28 og 21:01 dansk tid). Der var ingen konsekvens for ordrerne. Loggen viser nu den underliggende netværksfejl, så årsagen kan findes, hvis det sker igen.
-- **Åbent punkt:** WooCommerce har endnu ikke annulleret de ubetalte ordrer automatisk, selvom "Hold lager" er 60 minutter og WP-Cron er slået til. Lagerreservationerne udløber af sig selv, så de blokerer ikke varer.
+- **Åbent punkt:** WooCommerce har endnu ikke annulleret de ubetalte ordrer automatisk, selvom "Hold lager" er 60 minutter og WP-Cron er slået til. Lagerreservationerne udløber af sig selv, så de blokerer ikke varer. Plugin 1.1 annullerer selv ubetalte ordrer (testet lokalt), men det er endnu ikke installeret på test.piece.dk.
+- MobilePay-købet (#22) genbrugte en ubetalt ordre fra tidligere på dagen og fik derfor dens nummer og dato. Plugin 1.1 opretter en ny ordre i stedet, når den gamle er ældre end "Hold lager"-tiden.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
@@ -86,3 +93,6 @@ Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe li
 9. **Pris ændres:** Åbn checkout, ret prisen i WooCommerce, og tryk Betal. Du skal se beskeden "Prisen er ændret …" og den nye total.
 10. **Udsolgt:** Sæt lager til 0 i WooCommerce, mens varen ligger i kurven. Kurv og checkout skal vise "udsolgt", og Betal skal være spærret.
 11. **Gentagen webhook:** I Stripe Dashboard → Webhooks → event → **Resend**. Ordrenoter og lager må ikke ændre sig.
+12. **Rabatkode:** Opret en kupon (Marketing → Kuponer, f.eks. 10 %). Indtast en forkert kode i kassen: der skal stå en begrundelse. Indtast den rigtige: rabatten vises i oversigten og på Betal-knappen. Betal. Ordren skal have kuponen og den rabatterede total, og Stripe skal have trukket samme beløb.
+13. **Betalingsmetode:** Betal med MobilePay. Ordren skal vise "MobilePay (Stripe)" som betalingsmetode.
+14. **Oprydning:** `/status` viser `unpaid_orders.last_cleanup`. En ubetalt ordre skal være annulleret senest et kvarter efter "Hold lager"-tiden.

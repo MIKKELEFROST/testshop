@@ -72,6 +72,7 @@ function toResponse(outcome: StartCheckoutOutcome): Response {
       return Response.json({ type: outcome.type, message: outcome.message, quote: toClientQuote(outcome.quote) }, { status: 409, headers });
     case "cart_invalid":
     case "out_of_stock":
+    case "coupon_invalid":
       return Response.json(
         { type: outcome.type, message: outcome.message, quote: outcome.quote ? toClientQuote(outcome.quote) : null },
         { status: 409, headers },

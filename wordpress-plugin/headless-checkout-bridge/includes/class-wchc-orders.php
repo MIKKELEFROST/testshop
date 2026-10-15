@@ -8,6 +8,8 @@
  * - One Stripe PaymentIntent per order (compare-and-set under a lock).
  * - Idempotent, lock-protected payment state transitions. Stock is reduced and
  *   released only by WooCommerce core (payment_complete / status changes).
+ * - Unpaid orders are never resumed after the shop's hold time and are cancelled by a
+ *   sweep that does not depend on WP-Cron alone.
  *
  * @package HeadlessCheckoutBridge
  */
@@ -39,6 +41,139 @@ final class WCHC_Orders {
 			10,
 			2
 		);
+
+		add_filter(
+			'cron_schedules',
+			static function ( $schedules ) {
+				$schedules['wchc_fifteen_minutes'] = array(
+					'interval' => 15 * MINUTE_IN_SECONDS,
+					'display'  => 'Every 15 minutes (Headless Checkout Bridge)',
+				);
+				return $schedules;
+			}
+		);
+		add_action( WCHC_CLEANUP_HOOK, array( __CLASS__, 'cancel_unpaid_orders' ), 10, 0 );
+		add_action(
+			'init',
+			static function () {
+				if ( ! wp_next_scheduled( WCHC_CLEANUP_HOOK ) ) {
+					wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, 'wchc_fifteen_minutes', WCHC_CLEANUP_HOOK );
+				}
+			}
+		);
+	}
+
+	/**
+	 * Minutes after which an unpaid headless order is treated as abandoned: the shop's
+	 * "Hold stock (minutes)" setting, like WooCommerce's own cleanup, or 60 when it is empty.
+	 */
+	public static function unpaid_order_minutes(): int {
+		$hold = (int) get_option( 'woocommerce_hold_stock_minutes', 0 );
+		return max( 1, (int) apply_filters( 'wchc_unpaid_order_minutes', $hold > 0 ? $hold : 60 ) );
+	}
+
+	/**
+	 * Whether an unpaid order was created so long ago that it should not be resumed: the
+	 * customer would otherwise pay an order with an old number and date.
+	 *
+	 * @param WC_Order $order Order.
+	 */
+	private static function is_stale( WC_Order $order ): bool {
+		$created = $order->get_date_created();
+		return $created && $created->getTimestamp() < time() - self::unpaid_order_minutes() * MINUTE_IN_SECONDS;
+	}
+
+	/**
+	 * Cancel an order if it is still unpaid. Takes the order lock, so it never races a payment.
+	 *
+	 * @param int    $order_id Order ID.
+	 * @param string $note     Order note.
+	 * @param int    $wait     Seconds to wait for the order lock.
+	 * @return bool True when the order was cancelled.
+	 */
+	private static function cancel_if_unpaid( int $order_id, string $note, int $wait ): bool {
+		$lock = 'order:' . $order_id;
+		if ( ! WCHC_Lock::acquire( $lock, $wait ) ) {
+			return false;
+		}
+		try {
+			$order = self::load_fresh( $order_id );
+			if ( ! $order || ! $order->has_status( array( 'pending', 'failed' ) ) ) {
+				return false;
+			}
+			// Core releases the stock hold and any held coupons on cancellation.
+			$order->update_status( 'cancelled', $note );
+			return true;
+		} finally {
+			WCHC_Lock::release( $lock );
+		}
+	}
+
+	/**
+	 * Cancel abandoned headless orders (unpaid for longer than unpaid_order_minutes()).
+	 *
+	 * WooCommerce's own "cancel unpaid orders" job depends on WP-Cron / Action Scheduler,
+	 * which rarely runs on a headless site without visitors. This sweep runs from WP-Cron
+	 * as well as (throttled) from the storefront's own API calls.
+	 *
+	 * @param int $limit Maximum orders to cancel in one run.
+	 * @return int Number of cancelled orders.
+	 */
+	public static function cancel_unpaid_orders( int $limit = 10 ): int {
+		update_option( 'wchc_unpaid_cleanup_last_run', time(), false );
+		self::ensure_core_cleanup_scheduled();
+
+		$limit   = max( 1, $limit );
+		$minutes = self::unpaid_order_minutes();
+		$ids     = wc_get_orders(
+			array(
+				'status'        => array( 'pending', 'failed' ),
+				'created_via'   => 'checkout',
+				'date_modified' => '<' . ( time() - $minutes * MINUTE_IN_SECONDS ),
+				'orderby'       => 'date',
+				'order'         => 'ASC',
+				'limit'         => $limit * 3,
+				'return'        => 'ids',
+			)
+		);
+
+		$cancelled = 0;
+		foreach ( $ids as $order_id ) {
+			$order = wc_get_order( $order_id );
+			if ( ! $order instanceof WC_Order || ! $order->get_meta( WCHC_META_STORE_ID ) ) {
+				continue; // Not a headless order: left to WooCommerce.
+			}
+			$note = sprintf( 'Ubetalt ordre annulleret: ikke betalt inden for %d minutter.', $minutes );
+			if ( self::cancel_if_unpaid( (int) $order_id, $note, 0 ) && ++$cancelled >= $limit ) {
+				break;
+			}
+		}
+
+		return $cancelled;
+	}
+
+	/**
+	 * Run cancel_unpaid_orders() at most every five minutes from API requests.
+	 */
+	public static function maybe_cancel_unpaid_orders(): void {
+		if ( time() - (int) get_option( 'wchc_unpaid_cleanup_last_run', 0 ) < 5 * MINUTE_IN_SECONDS ) {
+			return;
+		}
+		self::cancel_unpaid_orders();
+	}
+
+	/**
+	 * WooCommerce reschedules its "cancel unpaid orders" action each time it runs; if that
+	 * chain ever breaks, put it back (only when the shop has a hold time and manages stock).
+	 */
+	private static function ensure_core_cleanup_scheduled(): void {
+		$hold = (int) get_option( 'woocommerce_hold_stock_minutes', 0 );
+		if ( $hold < 1 || 'yes' !== get_option( 'woocommerce_manage_stock' ) || ! function_exists( 'as_has_scheduled_action' ) ) {
+			return;
+		}
+		if ( ! as_has_scheduled_action( 'woocommerce_cancel_unpaid_orders' ) && ! wp_next_scheduled( 'woocommerce_cancel_unpaid_orders' ) ) {
+			as_schedule_single_action( time() + $hold * MINUTE_IN_SECONDS, 'woocommerce_cancel_unpaid_orders', array(), 'woocommerce', true );
+		}
 	}
 
 	/**
@@ -115,6 +250,17 @@ final class WCHC_Orders {
 		$checkout_id = $input['checkout_id'];
 		$existing    = self::find_by_checkout_id( $checkout_id );
 
+		if ( $existing && $existing->has_status( array( 'pending', 'failed' ) ) && self::is_stale( $existing ) ) {
+			// Too old to resume: cancel it (releasing its stock hold) so the customer gets a new
+			// order with a current number and date.
+			self::cancel_if_unpaid(
+				$existing->get_id(),
+				sprintf( 'Ubetalt ordre annulleret: kunden startede en ny betaling efter mere end %d minutter.', self::unpaid_order_minutes() ),
+				10
+			);
+			$existing = self::load_fresh( $existing->get_id() );
+		}
+
 		if ( $existing && ( $existing->is_paid() || $existing->has_status( 'on-hold' ) ) ) {
 			return self::response(
 				409,
@@ -130,7 +276,20 @@ final class WCHC_Orders {
 		$own_order_id = $resumable ? $existing->get_id() : 0;
 
 		$builder = new WCHC_Cart_Builder();
-		$builder->build( $input['items'], $input['shipping'], $input['shipping_rate_id'], $own_order_id );
+		$builder->build(
+			$input['items'],
+			array_merge( $input['shipping'], array( 'email' => $input['billing']['email'] ) ),
+			$input['shipping_rate_id'],
+			$own_order_id,
+			$input['coupons']
+		);
+
+		if ( $resumable && WC()->cart->get_applied_coupons() ) {
+			// The order's own coupon holds would otherwise count as another customer's usage
+			// below and when WooCommerce holds the coupons again for this order.
+			wc_release_coupons_for_order( $existing );
+		}
+		$builder->enforce_guest_coupon_limits( $input['billing']['email'] );
 		$quote = $builder->to_quote();
 
 		if ( WC()->cart->is_empty() || ! empty( $quote['errors'] ) ) {
@@ -155,6 +314,17 @@ final class WCHC_Orders {
 			);
 		}
 
+		if ( ! empty( $quote['coupon_errors'] ) ) {
+			return self::response(
+				409,
+				array(
+					'code'    => 'coupon_invalid',
+					'message' => $quote['coupon_errors'][0]['message'],
+					'quote'   => $quote,
+				)
+			);
+		}
+
 		// The customer must have seen exactly the total WooCommerce calculates now.
 		if ( abs( (float) $quote['totals']['total'] - (float) $input['expected_total'] ) > 0.000001 ) {
 			return self::response(
@@ -167,6 +337,8 @@ final class WCHC_Orders {
 			);
 		}
 
+		$applied_coupons = array_map( 'wc_strtolower', WC()->cart->get_applied_coupons() );
+		sort( $applied_coupons );
 		$fingerprint = hash(
 			'sha256',
 			(string) wp_json_encode(
@@ -177,12 +349,22 @@ final class WCHC_Orders {
 					$input['shipping_rate_id'],
 					$input['store_id'],
 					$input['customer_note'],
+					$applied_coupons,
 				)
 			)
 		);
 
 		// Exact replay (double click, network retry): extend the stock hold and return the same order.
 		if ( $resumable && hash_equals( (string) $existing->get_meta( WCHC_META_FINGERPRINT ), $fingerprint ) ) {
+			if ( WC()->cart->get_applied_coupons() ) {
+				try {
+					$existing->hold_applied_coupons( $input['billing']['email'] );
+					$existing->save_meta_data(); // Core only sets the hold keys; create_order() would save them.
+				} catch ( Exception $e ) {
+					wc_release_coupons_for_order( $existing );
+					return self::coupon_unavailable( $e->getMessage(), $quote );
+				}
+			}
 			if ( ! self::has_fresh_reservation( $existing ) ) {
 				try {
 					wc_reserve_stock_for_order( $existing );
@@ -212,7 +394,11 @@ final class WCHC_Orders {
 		}
 		$data['order_comments'] = $input['customer_note'];
 
-		$set_meta = static function ( WC_Order $order ) use ( $input, $fingerprint ) {
+		// Core holds coupons before this hook runs and reserves stock after the order is saved,
+		// so whether the hook ran tells a coupon failure from a stock failure.
+		$before_save = true;
+		$set_meta    = static function ( WC_Order $order ) use ( $input, $fingerprint, &$before_save ) {
+			$before_save = false;
 			$order->update_meta_data( WCHC_META_CHECKOUT_ID, $input['checkout_id'] );
 			$order->update_meta_data( WCHC_META_FINGERPRINT, $fingerprint );
 			$order->update_meta_data( WCHC_META_STORE_ID, $input['store_id'] );
@@ -229,10 +415,23 @@ final class WCHC_Orders {
 		remove_action( 'woocommerce_checkout_create_order', $set_meta );
 
 		if ( is_wp_error( $order_id ) ) {
-			// The order may have been saved before stock reservation failed; never leave it payable.
+			// Failing before the order was saved with coupons applied means a usage-limited coupon
+			// was used up meanwhile; otherwise stock reservation failed.
+			$coupon_failure = $before_save && WC()->cart->get_applied_coupons();
+
+			// A new order may have been saved, or a resumed one emptied, before the failure;
+			// never leave it payable.
 			$failed = self::find_by_checkout_id( $checkout_id );
 			if ( $failed && $failed->has_status( array( 'pending', 'failed' ) ) ) {
-				$failed->update_status( 'cancelled', 'Lager kunne ikke reserveres: ' . $order_id->get_error_message() );
+				self::cancel_if_unpaid(
+					$failed->get_id(),
+					( $coupon_failure ? 'Rabatkoden kunne ikke reserveres: ' : 'Lager kunne ikke reserveres: ' ) . $order_id->get_error_message(),
+					10
+				);
+			}
+
+			if ( $coupon_failure ) {
+				return self::coupon_unavailable( $order_id->get_error_message(), $quote );
 			}
 			return self::response(
 				409,
@@ -343,6 +542,7 @@ final class WCHC_Orders {
 		switch ( $event ) {
 			case 'processing':
 				if ( $order->has_status( array( 'pending', 'failed' ) ) ) {
+					self::set_payment_method_title( $order, $input );
 					// On-hold reduces stock in core and releases the temporary hold.
 					$order->update_status( 'on-hold', 'Betalingen behandles af Stripe og afventer bekræftelse.' );
 					return self::result( 'on_hold', $order );
@@ -358,7 +558,15 @@ final class WCHC_Orders {
 				}
 				if ( $order->has_status( array( 'pending', 'failed' ) ) ) {
 					// Keep the order pending so the customer can retry with the same PaymentIntent.
-					$order->add_order_note( 'Betalingsforsøg afvist' . $message );
+					// The webhook and the storefront may both report the same attempt: note it once.
+					$attempt = '' !== $input['attempt_id'] ? $input['attempt_id'] : $intent_id . '|' . $input['message'];
+					$seen    = (array) $order->get_meta( WCHC_META_FAILED_ATTEMPTS );
+					if ( ! in_array( $attempt, $seen, true ) ) {
+						$seen[] = $attempt;
+						$order->update_meta_data( WCHC_META_FAILED_ATTEMPTS, array_slice( $seen, -20 ) );
+						$order->save();
+						$order->add_order_note( 'Betalingsforsøg afvist' . $message );
+					}
 					return self::result( 'payment_failed', $order );
 				}
 				return self::result( 'ignored', $order );
@@ -435,11 +643,25 @@ final class WCHC_Orders {
 			return self::result( 'ignored', $order );
 		}
 
+		self::set_payment_method_title( $order, $input );
 		// Core: sets transaction ID + paid date, reduces stock once, releases the hold, sends emails.
 		$order->payment_complete( $intent_id );
 		$order->add_order_note( sprintf( 'Betaling gennemført via Stripe (%s).', $intent_id ) );
 
 		return self::result( 'paid', wc_get_order( $order->get_id() ) );
+	}
+
+	/**
+	 * Show the payment method the customer actually used (e.g. "MobilePay (Stripe)") on the
+	 * order. Saved by the caller's status change.
+	 *
+	 * @param WC_Order $order Order.
+	 * @param array    $input Event input.
+	 */
+	private static function set_payment_method_title( WC_Order $order, array $input ): void {
+		if ( '' !== $input['payment_method_title'] ) {
+			$order->set_payment_method_title( $input['payment_method_title'] );
+		}
 	}
 
 	/**
@@ -540,6 +762,17 @@ final class WCHC_Orders {
 	 */
 	private static function result( string $result, WC_Order $order ): array {
 		return self::response( 200, array( 'result' => $result, 'order' => self::summary( $order ) ) );
+	}
+
+	/**
+	 * A coupon could not be held for this order (its usage limit was reached meanwhile).
+	 *
+	 * @param string $message WooCommerce's message.
+	 * @param array  $quote   Quote.
+	 * @return array{status:int,body:array<string,mixed>}
+	 */
+	private static function coupon_unavailable( string $message, array $quote ): array {
+		return self::response( 409, array( 'code' => 'coupon_unavailable', 'message' => wp_strip_all_tags( $message ), 'quote' => $quote ) );
 	}
 
 	/**

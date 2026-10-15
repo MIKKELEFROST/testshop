@@ -141,6 +141,8 @@ export const quoteSchema = z.object({
     subtotal: money,
     subtotal_tax: money,
     discount: money,
+    /** Added in plugin 1.1. */
+    discount_tax: money.default("0"),
     shipping: money,
     shipping_tax: money,
     fees: money,
@@ -148,6 +150,10 @@ export const quoteSchema = z.object({
     total: money,
   }),
   errors: z.array(quoteErrorSchema),
+  /* Coupons: plugin 1.1+. Older plugins omit them, which hides the coupon field. */
+  coupons_enabled: z.boolean().default(false),
+  coupons: z.array(z.object({ code: z.string(), discount: money, discount_tax: money })).default([]),
+  coupon_errors: z.array(z.object({ code: z.string(), message: z.string() })).default([]),
   cart_hash: z.string(),
 });
 
@@ -188,6 +194,7 @@ export const orderDetailsSchema = orderSummarySchema.extend({
   subtotal: money,
   discount_total: money,
   date_paid: z.string().nullable(),
+  coupons: z.array(z.string()).default([]),
 });
 
 /** Every plugin response is either a result or an error object; both are JSON. */

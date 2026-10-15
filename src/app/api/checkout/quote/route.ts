@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   const parsed = quoteRequestSchema.safeParse(await readJson(request));
   if (!parsed.success) return jsonError(400, "invalid_request", "Ugyldig kurv.");
 
-  const { items, address, shippingRateId } = parsed.data;
+  const { items, address, shippingRateId, coupons, email } = parsed.data;
 
   try {
     const quote = await fetchQuote({
@@ -36,6 +36,8 @@ export async function POST(request: Request) {
       },
       shipping_rate_id: shippingRateId ?? null,
       checkout_id: await readCheckoutId(),
+      coupons,
+      email,
     });
     return Response.json(toClientQuote(quote), { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

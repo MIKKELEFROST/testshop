@@ -16,7 +16,10 @@ export type StoreConfig = {
   /** ISO country codes the checkout accepts (must also be allowed in WooCommerce). */
   countries: { code: string; name: string }[];
   defaultCountry: string;
-  /** Title shown as payment method on the WooCommerce order. */
+  /**
+   * Payment method title on a new WooCommerce order. Once paid, the order shows the method
+   * actually used instead (e.g. "MobilePay (Stripe)").
+   */
   paymentMethodTitle: string;
   supportEmail: string;
 };
@@ -31,6 +34,6 @@ export const storeConfig: StoreConfig = {
   currency: "DKK",
   countries: [{ code: "DK", name: "Danmark" }],
   defaultCountry: "DK",
-  paymentMethodTitle: "Betalingskort (Stripe)",
+  paymentMethodTitle: "Stripe",
   supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "kundeservice@example.com",
 };

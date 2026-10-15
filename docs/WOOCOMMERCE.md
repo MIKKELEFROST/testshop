@@ -4,11 +4,12 @@
 
 1. Byg zip-filen med `npm run plugin:zip` (giver `dist/headless-checkout-bridge.zip`), eller zip mappen `wordpress-plugin/headless-checkout-bridge`.
 2. I WordPress: **Plugins → Tilføj nyt → Upload plugin** → vælg zip → **Installer nu** → **Aktivér**.
-3. Tjek forbindelsen fra Next.js-serveren:
+3. Ved en ny version: upload zip-filen på samme måde, og vælg **Erstat nuværende med uploadet**. Indstillinger og ordrer bevares.
+4. Tjek forbindelsen fra Next.js-serveren:
    ```bash
    curl -u "$WOOCOMMERCE_CONSUMER_KEY:$WOOCOMMERCE_CONSUMER_SECRET" https://test.piece.dk/wp-json/wc-headless/v1/status
    ```
-   Svaret viser plugin- og WooCommerce-version samt moms- og lagerindstillinger.
+   Svaret viser plugin- og WooCommerce-version, moms- og lagerindstillinger, om rabatkoder er slået til, og hvornår ubetalte ordrer sidst blev ryddet op.
 
 Pluginet kræver WooCommerce 8.5+ og PHP 7.4+. Det understøtter både HPOS og det klassiske ordrelager. Det tilføjer ingen admin-sider og ændrer ikke butikkens normale checkout.
 
@@ -54,17 +55,29 @@ Alle routes ligger under `/wp-json/wc-headless/v1` og kræver API-nøglen. De ka
 
 | Endpoint | Formål |
 | --- | --- |
-| `GET /status` | Sundhedstjek |
-| `POST /quote` | Kurv → priser, lager (inkl. andres reservationer), moms, fragtmetoder, total. Opretter intet. |
-| `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager. Afviser, hvis totalen afviger fra den, kunden så. |
+| `GET /status` | Sundhedstjek, inkl. oprydning af ubetalte ordrer |
+| `POST /quote` | Kurv → priser, lager (inkl. andres reservationer), rabatkoder, moms, fragtmetoder, total. Opretter intet. |
+| `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager og rabatkoder. Afviser, hvis totalen afviger fra den, kunden så, eller hvis en rabatkode ikke længere kan bruges. |
 | `POST /orders/{id}/payment-intent` | Tilknyt Stripe PaymentIntent (compare-and-set) |
-| `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) |
+| `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) og den betalingsmetode, kunden brugte |
 | `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden |
 
 Produkt-svar i REST API v3 får desuden feltet `headless_prices` med priser beregnet efter butikkens momsvisning.
 
+## 6. Rabatkoder
+
+Opret rabatkoder i **Marketing → Kuponer** som i en almindelig WooCommerce-butik. Kassen viser feltet "Rabatkode", når **WooCommerce → Indstillinger → Generelt → Aktivér brug af kuponkoder** er slået til.
+
+WooCommerce afgør alt: rabattype, minimumsbeløb, produkter og kategorier, udløbsdato, brugsgrænser og tilladte e-mailadresser. Kassen viser WooCommerces begrundelse, hvis en kode afvises. En kode med brugsgrænse reserveres til kundens ordre, mens betalingen står på, så kunden kan prøve igen efter en afvist betaling, uden at andre når at bruge den sidste gang. Forbruget tælles, når ordren er betalt.
+
+## 7. Ubetalte ordrer
+
+- En ubetalt ordre genbruges, når kunden trykker Betal igen i samme browser, men kun i butikkens "Hold lager"-tid (60 minutter, hvis feltet er tomt). Kommer kunden senere, annulleres den gamle ordre, og kunden får en ny med dagens dato og nyt nummer.
+- Pluginet annullerer selv ubetalte headless-ordrer, når "Hold lager"-tiden er gået. Det sker hvert kvarter via WP-Cron og desuden, når shoppen kalder pluginet (højst hvert 5. minut). Oprydningen virker derfor også, når ingen besøger WordPress-siden. Lager og reserverede rabatkoder frigives.
+- Ordren viser den betalingsmetode, kunden faktisk brugte, f.eks. "MobilePay (Stripe)" eller "Visa-kort (Stripe)". Indtil betalingen står der "Stripe".
+- Et afvist betalingsforsøg noteres én gang på ordren, selv om både webhooken og kundens browser melder det.
+
 ## Kendte begrænsninger
 
-- Kuponer er ikke koblet på checkouten endnu. WooCommerces kurv understøtter dem, så det er et lille skridt.
 - "Enhver"-varianter (variant uden fast attributværdi) understøttes ikke. Varianter skal have konkrete værdier.
 - Ordrer oprettes som gæsteordrer (ingen kundekonto/login).

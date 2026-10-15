@@ -40,6 +40,9 @@ type Order = {
   shipping_total: string;
   shipping_tax: string;
   transaction_id: string;
+  payment_method_title: string;
+  discount_total: string;
+  coupon_lines: { code: string; discount: string; discount_tax: string }[];
   date_paid: string | null;
   meta_data: { key: string; value: unknown }[];
   line_items: { product_id: number; variation_id: number; quantity: number; total: string; total_tax: string }[];
@@ -75,12 +78,53 @@ export async function orderNotes(id: number): Promise<string[]> {
   return notes.map((n) => n.note);
 }
 
+type Coupon = { id: number; code: string; usage_count: number };
+
+export async function createCoupon(data: Record<string, unknown>): Promise<Coupon> {
+  return admin<Coupon>("coupons", { method: "POST", body: data });
+}
+
+export async function getCoupon(id: number): Promise<Coupon> {
+  return admin<Coupon>(`coupons/${id}`);
+}
+
+export async function deleteCoupon(id: number) {
+  await admin(`coupons/${id}?force=true`, { method: "DELETE" });
+}
+
+/** The plugin's health endpoint. */
+export async function pluginStatus(): Promise<Record<string, unknown>> {
+  const auth = Buffer.from(`${process.env.WOOCOMMERCE_CONSUMER_KEY}:${process.env.WOOCOMMERCE_CONSUMER_SECRET}`).toString("base64");
+  const response = await fetch(`${process.env.WOOCOMMERCE_URL}/wp-json/wc-headless/v1/status`, { headers: { Authorization: `Basic ${auth}` } });
+  return (await response.json()) as Record<string, unknown>;
+}
+
 /** Cancel every unpaid order (releases stock holds) so tests don't affect each other. */
 export async function cancelOpenOrders() {
   for (const status of ["pending", "on-hold", "failed"]) {
     const orders = await admin<{ id: number }[]>(`orders?status=${status}&per_page=100`);
     for (const order of orders) await admin(`orders/${order.id}`, { method: "PUT", body: { status: "cancelled" } });
   }
+}
+
+/** Make an order look created and last changed `minutes` ago (local Docker database, both order stores). */
+export async function backdateOrder(id: number, minutes: number) {
+  const [m, orderId] = [Math.trunc(minutes), Math.trunc(id)];
+  const { execFileSync } = await import("node:child_process");
+  const sql = (statement: string) => execFileSync("docker", ["exec", "wcdb", "mariadb", "-uwp", "-pwp", "wp", "-N", "-e", statement]).toString();
+  sql(
+    `UPDATE wp_posts SET post_date = post_date - INTERVAL ${m} MINUTE, post_date_gmt = post_date_gmt - INTERVAL ${m} MINUTE, post_modified = post_modified - INTERVAL ${m} MINUTE, post_modified_gmt = post_modified_gmt - INTERVAL ${m} MINUTE WHERE ID = ${orderId}`,
+  );
+  if (sql("SHOW TABLES LIKE 'wp_wc_orders'").trim()) {
+    sql(`UPDATE wp_wc_orders SET date_created_gmt = date_created_gmt - INTERVAL ${m} MINUTE, date_updated_gmt = date_updated_gmt - INTERVAL ${m} MINUTE WHERE id = ${orderId}`);
+  }
+}
+
+/** Run the plugin's unpaid-order cleanup now (as WP-Cron would) and return how many orders it cancelled. */
+export async function runUnpaidOrderCleanup(): Promise<number> {
+  const { execFileSync } = await import("node:child_process");
+  const out = execFileSync("docker", ["exec", "wcwp", "wp", "--allow-root", "--path=/var/www/html", "eval", "echo WCHC_Orders::cancel_unpaid_orders();"]);
+  return Number(out.toString().trim());
 }
 
 /** Simulate the passing of WooCommerce's "hold stock" period (local Docker database only). */

@@ -110,8 +110,24 @@ final class WCHC_REST_Controller {
 				'calc_taxes'         => wc_tax_enabled(),
 				'manage_stock'       => 'yes' === get_option( 'woocommerce_manage_stock' ),
 				'hold_stock_minutes' => (int) get_option( 'woocommerce_hold_stock_minutes', 0 ),
+				'coupons_enabled'    => wc_coupons_enabled(),
+				'unpaid_orders'      => array(
+					'cancel_after_minutes' => WCHC_Orders::unpaid_order_minutes(),
+					'last_cleanup'         => $this->iso_time( (int) get_option( 'wchc_unpaid_cleanup_last_run', 0 ) ),
+					'next_cleanup'         => $this->iso_time( (int) wp_next_scheduled( WCHC_CLEANUP_HOOK ) ),
+					'wp_cron_disabled'     => defined( 'DISABLE_WP_CRON' ) && DISABLE_WP_CRON,
+				),
 			)
 		);
+	}
+
+	/**
+	 * Unix timestamp as ISO 8601 (UTC), or null.
+	 *
+	 * @param int $timestamp Timestamp.
+	 */
+	private function iso_time( int $timestamp ): ?string {
+		return $timestamp > 0 ? gmdate( DATE_ATOM, $timestamp ) : null;
 	}
 
 	/**
@@ -126,8 +142,9 @@ final class WCHC_REST_Controller {
 			return $this->error( $items );
 		}
 
-		$address = $this->parse_address( (array) ( $body['address'] ?? array() ), false );
-		$rate    = $this->parse_rate_id( $body['shipping_rate_id'] ?? null );
+		$address          = $this->parse_address( (array) ( $body['address'] ?? array() ), false );
+		$address['email'] = isset( $body['email'] ) && is_email( (string) $body['email'] ) ? sanitize_email( (string) $body['email'] ) : '';
+		$rate             = $this->parse_rate_id( $body['shipping_rate_id'] ?? null );
 
 		$own_order_id = 0;
 		if ( ! empty( $body['checkout_id'] ) && $this->valid_checkout_id( $body['checkout_id'] ) ) {
@@ -138,9 +155,12 @@ final class WCHC_REST_Controller {
 		}
 
 		$builder = new WCHC_Cart_Builder();
-		$builder->build( $items, $address, $rate, $own_order_id );
+		$builder->build( $items, $address, $rate, $own_order_id, $this->parse_coupons( $body['coupons'] ?? array() ) );
+		$quote = $builder->to_quote();
 
-		return new WP_REST_Response( $builder->to_quote(), 200 );
+		WCHC_Orders::maybe_cancel_unpaid_orders();
+
+		return new WP_REST_Response( $quote, 200 );
 	}
 
 	/**
@@ -193,6 +213,7 @@ final class WCHC_REST_Controller {
 			'payment_method_title' => isset( $body['payment_method_title'] ) ? sanitize_text_field( substr( (string) $body['payment_method_title'], 0, 100 ) ) : 'Stripe',
 			'customer_ip'          => isset( $body['customer_ip'] ) && filter_var( $body['customer_ip'], FILTER_VALIDATE_IP ) ? (string) $body['customer_ip'] : '',
 			'customer_user_agent'  => isset( $body['customer_user_agent'] ) ? sanitize_text_field( substr( (string) $body['customer_user_agent'], 0, 500 ) ) : '',
+			'coupons'              => $this->parse_coupons( $body['coupons'] ?? array() ),
 		);
 
 		if ( ! WCHC_Lock::acquire( 'checkout:' . $input['checkout_id'], 15 ) ) {
@@ -204,6 +225,8 @@ final class WCHC_REST_Controller {
 		} finally {
 			WCHC_Lock::release( 'checkout:' . $input['checkout_id'] );
 		}
+
+		WCHC_Orders::maybe_cancel_unpaid_orders();
 
 		return new WP_REST_Response( $result['body'], $result['status'] );
 	}
@@ -238,12 +261,16 @@ final class WCHC_REST_Controller {
 	public function payment_event( WP_REST_Request $request ): WP_REST_Response {
 		$body  = (array) $request->get_json_params();
 		$input = array(
-			'event'             => (string) ( $body['event'] ?? '' ),
-			'payment_intent_id' => (string) ( $body['payment_intent_id'] ?? '' ),
-			'amount_minor'      => isset( $body['amount_minor'] ) ? (int) $body['amount_minor'] : -1,
-			'currency'          => strtolower( (string) ( $body['currency'] ?? '' ) ),
-			'currency_exponent' => isset( $body['currency_exponent'] ) ? (int) $body['currency_exponent'] : 2,
-			'message'           => isset( $body['message'] ) ? sanitize_text_field( substr( (string) $body['message'], 0, 300 ) ) : '',
+			'event'                => (string) ( $body['event'] ?? '' ),
+			'payment_intent_id'    => (string) ( $body['payment_intent_id'] ?? '' ),
+			'amount_minor'         => isset( $body['amount_minor'] ) ? (int) $body['amount_minor'] : -1,
+			'currency'             => strtolower( (string) ( $body['currency'] ?? '' ) ),
+			'currency_exponent'    => isset( $body['currency_exponent'] ) ? (int) $body['currency_exponent'] : 2,
+			'message'              => isset( $body['message'] ) ? sanitize_text_field( substr( (string) $body['message'], 0, 300 ) ) : '',
+			// Identifies one declined attempt (Stripe charge or payment method ID), so it is noted once.
+			'attempt_id'           => isset( $body['attempt_id'] ) && preg_match( '/^[A-Za-z0-9_]{1,100}$/', (string) $body['attempt_id'] ) ? (string) $body['attempt_id'] : '',
+			// The method actually used, e.g. "MobilePay (Stripe)".
+			'payment_method_title' => isset( $body['payment_method_title'] ) ? sanitize_text_field( substr( (string) $body['payment_method_title'], 0, 100 ) ) : '',
 		);
 
 		if ( ! in_array( $input['event'], array( 'succeeded', 'processing', 'failed', 'canceled' ), true )
@@ -292,6 +319,7 @@ final class WCHC_REST_Controller {
 		$summary['subtotal']        = wc_format_decimal( $items_subtotal, wc_get_price_decimals() );
 		$summary['discount_total']  = wc_format_decimal( (float) $order->get_discount_total() + (float) $order->get_discount_tax(), wc_get_price_decimals() );
 		$summary['date_paid']       = $order->get_date_paid() ? $order->get_date_paid()->date( DATE_ATOM ) : null;
+		$summary['coupons']         = array_values( $order->get_coupon_codes() );
 
 		return new WP_REST_Response( $summary, 200 );
 	}
@@ -383,6 +411,26 @@ final class WCHC_REST_Controller {
 		}
 
 		return array_values( $merged );
+	}
+
+	/**
+	 * Validate coupon codes (WooCommerce checks whether they exist and apply).
+	 *
+	 * @param mixed $raw Raw codes.
+	 * @return string[]
+	 */
+	private function parse_coupons( $raw ): array {
+		if ( ! is_array( $raw ) ) {
+			return array();
+		}
+		$codes = array();
+		foreach ( array_slice( $raw, 0, 10 ) as $code ) {
+			$code = is_string( $code ) ? wc_format_coupon_code( wc_sanitize_coupon_code( substr( $code, 0, 100 ) ) ) : '';
+			if ( '' !== $code ) {
+				$codes[ wc_strtolower( $code ) ] = $code;
+			}
+		}
+		return array_values( $codes );
 	}
 
 	/**

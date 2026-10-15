@@ -16,6 +16,7 @@ export function getStripe(): Stripe {
 }
 
 function toLike(pi: Stripe.PaymentIntent): PaymentIntentLike {
+  const method = typeof pi.payment_method === "object" ? pi.payment_method : null;
   return {
     id: pi.id,
     status: pi.status,
@@ -25,14 +26,25 @@ function toLike(pi: Stripe.PaymentIntent): PaymentIntentLike {
     client_secret: pi.client_secret,
     metadata: { ...pi.metadata },
     last_payment_error: pi.last_payment_error
-      ? { message: pi.last_payment_error.message ?? null, code: pi.last_payment_error.code ?? null }
+      ? {
+          message: pi.last_payment_error.message ?? null,
+          code: pi.last_payment_error.code ?? null,
+          charge: pi.last_payment_error.charge ?? null,
+          payment_method_id: pi.last_payment_error.payment_method?.id ?? null,
+        }
+      : null,
+    payment_method: method
+      ? {
+          type: method.type,
+          card: method.card ? { brand: method.card.brand, wallet: method.card.wallet?.type ?? null } : null,
+        }
       : null,
   };
 }
 
 export const stripeGateway: PaymentGateway = {
   async retrieve(id) {
-    return toLike(await getStripe().paymentIntents.retrieve(id));
+    return toLike(await getStripe().paymentIntents.retrieve(id, { expand: ["payment_method"] }));
   },
 
   async create(params, idempotencyKey) {

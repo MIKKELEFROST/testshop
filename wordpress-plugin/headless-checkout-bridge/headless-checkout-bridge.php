@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Headless Checkout Bridge
  * Description:       Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe). Uses WooCommerce's own cart, tax, shipping, order and stock-reservation logic.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WCHC_VERSION', '1.0.0' );
+define( 'WCHC_VERSION', '1.1.0' );
 define( 'WCHC_PATH', plugin_dir_path( __FILE__ ) );
 
 /*
@@ -33,7 +33,11 @@ define( 'WCHC_META_STORE_ID', '_wchc_store_id' );
 define( 'WCHC_META_PAYMENT_INTENT', '_wchc_payment_intent_id' );
 define( 'WCHC_META_PAYMENT_INTENT_HISTORY', '_wchc_payment_intent_history' );
 define( 'WCHC_META_REFUND_REQUIRED', '_wchc_refund_required' );
+define( 'WCHC_META_FAILED_ATTEMPTS', '_wchc_failed_attempts' );
 define( 'WCHC_PAYMENT_METHOD_ID', 'wchc_stripe' );
+
+/** WP-Cron hook that cancels abandoned unpaid headless orders. */
+define( 'WCHC_CLEANUP_HOOK', 'wchc_cancel_unpaid_orders' );
 
 // Declare HPOS compatibility.
 add_action(
@@ -62,5 +66,12 @@ add_action(
 		add_action( 'rest_api_init', array( new WCHC_REST_Controller(), 'register_routes' ) );
 		WCHC_Product_Fields::init();
 		WCHC_Orders::init_hooks();
+	}
+);
+
+register_deactivation_hook(
+	__FILE__,
+	static function () {
+		wp_clear_scheduled_hook( WCHC_CLEANUP_HOOK );
 	}
 );

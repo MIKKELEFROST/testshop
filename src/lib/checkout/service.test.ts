@@ -17,6 +17,7 @@ const request: CheckoutRequest = {
   shippingRateId: "flat_rate:1",
   expectedTotal: "547.00",
   customerNote: "",
+  coupons: [],
 };
 
 function order(overrides: Partial<WcOrderSummary> = {}): WcOrderSummary {
@@ -194,12 +195,31 @@ describe("startCheckout", () => {
     expect((await startCheckout(request, ctx, { backend: same.backend, gateway: new FakeStripe() })).type).toBe("already_paid");
   });
 
+  it("passes coupon codes to WooCommerce and reports a rejected coupon without creating a payment", async () => {
+    expect(toCreateOrderInput({ ...request, coupons: ["SOMMER10"] }, ctx).coupons).toEqual(["SOMMER10"]);
+
+    const stripe = new FakeStripe();
+    const quote = { totals: { total: "547.00" } } as unknown as WcQuote;
+    for (const code of ["coupon_invalid", "coupon_unavailable"]) {
+      const woo = fakeBackend([{ status: 409, body: { code, message: "Rabatkoden er brugt.", quote } }]);
+      const outcome = await startCheckout({ ...request, coupons: ["SOMMER10"] }, ctx, { backend: woo.backend, gateway: stripe });
+      expect(outcome).toMatchObject({ type: "coupon_invalid", message: "Rabatkoden er brugt.", quote });
+    }
+    expect(stripe.calls.create).toBe(0);
+  });
+
   it("cancels the PaymentIntent of a replaced (expired) order", async () => {
     const stripe = new FakeStripe();
     const old = await stripe.create({ amount: 100, currency: "dkk", metadata: {}, description: "old" }, "old");
     const woo = fakeBackend([{ status: 201, body: { result: "created", order: order({ id: 102 }), previous_payment_intent_id: old.id } }]);
     await startCheckout(request, ctx, { backend: woo.backend, gateway: stripe });
     expect((await stripe.retrieve(old.id)).status).toBe("canceled");
+
+    // Also when the new checkout itself is refused (the old order was cancelled anyway).
+    const older = await stripe.create({ amount: 100, currency: "dkk", metadata: {}, description: "older" }, "older");
+    const refused = fakeBackend([{ status: 409, body: { code: "total_changed", message: "x", quote: {} as WcQuote, previous_payment_intent_id: older.id } }]);
+    await startCheckout(request, ctx, { backend: refused.backend, gateway: stripe });
+    expect((await stripe.retrieve(older.id)).status).toBe("canceled");
   });
 });
 
@@ -217,6 +237,31 @@ describe("finalizePayment", () => {
     const outcome = await finalizePayment(await paidIntent(stripe, meta), { backend: woo.backend, gateway: stripe });
     expect(outcome).toMatchObject({ type: "applied", result: "paid" });
     expect(woo.calls.events[0]).toMatchObject({ event: "succeeded", amount_minor: 54700, currency: "dkk", currency_exponent: 2 });
+  });
+
+  it("tells WooCommerce which payment method the customer used", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const pi = await stripe.create({ amount: 54700, currency: "dkk", metadata: meta, description: "x" }, "mobilepay");
+    stripe.succeed(pi.id, { type: "mobilepay" });
+    await finalizePayment(await stripe.retrieve(pi.id), { backend: woo.backend, gateway: stripe });
+    expect(woo.calls.events[0]).toMatchObject({ event: "succeeded", payment_method_title: "MobilePay (Stripe)" });
+  });
+
+  it("identifies each declined attempt so WooCommerce notes it once", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const pi = await stripe.create({ amount: 54700, currency: "dkk", metadata: meta, description: "x" }, "declined");
+    stripe.decline(pi.id);
+    const first = await stripe.retrieve(pi.id);
+    await finalizePayment(first, { backend: woo.backend, gateway: stripe });
+    stripe.decline(pi.id);
+    await finalizePayment(await stripe.retrieve(pi.id), { backend: woo.backend, gateway: stripe });
+
+    const [a, b] = woo.calls.events as { event: string; message: string; attempt_id: string; payment_method_title?: string }[];
+    expect(a).toMatchObject({ event: "failed", message: "card_declined", attempt_id: first.last_payment_error?.charge });
+    expect(a!.payment_method_title).toBeUndefined();
+    expect(b!.attempt_id).not.toBe(a!.attempt_id);
   });
 
   it("ignores payments from other shops sharing the Stripe account", async () => {

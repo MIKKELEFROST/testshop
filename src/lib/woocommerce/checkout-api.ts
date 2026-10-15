@@ -35,6 +35,9 @@ export type QuoteInput = {
   address: Partial<Pick<AddressInput, "country" | "postcode" | "city" | "address_1" | "address_2" | "state">>;
   shipping_rate_id?: string | null;
   checkout_id?: string;
+  coupons?: string[];
+  /** Needed for coupons restricted to certain e-mail addresses. */
+  email?: string;
 };
 
 export type CreateOrderInput = {
@@ -49,6 +52,7 @@ export type CreateOrderInput = {
   payment_method_title: string;
   customer_ip?: string;
   customer_user_agent?: string;
+  coupons: string[];
 };
 
 export type PaymentEventInput = {
@@ -58,6 +62,10 @@ export type PaymentEventInput = {
   currency: string;
   currency_exponent: number;
   message?: string;
+  /** Identifies one declined attempt, so the order notes it once. */
+  attempt_id?: string;
+  /** The payment method actually used, e.g. "MobilePay (Stripe)". */
+  payment_method_title?: string;
 };
 
 export type PluginResult = { status: number; body: PluginResponse };

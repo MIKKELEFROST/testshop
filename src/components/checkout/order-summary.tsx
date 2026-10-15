@@ -45,7 +45,12 @@ export function OrderSummary({
 
       <dl className="mt-6 space-y-2.5 border-t border-line pt-5 text-sm">
         <Row label="Subtotal" value={quote ? formatPrice(quote.totals.subtotal) : null} loading={loading} />
-        {quote && Number(quote.totals.discount) > 0 && <Row label="Rabat" value={`−${formatPrice(quote.totals.discount)}`} />}
+        {quote && Number(quote.totals.discount) > 0 && (
+          <Row
+            label={quote.coupons.length > 0 ? `Rabat (${quote.coupons.map((c) => c.code.toUpperCase()).join(", ")})` : "Rabat"}
+            value={`−${formatPrice(quote.totals.discount)}`}
+          />
+        )}
         {quote?.needsShipping !== false && (
           <Row
             label="Fragt"

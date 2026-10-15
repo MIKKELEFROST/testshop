@@ -22,15 +22,40 @@ final class WCHC_Cart_Builder {
 	private $errors = array();
 
 	/**
+	 * Coupon codes that could not be applied, with WooCommerce's reason.
+	 *
+	 * @var array<int,array{code:string,message:string}>
+	 */
+	private $coupon_errors = array();
+
+	/**
+	 * Pending order of this checkout session whose own coupon holds must not count as "used".
+	 *
+	 * @var WC_Order|null
+	 */
+	private $own_order = null;
+
+	/**
+	 * Coupons the own order holds (coupon ID => true).
+	 *
+	 * @var array<int,bool>
+	 */
+	private $own_holds = array();
+
+	/**
 	 * Build the cart.
 	 *
 	 * @param array       $items             List of [product_id, variation_id, quantity].
-	 * @param array       $address           Destination address (country, postcode, city, ...).
+	 * @param array       $address           Destination address (country, postcode, city, ..., optional email).
 	 * @param string|null $shipping_rate_id  Requested shipping rate ID.
-	 * @param int         $own_order_id      Pending order for this checkout; its own stock hold is ignored.
+	 * @param int         $own_order_id      Pending order for this checkout; its own stock and coupon holds are ignored.
+	 * @param string[]    $coupons           Coupon codes to apply.
 	 */
-	public function build( array $items, array $address, ?string $shipping_rate_id, int $own_order_id = 0 ): void {
-		$this->errors = array();
+	public function build( array $items, array $address, ?string $shipping_rate_id, int $own_order_id = 0, array $coupons = array() ): void {
+		$this->errors        = array();
+		$this->coupon_errors = array();
+		$this->own_order     = $own_order_id > 0 ? wc_get_order( $own_order_id ) : null;
+		$this->own_order     = $this->own_order instanceof WC_Order ? $this->own_order : null;
 
 		// Calculate as a guest in an isolated, non-persistent session.
 		wp_set_current_user( 0 );
@@ -63,6 +88,133 @@ final class WCHC_Cart_Builder {
 		}
 
 		WC()->cart->calculate_totals();
+
+		if ( $coupons && ! WC()->cart->is_empty() ) {
+			// The session's own pending order already holds its coupons. That hold must not make a
+			// usage-limited coupon look used up when the same customer pays again. WooCommerce
+			// validates coupons again while calculating totals, so this covers both steps.
+			$this->own_holds = $this->own_coupon_holds();
+			add_filter( 'woocommerce_coupon_get_usage_count', array( $this, 'exclude_own_hold' ), 10, 2 );
+			try {
+				$this->apply_coupons( $coupons );
+				// A free-shipping coupon resets the chosen method; keep the customer's choice when it is still offered.
+				if ( $shipping_rate_id ) {
+					WC()->session->set( 'chosen_shipping_methods', array( 0 => $shipping_rate_id ) );
+				}
+				WC()->cart->calculate_totals();
+			} finally {
+				remove_filter( 'woocommerce_coupon_get_usage_count', array( $this, 'exclude_own_hold' ), 10 );
+			}
+		}
+	}
+
+	/**
+	 * Filter callback: WooCommerce adds held (tentative) usages to a coupon's usage count when
+	 * checking its usage limit, including the hold of this session's own order. Discount that one.
+	 *
+	 * @param mixed     $count  Usage count.
+	 * @param WC_Coupon $coupon Coupon.
+	 * @return mixed
+	 */
+	public function exclude_own_hold( $count, $coupon ) {
+		return $coupon instanceof WC_Coupon && isset( $this->own_holds[ $coupon->get_id() ] ) ? (int) $count - 1 : $count;
+	}
+
+	/**
+	 * Apply coupon codes one by one so each rejection can be reported with its reason.
+	 *
+	 * Minimum spend and product restrictions need the cart totals, so this runs after the
+	 * first calculate_totals().
+	 *
+	 * @param string[] $codes Coupon codes.
+	 */
+	private function apply_coupons( array $codes ): void {
+		foreach ( $codes as $code ) {
+			wc_clear_notices();
+			if ( WC()->cart->apply_coupon( $code ) ) {
+				continue;
+			}
+			$messages = array();
+			foreach ( wc_get_notices( 'error' ) as $notice ) {
+				$messages[] = wp_strip_all_tags( html_entity_decode( is_array( $notice ) ? ( $notice['notice'] ?? '' ) : (string) $notice ) );
+			}
+			$this->coupon_errors[] = array(
+				'code'    => $code,
+				'message' => $messages ? implode( ' ', $messages ) : __( 'Rabatkoden kan ikke bruges.', 'headless-checkout-bridge' ),
+			);
+		}
+		wc_clear_notices();
+
+		// An individual-use coupon applied later removes earlier ones without an error notice.
+		$applied = array_map( 'wc_strtolower', WC()->cart->get_applied_coupons() );
+		$failed  = array_map( 'wc_strtolower', wp_list_pluck( $this->coupon_errors, 'code' ) );
+		foreach ( $codes as $code ) {
+			$key = wc_strtolower( $code );
+			if ( ! in_array( $key, $applied, true ) && ! in_array( $key, $failed, true ) ) {
+				$this->coupon_errors[] = array(
+					'code'    => $code,
+					'message' => __( 'Rabatkoden kan ikke bruges sammen med de andre rabatkoder.', 'headless-checkout-bridge' ),
+				);
+			}
+		}
+	}
+
+	/**
+	 * Coupons for which the session's own pending order holds a still-valid usage-limit hold.
+	 *
+	 * @return array<int,bool> Coupon ID => true.
+	 */
+	private function own_coupon_holds(): array {
+		if ( ! $this->own_order ) {
+			return array();
+		}
+		$holds = array();
+		foreach ( (array) $this->own_order->get_meta( '_coupon_held_keys' ) as $coupon_id => $key ) {
+			// Hold keys look like "_coupon_held_{expiry timestamp}_{random}" and live as coupon meta.
+			if ( is_string( $key ) && preg_match( '/^_coupon_held_(\d+)_/', $key, $match ) && (int) $match[1] > time()
+				&& metadata_exists( 'post', (int) $coupon_id, $key ) ) {
+				$holds[ (int) $coupon_id ] = true;
+			}
+		}
+		return $holds;
+	}
+
+	/**
+	 * Coupon codes WooCommerce could not apply.
+	 *
+	 * @return array<int,array{code:string,message:string}>
+	 */
+	public function get_coupon_errors(): array {
+		return $this->coupon_errors;
+	}
+
+	/**
+	 * Enforce "usage limit per user" for a guest e-mail address, as WooCommerce's own checkout
+	 * does once the billing e-mail is known. Rejected coupons are removed from the cart.
+	 *
+	 * Call after the session's own coupon holds have been released.
+	 *
+	 * @param string $email Billing e-mail.
+	 */
+	public function enforce_guest_coupon_limits( string $email ): void {
+		$email   = wc_strtolower( sanitize_email( $email ) );
+		$removed = false;
+		foreach ( WC()->cart->get_applied_coupons() as $code ) {
+			$coupon     = new WC_Coupon( $code );
+			$limit      = $coupon->get_usage_limit_per_user();
+			$data_store = $coupon->get_data_store();
+			if ( $limit > 0 && '' !== $email && $data_store && $data_store->get_usage_by_email( $coupon, $email ) >= $limit ) {
+				WC()->cart->remove_coupon( $code );
+				$this->coupon_errors[] = array(
+					'code'    => $code,
+					'message' => $coupon->get_coupon_error( WC_Coupon::E_WC_COUPON_USAGE_LIMIT_REACHED ),
+				);
+				$removed = true;
+			}
+		}
+		if ( $removed ) {
+			WC()->cart->calculate_totals();
+		}
 	}
 
 	/**
@@ -141,6 +293,15 @@ final class WCHC_Cart_Builder {
 			}
 		}
 
+		$coupons = array();
+		foreach ( $cart->get_applied_coupons() as $code ) {
+			$coupons[] = array(
+				'code'         => (string) $code,
+				'discount'     => $this->money( $cart->get_coupon_discount_amount( $code, true ) ),
+				'discount_tax' => $this->money( $cart->get_coupon_discount_tax_amount( $code ) ),
+			);
+		}
+
 		return array(
 			'currency'           => get_woocommerce_currency(),
 			'price_decimals'     => $decimals,
@@ -154,6 +315,7 @@ final class WCHC_Cart_Builder {
 				'subtotal'     => $this->money( $totals['subtotal'] ?? 0 ),
 				'subtotal_tax' => $this->money( $totals['subtotal_tax'] ?? 0 ),
 				'discount'     => $this->money( $totals['discount_total'] ?? 0 ),
+				'discount_tax' => $this->money( $totals['discount_tax'] ?? 0 ),
 				'shipping'     => $this->money( $totals['shipping_total'] ?? 0 ),
 				'shipping_tax' => $this->money( $totals['shipping_tax'] ?? 0 ),
 				'fees'         => $this->money( $totals['fee_total'] ?? 0 ),
@@ -161,6 +323,9 @@ final class WCHC_Cart_Builder {
 				'total'        => $this->money( $cart->get_total( 'edit' ) ),
 			),
 			'errors'             => $this->errors,
+			'coupons_enabled'    => wc_coupons_enabled(),
+			'coupons'            => $coupons,
+			'coupon_errors'      => $this->coupon_errors,
 			'cart_hash'          => $cart->get_cart_hash(),
 		);
 	}
@@ -196,6 +361,8 @@ final class WCHC_Cart_Builder {
 			$customer->{"set_shipping_{$field}"}( $value );
 			$customer->{"set_billing_{$field}"}( $value );
 		}
+		// WooCommerce checks coupon e-mail restrictions against the customer's billing e-mail.
+		$customer->set_billing_email( (string) ( $address['email'] ?? '' ) );
 		$customer->set_calculated_shipping( true );
 	}
 

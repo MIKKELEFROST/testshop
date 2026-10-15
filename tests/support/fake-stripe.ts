@@ -1,4 +1,4 @@
-import type { CreatePaymentIntentParams, PaymentGateway, PaymentIntentLike } from "@/lib/stripe/gateway";
+import type { CreatePaymentIntentParams, PaymentGateway, PaymentIntentLike, PaymentMethodLike } from "@/lib/stripe/gateway";
 
 /**
  * In-memory stand-in for Stripe's PaymentIntents API with the behaviour the checkout
@@ -66,21 +66,25 @@ export class FakeStripe implements PaymentGateway {
   }
 
   /** What Stripe.js + the bank would do when the customer confirms. */
-  succeed(id: string) {
+  succeed(id: string, method: PaymentMethodLike = { type: "card", card: { brand: "visa", wallet: null } }) {
     const pi = this.require(id);
     pi.status = "succeeded";
     pi.amount_received = pi.amount;
     pi.last_payment_error = null;
+    pi.payment_method = method;
   }
 
+  /** Each call is a new attempt (a new failed charge), like a customer trying again. */
   decline(id: string, code = "card_declined") {
     const pi = this.require(id);
     pi.status = "requires_payment_method";
-    pi.last_payment_error = { code, message: "Your card was declined." };
+    pi.last_payment_error = { code, message: "Your card was declined.", charge: `ch_fake${++this.seq}`, payment_method_id: `pm_fake${this.seq}` };
   }
 
-  process(id: string) {
-    this.require(id).status = "processing";
+  process(id: string, method: PaymentMethodLike = { type: "mobilepay" }) {
+    const pi = this.require(id);
+    pi.status = "processing";
+    pi.payment_method = method;
   }
 
   private require(id: string) {

@@ -23,6 +23,11 @@ export type ClientQuote = {
   shippingRateId: string | null;
   totals: { subtotal: string; discount: string; shipping: string; tax: string; total: string };
   errors: { code: string; message: string; productId: number; variationId: number; available: number | null }[];
+  couponsEnabled: boolean;
+  /** Coupons WooCommerce applied, with their discount. */
+  coupons: { code: string; discount: string }[];
+  /** Requested coupons WooCommerce rejected, with its reason. */
+  couponErrors: { code: string; message: string }[];
 };
 
 const EXP = 4; // WooCommerce never returns more than 4 decimals.
@@ -57,7 +62,7 @@ export function toClientQuote(quote: WcQuote): ClientQuote {
     shippingRateId: quote.shipping_rate_id,
     totals: {
       subtotal: withTax(quote.totals.subtotal, quote.totals.subtotal_tax),
-      discount: trim(quote.totals.discount),
+      discount: withTax(quote.totals.discount, quote.totals.discount_tax),
       shipping: withTax(quote.totals.shipping, quote.totals.shipping_tax),
       tax: trim(quote.totals.tax),
       // Passed back unchanged as `expectedTotal` when the customer pays.
@@ -70,5 +75,8 @@ export function toClientQuote(quote: WcQuote): ClientQuote {
       variationId: e.variation_id,
       available: e.available ?? null,
     })),
+    couponsEnabled: quote.coupons_enabled,
+    coupons: quote.coupons.map((c) => ({ code: c.code, discount: withTax(c.discount, c.discount_tax) })),
+    couponErrors: quote.coupon_errors,
   };
 }

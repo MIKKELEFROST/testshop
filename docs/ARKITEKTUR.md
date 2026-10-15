@@ -37,13 +37,16 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
    │
    ▼
  POST /api/checkout                         (same-origin, rate limit, Zod)
-   │  sender kurv + adresse + fragtmetode + "den total kunden så"
+   │  sender kurv + adresse + fragtmetode + rabatkoder + "den total kunden så"
    ▼
  Plugin: POST /orders  (lås pr. checkout-session)
-   • bygger WooCommerce-kurv → priser, lager, moms, fragt beregnes af WooCommerce
+   • bygger WooCommerce-kurv → priser, lager, rabatkoder, moms, fragt beregnes af WooCommerce
+   • rabatkode afvist? → 409 coupon_invalid + ny quote med begrundelsen
    • total ≠ den kunden så? → 409 total_changed + ny quote (kunden skal bekræfte)
    • udsolgt? → 409/422 (ingen ordre)
    • opretter/genoptager ÉN ordre "pending" pr. session + reserverer lager (60 min*)
+     og rabatkoder med brugsgrænse. Er sessionens ordre ældre end 60 min*, annulleres
+     den, og der oprettes en ny.
    ▼
  Next.js: sikrer ÉN PaymentIntent pr. ordre for præcis ordretotalen
    • idempotency key = ordre + nøgle + beløb  → ingen dubletter ved retries
@@ -56,16 +59,17 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
  Retur-URL       ──►  /ordre/bekraeftelse (hurtig vej, samme kode)
    • PaymentIntent hentes FRISK fra Stripe (event-data og URL stoles ikke på)
    • Plugin: POST /orders/{id}/payment (lås pr. ordre, ordrenøgle kræves)
-       succeeded → beløb + valuta tjekkes mod ordren → payment_complete()
+       succeeded → beløb + valuta tjekkes mod ordren → betalingsmetode (f.eks. MobilePay)
+                   gemmes → payment_complete()
                    → WooCommerce trækker lager én gang, frigiver reservation, sender mails
        processing → "on-hold" (lager trækkes, async betalingsmetoder)
-       failed     → note på ordren, ordren forbliver betalbar (kunden kan prøve igen)
+       failed     → note på ordren (én gang pr. forsøg), ordren forbliver betalbar
        canceled   → "cancelled" → reservation frigives / lager gendannes
    ▼
  Bekræftelsesside: ordrenummer, status, varer, levering. Kurven tømmes, ny session.
 ```
 
-\* Bruger WooCommerces indstilling "Hold lager (minutter)". Er den tom, reserverer pluginet i 15 minutter. Ubetalte ordrer annulleres automatisk af WooCommerce efter samme periode.
+\* Bruger WooCommerces indstilling "Hold lager (minutter)". Er den tom, reserverer pluginet i 15 minutter. Pluginet annullerer selv ubetalte headless-ordrer efter "Hold lager"-tiden (60 minutter, hvis den er tom), og en ordre ældre end det genoptages ikke, men erstattes af en ny.
 
 ## Garantier og hvordan de opnås
 

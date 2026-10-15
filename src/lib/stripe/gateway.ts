@@ -21,7 +21,20 @@ export type PaymentIntentLike = {
   currency: string;
   client_secret: string | null;
   metadata: Record<string, string>;
-  last_payment_error?: { message?: string | null; code?: string | null } | null;
+  last_payment_error?: {
+    message?: string | null;
+    code?: string | null;
+    /** Failed charge (card errors) or payment method: identifies one attempt. */
+    charge?: string | null;
+    payment_method_id?: string | null;
+  } | null;
+  /** Set once the customer has chosen a method (only when retrieved with it expanded). */
+  payment_method?: PaymentMethodLike | null;
+};
+
+export type PaymentMethodLike = {
+  type: string;
+  card?: { brand?: string | null; wallet?: string | null } | null;
 };
 
 export type CreatePaymentIntentParams = {
@@ -38,6 +51,7 @@ export type CreatePaymentIntentParams = {
 };
 
 export interface PaymentGateway {
+  /** Includes the payment method the customer used. */
   retrieve(id: string): Promise<PaymentIntentLike>;
   create(params: CreatePaymentIntentParams, idempotencyKey: string): Promise<PaymentIntentLike>;
   updateAmount(id: string, amount: number): Promise<PaymentIntentLike>;

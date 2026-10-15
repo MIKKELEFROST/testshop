@@ -1,6 +1,7 @@
 import { storeConfig } from "@/config/store";
 import { stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { PAYABLE_STATUSES, type PaymentGateway, type PaymentIntentLike } from "@/lib/stripe/gateway";
+import { paymentMethodTitle } from "@/lib/stripe/payment-method";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
 import type {
   AddressInput,
@@ -42,6 +43,8 @@ export type StartCheckoutOutcome =
   | { type: "total_changed"; message: string; quote: WcQuote }
   | { type: "cart_invalid"; message: string; quote?: WcQuote }
   | { type: "out_of_stock"; message: string; quote?: WcQuote }
+  /** A coupon was rejected (e.g. its usage limit was reached): the quote shows the total without it. */
+  | { type: "coupon_invalid"; message: string; quote?: WcQuote }
   | { type: "already_paid"; order: OrderRef }
   /** The session's order is paid but this is a different cart: start a new checkout session. */
   | { type: "new_session_required" }
@@ -62,12 +65,14 @@ export async function startCheckout(
   const input = toCreateOrderInput(request, context);
   const { status, body } = await deps.backend.createOrder(input);
 
+  if (body.previous_payment_intent_id) {
+    // A previous order of this session was cancelled (e.g. unpaid for too long) and had a
+    // PaymentIntent: make sure it can never be paid.
+    await deps.gateway.cancelIfPossible(body.previous_payment_intent_id).catch(() => undefined);
+  }
+
   if (status === 200 || status === 201) {
     if (!body.order) throw new CheckoutError("Order response without order");
-    if (body.previous_payment_intent_id) {
-      // A previous, cancelled order of this session had a PaymentIntent: make sure it can never be paid.
-      await deps.gateway.cancelIfPossible(body.previous_payment_intent_id).catch(() => undefined);
-    }
     return ensurePaymentIntent(body.order, request, deps);
   }
 
@@ -81,6 +86,9 @@ export async function startCheckout(
       return { type: "cart_invalid", message, quote: body.quote };
     case "out_of_stock":
       return { type: "out_of_stock", message, quote: body.quote };
+    case "coupon_invalid":
+    case "coupon_unavailable":
+      return { type: "coupon_invalid", message, quote: body.quote };
     case "already_paid":
       if (!body.order) throw new CheckoutError("already_paid without order");
       return sameItems(body.order, request) ? { type: "already_paid", order: ref(body.order) } : { type: "new_session_required" };
@@ -223,6 +231,7 @@ export function toCreateOrderInput(request: CheckoutRequest, context: CheckoutCo
     payment_method_title: storeConfig.paymentMethodTitle,
     customer_ip: context.ip && context.ip !== "unknown" ? context.ip : undefined,
     customer_user_agent: context.userAgent?.slice(0, 500),
+    coupons: request.coupons,
   };
 }
 
@@ -263,13 +272,17 @@ export async function finalizePayment(pi: PaymentIntentLike, deps: CheckoutDeps)
   const event = paymentEventFor(pi);
   if (!event) return { type: "ignored", reason: `status_${pi.status}` };
 
+  const failure = event === "failed" ? pi.last_payment_error : null;
   const { status, body } = await deps.backend.sendPaymentEvent(orderId, orderKey, {
     event,
     payment_intent_id: pi.id,
     amount_minor: event === "succeeded" ? pi.amount_received : pi.amount,
     currency: pi.currency,
     currency_exponent: stripeCurrencyExponent(pi.currency),
-    message: event === "failed" ? (pi.last_payment_error?.code ?? pi.last_payment_error?.message ?? undefined) : undefined,
+    message: failure ? (failure.code ?? failure.message ?? undefined) : undefined,
+    attempt_id: failure ? (failure.charge ?? failure.payment_method_id ?? undefined) : undefined,
+    payment_method_title:
+      event === "succeeded" || event === "processing" ? paymentMethodTitle(pi.payment_method) : undefined,
   });
 
   if (status === 200) {

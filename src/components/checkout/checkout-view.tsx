@@ -16,6 +16,7 @@ import type { ClientQuote } from "@/lib/checkout/quote";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { getStripeClient } from "@/lib/stripe/client";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
+import { CouponField } from "./coupon-field";
 import { OrderSummary } from "./order-summary";
 import { useQuote } from "./use-quote";
 
@@ -106,6 +107,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const [billing, setBilling] = useState<Address>(emptyAddress);
   const [note, setNote] = useState("");
   const [shippingRateId, setShippingRateId] = useState<string | null>(null);
+  const [couponCodes, setCouponCodes] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -115,6 +117,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const inFlight = useRef(false);
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
+  const emailValid = contactSchema.shape.email.safeParse(contact.email).success;
   const { quote, loading: quoteLoading, error: quoteError, setQuote } = useQuote(
     lines,
     {
@@ -125,6 +128,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
     },
     shippingRateId,
     hydrated,
+    { codes: couponCodes, email: emailValid ? contact.email.trim() : undefined },
   );
 
   // Follow WooCommerce's choice when the selected rate is not (or no longer) available.
@@ -183,6 +187,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
       shippingRateId: quote?.needsShipping ? selectedRateId : null,
       expectedTotal: quote?.totals.total ?? "",
       customerNote: note,
+      // Only codes WooCommerce applied to the total the customer sees.
+      coupons: quote?.coupons.map((c) => c.code) ?? [],
     };
 
     const parsed = checkoutRequestSchema.safeParse(payload);
@@ -270,6 +276,12 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
       if (data.type === "total_changed") {
         if (data.quote) setQuote(data.quote);
         setNotice("Prisen er ændret, siden du åbnede kassen. Kontrollér den nye total, og tryk på Betal igen.");
+        return;
+      }
+
+      if (data.type === "coupon_invalid") {
+        if (data.quote) setQuote(data.quote);
+        setNotice(`${data.message} Kontrollér totalen, og tryk på Betal igen.`);
         return;
       }
 
@@ -372,7 +384,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   );
 
   return (
-    <div className="mt-6 grid gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-14">
+    <div className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-14">
       <details className="group rounded-[var(--radius-card)] border border-line bg-surface lg:hidden">
         <summary className="flex cursor-pointer list-none items-center justify-between p-4 text-sm font-medium">
           <span className="underline underline-offset-4 group-open:hidden">Vis ordreoversigt</span>
@@ -467,6 +479,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               )}
             </div>
           </section>
+        )}
+
+        {quote?.couponsEnabled && (
+          <CouponField quote={quote} loading={quoteLoading} requested={couponCodes} onChange={setCouponCodes} />
         )}
 
         <section aria-labelledby="betaling">
@@ -585,7 +601,12 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
 type CheckoutResponse =
   | { type: "ready"; clientSecret: string; returnPath: string; order: { id: number; number: string; total: string } }
   | { type: "already_paid"; returnPath: string }
-  | { type: "total_changed" | "cart_invalid" | "out_of_stock"; message: string; quote: ClientQuote | null; fields?: undefined }
+  | {
+      type: "total_changed" | "cart_invalid" | "out_of_stock" | "coupon_invalid";
+      message: string;
+      quote: ClientQuote | null;
+      fields?: undefined;
+    }
   | { type?: undefined; code: string; message: string; fields?: Record<string, string>; quote?: undefined }
   | { type: "busy"; message: string; fields?: undefined; quote?: undefined };
 

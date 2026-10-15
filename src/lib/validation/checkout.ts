@@ -51,6 +51,10 @@ export const contactSchema = z.object({
     .default(""),
 });
 
+/** WooCommerce validates the code itself; this only bounds the input. */
+export const couponCodeSchema = z.string().trim().min(1, { error: "Indtast en rabatkode." }).max(100);
+const couponsSchema = z.array(couponCodeSchema).max(5);
+
 export const quoteRequestSchema = z.object({
   items: cartLinesSchema,
   address: z
@@ -68,6 +72,9 @@ export const quoteRequestSchema = z.object({
     .max(100)
     .nullable()
     .optional(),
+  coupons: couponsSchema.optional().default([]),
+  /** Only sent with coupons: some are restricted to certain e-mail addresses. */
+  email: z.email().max(200).optional(),
 });
 
 export const checkoutRequestSchema = z
@@ -85,6 +92,7 @@ export const checkoutRequestSchema = z
     /** The total shown to the customer. Used only to detect price changes. */
     expectedTotal: z.string().regex(/^\d{1,9}(\.\d{1,4})?$/),
     customerNote: z.string().trim().max(500).optional().default(""),
+    coupons: couponsSchema.optional().default([]),
   })
   .refine((value) => value.billingSameAsShipping || value.billing !== undefined, {
     error: "Faktureringsadressen mangler.",

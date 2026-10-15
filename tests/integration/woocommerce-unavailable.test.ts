@@ -23,6 +23,7 @@ const request = {
   shippingRateId: "flat_rate:1",
   expectedTotal: "298.00",
   customerNote: "",
+  coupons: [],
 };
 
 describe("WooCommerce unavailable", () => {

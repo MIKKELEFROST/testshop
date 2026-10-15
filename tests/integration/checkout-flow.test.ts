@@ -5,15 +5,21 @@
  *
  *   ./scripts/local-woocommerce/setup.sh && npm run test:integration
  */
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eventFor, FakeStripe } from "../support/fake-stripe";
 import {
+  backdateOrder,
   cancelOpenOrders,
+  createCoupon,
+  deleteCoupon,
   expireStockHolds,
+  getCoupon,
   getOrder,
   getProduct,
   orderNotes,
+  pluginStatus,
   productBySku,
+  runUnpaidOrderCleanup,
   updateProduct,
   configureLocalWooEnv,
   variationBySku,
@@ -39,23 +45,28 @@ function newCheckoutId() {
 
 type Line = { productId: number; variationId?: number; quantity: number };
 
-async function quoteFor(lines: Line[], rateMethod = "flat_rate") {
+const customerEmail = "integration@example.com";
+
+/** Quote as the storefront requests it; `checkoutId` identifies the session's own pending order. */
+async function quoteFor(lines: Line[], rateMethod = "flat_rate", coupons: string[] = [], email = customerEmail, checkoutId?: string) {
   const items = lines.map((l) => ({ product_id: l.productId, variation_id: l.variationId ?? 0, quantity: l.quantity }));
-  const first = await fetchQuote({ items, address: { country: "DK", postcode: address.postcode, city: address.city } });
+  const where = { country: "DK", postcode: address.postcode, city: address.city };
+  const first = await fetchQuote({ items, address: where, coupons, email, checkout_id: checkoutId });
   const rate = first.shipping_rates.find((r) => r.method_id === rateMethod) ?? first.shipping_rates[0];
-  return fetchQuote({ items, address: { country: "DK", postcode: address.postcode, city: address.city }, shipping_rate_id: rate?.id ?? null });
+  return fetchQuote({ items, address: where, shipping_rate_id: rate?.id ?? null, coupons, email, checkout_id: checkoutId });
 }
 
-async function requestFor(lines: Line[], rateMethod = "flat_rate"): Promise<CheckoutRequest> {
-  const quote = await quoteFor(lines, rateMethod);
+async function requestFor(lines: Line[], rateMethod = "flat_rate", coupons: string[] = [], checkoutId?: string): Promise<CheckoutRequest> {
+  const quote = await quoteFor(lines, rateMethod, coupons, customerEmail, checkoutId);
   return {
     items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId ?? 0, quantity: l.quantity })),
-    contact: { email: "integration@example.com", phone: "12345678" },
+    contact: { email: customerEmail, phone: "12345678" },
     shipping: address,
     billingSameAsShipping: true,
     shippingRateId: quote.shipping_rate_id,
     expectedTotal: quote.totals.total,
     customerNote: "",
+    coupons,
   };
 }
 
@@ -383,6 +394,184 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       const result = await handleStripeEvent(eventFor(pi, "payment_intent.succeeded"), { backend, gateway: stripe });
       expect(result.outcome).toEqual({ type: "ignored", reason: "other_store" });
       expect((await getOrder(ready.order.id)).status).toBe("pending");
+    });
+  });
+
+  describe("coupons", () => {
+    const created: number[] = [];
+    async function coupon(data: Record<string, unknown>) {
+      const c = await createCoupon({ code: `it${Date.now().toString(36)}${created.length}`, discount_type: "percent", amount: "10", ...data });
+      created.push(c.id);
+      return c;
+    }
+    afterAll(async () => {
+      for (const id of created) await deleteCoupon(id).catch(() => undefined);
+    });
+
+    it("applies a WooCommerce coupon to the quote, the order and the payment", async () => {
+      const { id, code } = await coupon({});
+      const quote = await quoteFor([{ productId: ids.tshirt, quantity: 1 }], "flat_rate", [code.toUpperCase()]);
+      // 249 incl. VAT, 10 % off = 24.90 (19.92 + 4.98 VAT); + GLS 49 = 273.10
+      expect(quote.coupons).toEqual([{ code, discount: "19.92", discount_tax: "4.98" }]);
+      expect(quote.coupon_errors).toEqual([]);
+      expect(quote.totals).toMatchObject({ discount: "19.92", discount_tax: "4.98", total: "273.10" });
+
+      const stripe = new FakeStripe();
+      const outcome = await startCheckout(await requestFor([{ productId: ids.tshirt, quantity: 1 }], "flat_rate", [code]), { checkoutId: newCheckoutId() }, { backend, gateway: stripe });
+      if (outcome.type !== "ready") throw new Error(`Expected ready, got ${outcome.type}`);
+      expect((await stripe.retrieve(outcome.paymentIntentId)).amount).toBe(27310);
+      const order = await getOrder(outcome.order.id);
+      expect(order.total).toBe("273.10");
+      expect(order.coupon_lines.map((c) => c.code)).toEqual([code]);
+
+      stripe.succeed(outcome.paymentIntentId);
+      await handleStripeEvent(eventFor({ id: outcome.paymentIntentId }, "payment_intent.succeeded"), { backend, gateway: stripe });
+      expect((await getOrder(outcome.order.id)).status).toBe("processing");
+      expect((await getCoupon(id)).usage_count).toBe(1);
+    });
+
+    it("reports unknown and inapplicable coupons with WooCommerce's reason, without blocking the cart", async () => {
+      const { code: tooBig } = await coupon({ minimum_amount: "1000" });
+      const quote = await quoteFor([{ productId: ids.tshirt, quantity: 1 }], "flat_rate", ["findes-ikke-123", tooBig]);
+      expect(quote.errors).toEqual([]);
+      expect(quote.coupons).toEqual([]);
+      expect(quote.coupon_errors.map((e) => e.code)).toEqual(["findes-ikke-123", tooBig]);
+      expect(quote.coupon_errors.every((e) => e.message.length > 0)).toBe(true);
+      expect(quote.totals.total).toBe("298.00");
+
+      // Paying with a rejected code is refused, never charged without the customer seeing the total.
+      const stripe = new FakeStripe();
+      const request = { ...(await requestFor([{ productId: ids.tshirt, quantity: 1 }])), coupons: ["findes-ikke-123"] };
+      const outcome = await startCheckout(request, { checkoutId: newCheckoutId() }, { backend, gateway: stripe });
+      expect(outcome.type).toBe("coupon_invalid");
+      expect(stripe.calls.create).toBe(0);
+    });
+
+    it("checks e-mail restricted coupons against the customer's e-mail", async () => {
+      const { code } = await coupon({ email_restrictions: ["vip@example.com"] });
+      const lines = [{ productId: ids.tshirt, quantity: 1 }];
+      expect((await quoteFor(lines, "flat_rate", [code], "vip@example.com")).coupons.map((c) => c.code)).toEqual([code]);
+      expect((await quoteFor(lines, "flat_rate", [code], "anden@example.com")).coupon_errors.map((e) => e.code)).toEqual([code]);
+
+      const stripe = new FakeStripe();
+      const vip = await requestFor(lines, "flat_rate", []);
+      const withCode = { ...vip, coupons: [code], expectedTotal: "273.10" };
+      const refused = await startCheckout(withCode, { checkoutId: newCheckoutId() }, { backend, gateway: stripe });
+      expect(refused.type).toBe("coupon_invalid");
+      const allowed = await startCheckout({ ...withCode, contact: { ...withCode.contact, email: "vip@example.com" } }, { checkoutId: newCheckoutId() }, { backend, gateway: stripe });
+      expect(allowed.type).toBe("ready");
+    });
+
+    it("single-use coupon: the customer can retry after a decline, nobody else can use it meanwhile", async () => {
+      const { id, code } = await coupon({ usage_limit: 1 });
+      const stripe = new FakeStripe();
+      const checkoutId = newCheckoutId();
+      const lines = [{ productId: ids.tshirt, quantity: 1 }];
+      const request = await requestFor(lines, "flat_rate", [code]);
+
+      const first = await startCheckout(request, { checkoutId }, { backend, gateway: stripe });
+      if (first.type !== "ready") throw new Error(`Expected ready, got ${first.type}`);
+      stripe.decline(first.paymentIntentId);
+      await handleStripeEvent(eventFor({ id: first.paymentIntentId }, "payment_intent.payment_failed"), { backend, gateway: stripe });
+
+      // The same session still gets the discount (its own hold does not count) ...
+      const own = await quoteFor(lines, "flat_rate", [code], customerEmail, checkoutId);
+      expect(own.coupons.map((c) => c.code)).toEqual([code]);
+      expect(own.totals.total).toBe(request.expectedTotal);
+      const retry = await startCheckout(request, { checkoutId }, { backend, gateway: stripe });
+      expect(retry).toMatchObject({ type: "ready", order: { id: first.order.id }, paymentIntentId: first.paymentIntentId });
+
+      // ... and also after changing the cart (the order is rebuilt and the coupon held again).
+      const bigger = await requestFor([{ productId: ids.tshirt, quantity: 2 }], "flat_rate", [code], checkoutId);
+      const resumed = await startCheckout(bigger, { checkoutId }, { backend, gateway: stripe });
+      expect(resumed).toMatchObject({ type: "ready", order: { id: first.order.id } });
+
+      // Another customer cannot use the held coupon.
+      const other = await quoteFor(lines, "flat_rate", [code], "anden@example.com");
+      expect(other.coupon_errors.map((e) => e.code)).toEqual([code]);
+      const otherOutcome = await startCheckout({ ...request, contact: { ...request.contact, email: "anden@example.com" } }, { checkoutId: newCheckoutId() }, { backend, gateway: stripe });
+      expect(otherOutcome.type).toBe("coupon_invalid");
+
+      if (resumed.type !== "ready") throw new Error("unreachable");
+      stripe.succeed(resumed.paymentIntentId);
+      await handleStripeEvent(eventFor({ id: resumed.paymentIntentId }, "payment_intent.succeeded"), { backend, gateway: stripe });
+      expect((await getOrder(first.order.id)).status).toBe("processing");
+      expect((await getCoupon(id)).usage_count).toBe(1);
+    });
+  });
+
+  describe("unpaid orders", () => {
+    it("an unpaid order older than the hold time is not resumed: a new order replaces it", async () => {
+      const stripe = new FakeStripe();
+      const checkoutId = newCheckoutId();
+      const request = await requestFor([{ productId: ids.tote, quantity: 1 }]);
+      const old = await startCheckout(request, { checkoutId }, { backend, gateway: stripe });
+      if (old.type !== "ready") throw new Error(`Expected ready, got ${old.type}`);
+      await backdateOrder(old.order.id, 61);
+
+      // The customer comes back an hour later and pays: the only tote is not blocked by their own old order.
+      const fresh = await startCheckout(request, { checkoutId }, { backend, gateway: stripe });
+      if (fresh.type !== "ready") throw new Error(`Expected ready, got ${fresh.type}`);
+      expect(fresh.order.id).not.toBe(old.order.id);
+      expect(fresh.paymentIntentId).not.toBe(old.paymentIntentId);
+
+      expect((await getOrder(old.order.id)).status).toBe("cancelled");
+      expect((await orderNotes(old.order.id)).some((n) => n.includes("startede en ny betaling"))).toBe(true);
+      expect((await stripe.retrieve(old.paymentIntentId)).status).toBe("canceled");
+      expect((await getOrder(fresh.order.id)).status).toBe("pending");
+    });
+
+    it("the plugin cancels abandoned unpaid orders and releases their stock; recent ones are kept", async () => {
+      const stripe = new FakeStripe();
+      const abandoned = await readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }]);
+      const recent = await readyCheckout(stripe, [{ productId: ids.tshirt, quantity: 1 }]);
+      await backdateOrder(abandoned.order.id, 61);
+
+      expect(await runUnpaidOrderCleanup()).toBeGreaterThanOrEqual(1);
+      expect((await getOrder(abandoned.order.id)).status).toBe("cancelled");
+      expect((await orderNotes(abandoned.order.id)).some((n) => n.includes("ikke betalt inden for 60 minutter"))).toBe(true);
+      expect((await getOrder(recent.order.id)).status).toBe("pending");
+
+      // The tote is available again.
+      await expect(readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }])).resolves.toMatchObject({ type: "ready" });
+
+      const status = await pluginStatus();
+      expect(status).toMatchObject({ version: "1.1.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
+      expect((status.unpaid_orders as { last_cleanup: string | null }).last_cleanup).not.toBeNull();
+    });
+  });
+
+  describe("payment details on the order", () => {
+    it("records the payment method the customer actually used", async () => {
+      const stripe = new FakeStripe();
+      const card = await readyCheckout(stripe, [{ productId: ids.tshirt, quantity: 1 }]);
+      expect((await getOrder(card.order.id)).payment_method_title).toBe("Stripe");
+      stripe.succeed(card.paymentIntentId, { type: "mobilepay" });
+      await handleStripeEvent(eventFor({ id: card.paymentIntentId }, "payment_intent.succeeded"), { backend, gateway: stripe });
+      expect((await getOrder(card.order.id)).payment_method_title).toBe("MobilePay (Stripe)");
+
+      const pending = await readyCheckout(stripe, [{ productId: ids.hat, quantity: 1 }]);
+      stripe.process(pending.paymentIntentId, { type: "card", card: { brand: "visa", wallet: "apple_pay" } });
+      await handleStripeEvent(eventFor({ id: pending.paymentIntentId }, "payment_intent.processing"), { backend, gateway: stripe });
+      expect(await getOrder(pending.order.id)).toMatchObject({ status: "on-hold", payment_method_title: "Apple Pay (Stripe)" });
+    });
+
+    it("notes a declined attempt once, however often it is reported", async () => {
+      const stripe = new FakeStripe();
+      const ready = await readyCheckout(stripe, [{ productId: ids.tshirt, quantity: 1 }]);
+      const declinedNotes = async () => (await orderNotes(ready.order.id)).filter((n) => n.includes("Betalingsforsøg afvist")).length;
+
+      stripe.decline(ready.paymentIntentId);
+      const event = eventFor({ id: ready.paymentIntentId }, "payment_intent.payment_failed");
+      await handleStripeEvent(event, { backend, gateway: stripe });
+      await handleStripeEvent(event, { backend, gateway: stripe });
+      await finalizePayment(await stripe.retrieve(ready.paymentIntentId), { backend, gateway: stripe });
+      expect(await declinedNotes()).toBe(1);
+
+      // A new attempt that is declined again is a new note.
+      stripe.decline(ready.paymentIntentId);
+      await handleStripeEvent(eventFor({ id: ready.paymentIntentId }, "payment_intent.payment_failed"), { backend, gateway: stripe });
+      expect(await declinedNotes()).toBe(2);
     });
   });
 });

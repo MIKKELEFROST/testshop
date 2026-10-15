@@ -13,11 +13,19 @@ type Result = { payload: string; quote: ClientQuote | null; error: string | null
  * Debounced; stale responses are discarded. While a new quote loads, the previous one
  * stays visible (dimmed by the UI) and payment is disabled.
  */
-export function useQuote(lines: CartLine[], address: QuoteAddress, shippingRateId: string | null, enabled = true) {
+export function useQuote(
+  lines: CartLine[],
+  address: QuoteAddress,
+  shippingRateId: string | null,
+  enabled = true,
+  /** Coupon codes, and the e-mail some coupons are restricted to. */
+  coupons: { codes: string[]; email?: string } = { codes: [] },
+) {
   const payload = JSON.stringify({
     items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity })),
     address,
     shippingRateId,
+    ...(coupons.codes.length > 0 ? { coupons: coupons.codes, email: coupons.email } : {}),
   });
   const active = enabled && lines.length > 0;
 
