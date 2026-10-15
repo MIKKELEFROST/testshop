@@ -17,6 +17,7 @@ import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { getStripeClient } from "@/lib/stripe/client";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
 import { CouponField } from "./coupon-field";
+import { ExpressCheckout } from "./express-checkout";
 import { OrderSummary } from "./order-summary";
 import { useQuote } from "./use-quote";
 
@@ -452,6 +453,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           noValidate
           className="mx-auto max-w-[600px] space-y-9 px-4 py-8 sm:px-6 lg:ml-auto lg:mr-0 lg:px-10 lg:py-10 xl:px-12"
         >
+          {quote && quoteErrors.length === 0 && !stripeFailed && <ExpressCheckout lines={lines} quote={quote} />}
+
           <section aria-labelledby="kontakt">
             <h2 id="kontakt" className="text-[19px] font-semibold">
               Kontaktoplysninger
@@ -560,6 +563,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
                 options={{
                   layout: { type: "accordion", defaultCollapsed: false, radios: "always", spacedAccordionItems: false },
                   fields: { billingDetails: { email: "never", address: "never" } },
+                  // Apple Pay and Google Pay are offered as "Hurtig betaling" at the top instead.
+                  wallets: { applePay: "never", googlePay: "never" },
                   business: { name: storeConfig.name },
                 }}
               />

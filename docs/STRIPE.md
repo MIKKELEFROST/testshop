@@ -56,6 +56,15 @@ Uden webhook virker betalingen stadig, når kunden lander på bekræftelsessiden
 
 Brug enhver fremtidig udløbsdato, en vilkårlig CVC og et vilkårligt postnummer.
 
+## Apple Pay og Google Pay ("Hurtig betaling")
+
+Øverst i kassen viser Stripes Express Checkout Element knapperne Apple Pay og Google Pay. Kunden vælger adresse, fragt og e-mail i sin Wallet. Shoppen beregner pris, fragt og rabat i WooCommerce for den valgte adresse og opretter ordren gennem samme `/api/checkout` som formularen. Apple Pay og Google Pay vises derfor ikke også i betalingsfeltet længere nede.
+
+- **Registrér domænet** i Stripe under **Settings → Payment method domains**, både i testtilstand og i live-tilstand. Det gælder hvert domæne, f.eks. `testshop-weld.vercel.app` og senere `piece.dk`. `testshop-weld.vercel.app` er registreret i testtilstand. Previews (`*-git-*.vercel.app`) er ikke registreret og viser derfor ikke knapperne.
+- Knapperne står på `always`. Apple Pay vises derfor også i Chrome på Mac, hvor kunden betaler ved at scanne med sin iPhone, og før kunden har et kort i Wallet. Apple Pay vises aldrig på Windows og Android. Der vises Google Pay i stedet, hvor det er understøttet.
+- I testtilstand kan du bruge dit rigtige kort i Wallet. Stripe trækker ingen penge.
+- Ordren får betalingsmetoden "Apple Pay (Stripe)" eller "Google Pay (Stripe)".
+
 ## Refunderinger
 
 Storefronten refunderer kun automatisk i to tilfælde: en dobbeltbetaling, eller en betaling for en vare, der i mellemtiden er udsolgt. Almindelige refunderinger laves i Stripe Dashboard. Ordrens status i WooCommerce opdateres manuelt indtil videre.
