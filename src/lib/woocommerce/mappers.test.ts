@@ -1,32 +1,65 @@
 import { describe, expect, it } from "vitest";
-import { shopCategoryCounts } from "./mappers";
+import { mapCategory, mapProduct, mapProductSummary, productImages } from "./mappers";
+import { wcCategorySchema, wcProductSchema } from "./schemas";
 
-describe("shopCategoryCounts", () => {
-  const categories = [
-    { id: 1, parent: 0 }, // Kostumer
-    { id: 2, parent: 1 }, // Kostumer › Børn
-    { id: 3, parent: 0 }, // Tilbehør
-    { id: 4, parent: 0 }, // Tom
-  ];
+function product(overrides: Record<string, unknown> = {}) {
+  return wcProductSchema.parse({
+    id: 1,
+    name: "Mørk enhjørning – kostume til piger",
+    slug: "moerk-enhjoerning",
+    type: "variable",
+    status: "publish",
+    ...overrides,
+  });
+}
 
-  it("counts the shop's products per category, including parent categories, once each", () => {
-    const counts = shopCategoryCounts(categories, [
-      { categories: [{ id: 2 }] },
-      { categories: [{ id: 1 }, { id: 2 }] },
-      { categories: [{ id: 3 }] },
-    ]);
-    expect(Object.fromEntries(counts)).toEqual({ 1: 2, 2: 2, 3: 1 });
-    expect(counts.get(4)).toBeUndefined();
+const supplierPhotos = {
+  meta_data: [
+    {
+      key: "_wchc_external_images",
+      value: [
+        "https://marketing.guirca.com/78224/78224.jpg",
+        "http://marketing.guirca.com/78224/78224_02.jpg", // not https
+        "https://evil.example.com/x.jpg", // host not allowed
+        42,
+      ],
+    },
+    { key: "_wchc_size_chart", value: "https://static.guirca.com/media/mailing/tallas/UK/Size%20chart_CHILD_TEEN.jpg" },
+    { key: "_wchc_safety_info", value: "javascript:alert(1)" },
+  ],
+};
+
+describe("product images", () => {
+  it("uses the product's own WooCommerce images first", () => {
+    const p = product({ images: [{ src: "https://test.piece.dk/a.jpg", alt: "A" }], ...supplierPhotos });
+    expect(productImages(p)).toEqual([{ src: "https://test.piece.dk/a.jpg", alt: "A" }]);
   });
 
-  it("survives unknown and circular parents", () => {
-    const counts = shopCategoryCounts(
-      [
-        { id: 5, parent: 6 },
-        { id: 6, parent: 5 },
-      ],
-      [{ categories: [{ id: 5 }, { id: 99 }] }],
-    );
-    expect(Object.fromEntries(counts)).toEqual({ 5: 1, 6: 1, 99: 1 });
+  it("falls back to linked supplier photos from allowed hosts, shown whole", () => {
+    const p = product(supplierPhotos);
+    expect(productImages(p)).toEqual([
+      { src: "https://marketing.guirca.com/78224/78224.jpg", alt: "Mørk enhjørning – kostume til piger", fit: "contain" },
+    ]);
+    expect(mapProductSummary(p).image?.src).toBe("https://marketing.guirca.com/78224/78224.jpg");
+  });
+
+  it("has no image when there are neither", () => {
+    expect(mapProductSummary(product()).image).toBeNull();
+  });
+});
+
+describe("mapProduct", () => {
+  it("passes on https links to the size chart and safety label, nothing else", () => {
+    const p = mapProduct(product(supplierPhotos), []);
+    expect(p.sizeChart).toBe("https://static.guirca.com/media/mailing/tallas/UK/Size%20chart_CHILD_TEEN.jpg");
+    expect(p.safetyInfo).toBeNull();
+    expect(mapProduct(product(), []).sizeChart).toBeNull();
+  });
+});
+
+describe("mapCategory", () => {
+  it("keeps the parent and the order set in WooCommerce", () => {
+    const category = mapCategory(wcCategorySchema.parse({ id: 7, name: "Pigekostumer", slug: "pigekostumer", parent: 16, menu_order: 3 }));
+    expect(category).toMatchObject({ id: 7, parent: 16, menuOrder: 3 });
   });
 });

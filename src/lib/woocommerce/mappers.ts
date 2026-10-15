@@ -1,3 +1,4 @@
+import { SUPPLIER_IMAGE_HOSTS } from "@/config/images";
 import type {
   Product,
   ProductCategory,
@@ -22,6 +23,37 @@ function image(value: { src: string; alt: string } | null | undefined): ProductI
   return value?.src ? { src: value.src, alt: value.alt } : null;
 }
 
+function meta(product: WcProduct, key: string): unknown {
+  return product.meta_data.find((m) => m.key === key)?.value;
+}
+
+/** An https link to an allowed supplier host, or null. */
+function supplierUrl(value: unknown, hosts: readonly string[] | null = SUPPLIER_IMAGE_HOSTS): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && (hosts === null || hosts.includes(url.hostname)) ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The product's photos: its WooCommerce images, or else the supplier photos an import
+ * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS).
+ */
+export function productImages(product: WcProduct): ProductImage[] {
+  const own = product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null);
+  if (own.length > 0) return own;
+  const external = meta(product, "_wchc_external_images");
+  if (!Array.isArray(external)) return [];
+  const alt = decodeEntities(product.name);
+  return external
+    .map((src) => supplierUrl(src))
+    .filter((src): src is string => src !== null)
+    .map((src) => ({ src, alt, fit: "contain" as const }));
+}
+
 function prices(source: WcProduct | WcVariation) {
   const display = source.headless_prices;
   return {
@@ -44,7 +76,7 @@ export function mapProductSummary(product: WcProduct): ProductSummary {
     ...prices(product),
     onSale: product.on_sale,
     priceRange: min && max ? { min, max } : null,
-    image: image(product.images[0]),
+    image: productImages(product)[0] ?? null,
     stockStatus: stockStatus(product.stock_status),
     categories: product.categories.map((c) => ({ ...c, name: decodeEntities(c.name) })),
   };
@@ -70,34 +102,17 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
     sku: product.sku,
     description: htmlToParagraphs(product.description),
     shortDescription: htmlToParagraphs(product.short_description),
-    images: product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null),
+    images: productImages(product),
     purchasable: product.purchasable,
     stockQuantity: product.manage_stock === true && !product.backorders_allowed ? product.stock_quantity : null,
     attributes: product.attributes
       .filter((a) => a.variation)
       .map((a) => ({ name: decodeEntities(a.name), slug: attributeKey(a), options: a.options })),
     variations: variations.map(mapVariation),
+    // Links only; any https host is fine (they are not passed to the image optimizer).
+    sizeChart: supplierUrl(meta(product, "_wchc_size_chart"), null),
+    safetyInfo: supplierUrl(meta(product, "_wchc_safety_info"), null),
   };
-}
-
-/**
- * Number of products per category, counting a product in its categories' parent categories
- * too (as WooCommerce does), and each product once per category.
- */
-export function shopCategoryCounts(
-  categories: { id: number; parent: number }[],
-  products: { categories: { id: number }[] }[],
-): Map<number, number> {
-  const parents = new Map(categories.map((c) => [c.id, c.parent]));
-  const counts = new Map<number, number>();
-  for (const product of products) {
-    const seen = new Set<number>();
-    for (const category of product.categories) {
-      for (let id: number | undefined = category.id; id && !seen.has(id); id = parents.get(id)) seen.add(id);
-    }
-    for (const id of seen) counts.set(id, (counts.get(id) ?? 0) + 1);
-  }
-  return counts;
 }
 
 export function mapCategory(category: WcCategory): ProductCategory {
@@ -108,6 +123,8 @@ export function mapCategory(category: WcCategory): ProductCategory {
     description: htmlToParagraphs(category.description).join(" "),
     count: category.count,
     image: image(category.image),
+    parent: category.parent,
+    menuOrder: category.menu_order,
   };
 }
 

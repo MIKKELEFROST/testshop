@@ -1,7 +1,14 @@
+"use client";
+
 import Image from "next/image";
+import { useState } from "react";
 import type { ProductImage as ProductImageType } from "@/types/commerce";
 
-/** Product image with a neutral, branded placeholder when WooCommerce has no image. */
+/**
+ * Product image with a neutral, branded placeholder when there is no image or it fails to
+ * load (e.g. a supplier link that has gone). Supplier photos (`fit: "contain"`) are shown
+ * whole on white instead of cropped.
+ */
 export function ProductImage({
   image,
   name,
@@ -15,7 +22,9 @@ export function ProductImage({
   priority?: boolean;
   className?: string;
 }) {
-  if (!image) {
+  const [failed, setFailed] = useState<string | null>(null);
+
+  if (!image || failed === image.src) {
     return (
       <div
         className={`flex size-full items-center justify-center bg-gradient-to-br from-tint to-tint-strong ${className}`}
@@ -27,6 +36,7 @@ export function ProductImage({
     );
   }
 
+  const contain = image.fit === "contain";
   return (
     <Image
       src={image.src}
@@ -34,7 +44,8 @@ export function ProductImage({
       fill
       sizes={sizes}
       priority={priority}
-      className={`object-cover ${className}`}
+      onError={() => setFailed(image.src)}
+      className={`${contain ? "bg-white object-contain p-[6%]" : "object-cover"} ${className}`}
     />
   );
 }

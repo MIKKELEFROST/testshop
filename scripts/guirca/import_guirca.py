@@ -1,0 +1,525 @@
+#!/usr/bin/env python3
+"""Import Guirca's product sheet into WooCommerce. See docs/IMPORT-GUIRCA.md.
+
+    python3 scripts/guirca/import_guirca.py report <sheet.xlsx>           # what would be imported (no WooCommerce)
+    python3 scripts/guirca/import_guirca.py import <sheet.xlsx> --dry-run # plan against WooCommerce, no writes
+    python3 scripts/guirca/import_guirca.py import <sheet.xlsx> --sample 100
+    python3 scripts/guirca/import_guirca.py import <sheet.xlsx>           # everything
+
+WooCommerce credentials come from WOOCOMMERCE_URL, WOOCOMMERCE_CONSUMER_KEY and
+WOOCOMMERCE_CONSUMER_SECRET (e.g. `set -a; . ./.env.local; set +a`).
+
+Safe to run again: products are matched on Guirca's article numbers, unchanged products
+are skipped, and texts, categories, tags, status, webshops and stock settings are only set
+when a product is created (use --overwrite to set them again).
+"""
+from __future__ import annotations
+
+import argparse
+import collections
+import csv
+import datetime as dt
+import html
+import json
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import catalog  # noqa: E402
+import rules  # noqa: E402
+from woo import Woo, WooError  # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+IMPORTER_VERSION = "1"
+DEFAULT_WEBSHOP = "halloween-kostumer-dk"
+BRAND = "Guirca"
+SIZE, GROUP, COLOUR = "Størrelse", "Målgruppe", "Farve"
+SHOP_OWNED = ("texts", "categories", "tags", "status", "webshops", "stock")
+
+
+# ---------------------------------------------------------------- loading
+
+
+def load_specs(args) -> tuple[list[catalog.ProductSpec], list[catalog.Skipped]]:
+    broken: set[str] = set()
+    if args.image_status:
+        for line in Path(args.image_status).read_text().splitlines():
+            url, status, *_ = line.split("\t") + [""]
+            if status and not status.startswith("2"):
+                broken.add(url)
+    rows = catalog.read_sheet(Path(args.sheet))
+    translations = catalog.Translations.load(HERE / "translations")
+    return catalog.build(rows, translations, broken)
+
+
+def select(specs: list[catalog.ProductSpec], args) -> list[catalog.ProductSpec]:
+    if args.codes:
+        wanted = {c.strip() for c in args.codes.split(",") if c.strip()}
+        return [s for s in specs if wanted & set(s.codes)]
+    if args.sample:
+        # A spread over the categories: one product per category in turn.
+        by_category = collections.defaultdict(list)
+        for spec in specs:
+            by_category[spec.categories[0]].append(spec)
+        queues = [collections.deque(v) for _, v in sorted(by_category.items())]
+        chosen = []
+        while len(chosen) < args.sample and any(queues):
+            for queue in queues:
+                if queue and len(chosen) < args.sample:
+                    chosen.append(queue.popleft())
+        return sorted(chosen, key=lambda s: catalog.code_key(s.codes[0]))
+    if args.limit:
+        return specs[: args.limit]
+    return specs
+
+
+# ---------------------------------------------------------------- report
+
+
+def report(args) -> int:
+    specs, skipped = load_specs(args)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+
+    kinds = collections.Counter(s.kind for s in specs)
+    print(f"Produkter: {len(specs)} ({kinds['variable']} med størrelser, {kinds['simple']} uden)")
+    print(f"Varianter (størrelser): {sum(len(s.variations) for s in specs)}")
+    print(f"Sprunget over: {len(skipped)}")
+    for reason, count in collections.Counter(s.reason for s in skipped).most_common():
+        print(f"  {count:5}  {reason}")
+    print(f"Kladder (skal tjekkes): {sum(s.status == 'draft' for s in specs)}")
+    print(f"Kun 18+ (ingen webshop): {sum(s.adult_only for s in specs)}")
+    print(f"Uden billeder: {sum(not s.images for s in specs)}")
+    print("Kategorier:")
+    counts = collections.Counter(c for s in specs for c in s.categories)
+    for path in rules.CATEGORY_ORDER:
+        if counts[path]:
+            print(f"  {counts[path]:5}  {' › '.join(path)}")
+
+    preview = out / "guirca-preview.csv"
+    with preview.open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(["Varenr.", "Type", "Navn", "Størrelser", "Pris (kr.)", "Kategorier", "Tags", "Status", "Problemer", "Noter", "Billeder", "Guirca-nr."])
+        for s in specs:
+            prices = sorted({v.price for v in s.variations if v.price}) if s.variations else ([s.price] if s.price else [])
+            writer.writerow([
+                s.sku,
+                "Variabel" if s.kind == "variable" else "Simpel",
+                s.name,
+                ", ".join(s.sizes),
+                "–".join(str(p) for p in (prices[:1] + prices[-1:] if len(prices) > 1 else prices)),
+                " | ".join(" › ".join(c) for c in s.categories),
+                ", ".join(s.tags),
+                s.status,
+                " · ".join(s.issues),
+                " · ".join(s.notes),
+                len(s.images),
+                ",".join(s.codes),
+            ])
+    with (out / "guirca-skipped.csv").open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f, delimiter=";")
+        writer.writerow(["Guirca-nr.", "Beskrivelse", "Grund"])
+        for s in skipped:
+            writer.writerow([s.code, s.description, s.reason])
+    print(f"Oversigt: {preview}")
+    return 0
+
+
+# ---------------------------------------------------------------- WooCommerce setup
+
+
+@dataclass
+class Ids:
+    brand: int
+    attributes: dict[str, int]
+    categories: dict[tuple[str, ...], int]
+    tags: dict[str, int] = field(default_factory=dict)
+
+
+def text(value: str) -> str:
+    return html.unescape(value or "")
+
+
+def ensure_attribute(woo: Woo, existing: list[dict], name: str, slug: str) -> int:
+    for attribute in existing:
+        if text(attribute["name"]).lower() == name.lower() or attribute["slug"] == f"pa_{slug}":
+            return attribute["id"]
+    created = woo.post("wc/v3/products/attributes", {"name": name, "slug": slug, "type": "select", "order_by": "menu_order", "has_archives": False}, safe_to_repeat=False)
+    print(f"  oprettede egenskaben {name}")
+    return created["id"]
+
+
+def ensure_terms(woo: Woo, attribute_id: int, names: list[str]) -> None:
+    """Create missing terms and keep them in the given order."""
+    existing = {text(t["name"]): t for t in woo.get_all(f"wc/v3/products/attributes/{attribute_id}/terms", _fields="id,name,menu_order")}
+    ordered = list(dict.fromkeys(names))
+    create = [{"name": n, "menu_order": i} for i, n in enumerate(ordered) if n not in existing]
+    update = [{"id": existing[n]["id"], "menu_order": i} for i, n in enumerate(ordered) if n in existing and existing[n].get("menu_order") != i]
+    for start in range(0, max(len(create), len(update)), 100):
+        body = {"create": create[start:start + 100], "update": update[start:start + 100]}
+        result = woo.post(f"wc/v3/products/attributes/{attribute_id}/terms/batch", body, safe_to_repeat=True)
+        errors = [r["error"]["message"] for r in result.get("create", []) + result.get("update", []) if r.get("error")]
+        if errors:
+            print(f"  advarsel: {len(errors)} egenskabsværdier kunne ikke gemmes: {errors[:3]}")
+    if create:
+        print(f"  oprettede {len(create)} værdier for egenskab {attribute_id}")
+
+
+def ensure_categories(woo: Woo, paths: list[tuple[str, ...]]) -> dict[tuple[str, ...], int]:
+    existing = woo.get_all("wc/v3/products/categories", _fields="id,name,parent,menu_order")
+    by_parent = {(c["parent"], text(c["name"])): c for c in existing}
+    ids: dict[tuple[str, ...], int] = {}
+    order = list(dict.fromkeys([*rules.CATEGORY_ORDER, *paths]))
+    for index, path in enumerate(order):
+        for depth in range(1, len(path) + 1):
+            sub = path[:depth]
+            if sub in ids:
+                continue
+            parent = ids[sub[:-1]] if depth > 1 else 0
+            found = by_parent.get((parent, sub[-1]))
+            menu_order = index if sub == path else order.index(sub) if sub in order else index
+            if found is None:
+                slug = rules.slugify(sub[-1])
+                try:
+                    found = woo.post("wc/v3/products/categories", {"name": sub[-1], "parent": parent, "slug": slug, "menu_order": menu_order})
+                except WooError as error:
+                    if "term_exists" not in str(error):
+                        raise
+                    found = woo.post("wc/v3/products/categories", {"name": sub[-1], "parent": parent, "menu_order": menu_order})
+                print(f"  oprettede kategorien {' › '.join(sub)}")
+            elif found.get("menu_order") != menu_order:
+                woo.put(f"wc/v3/products/categories/{found['id']}", {"menu_order": menu_order})
+            ids[sub] = found["id"]
+    return ids
+
+
+def ensure_tags(woo: Woo, names: list[str]) -> dict[str, int]:
+    existing = {text(t["name"]): t["id"] for t in woo.get_all("wc/v3/products/tags", _fields="id,name")}
+    missing = [n for n in dict.fromkeys(names) if n not in existing]
+    for start in range(0, len(missing), 100):
+        chunk = missing[start:start + 100]
+        result = woo.post("wc/v3/products/tags/batch", {"create": [{"name": n} for n in chunk]}, safe_to_repeat=True)
+        for name, item in zip(chunk, result.get("create", [])):
+            if item.get("id"):
+                existing[name] = item["id"]
+            elif (item.get("error") or {}).get("data", {}).get("resource_id"):
+                existing[name] = item["error"]["data"]["resource_id"]
+    if missing:
+        print(f"  oprettede {len(missing)} tags")
+    return existing
+
+
+def ensure_brand(woo: Woo) -> int:
+    for brand in woo.get("wc/v3/products/brands", search=BRAND, per_page=100):
+        if text(brand["name"]) == BRAND:
+            return brand["id"]
+    return woo.post("wc/v3/products/brands", {"name": BRAND, "description": "Fiestas Guirca, S.L. (Spanien)"})["id"]
+
+
+def setup(woo: Woo, specs: list[catalog.ProductSpec], webshop: str | None) -> Ids:
+    print("Forbereder WooCommerce (mærke, egenskaber, kategorier, tags) …")
+    if webshop:
+        shops = woo.get("wc-headless/v1/shops")
+        if webshop not in {s["slug"] for s in shops}:
+            raise SystemExit(f"Webshoppen '{webshop}' findes ikke i WooCommerce (Produkter → Webshops).")
+    existing = woo.get("wc/v3/products/attributes")
+    attributes = {
+        SIZE: ensure_attribute(woo, existing, SIZE, "storrelse"),
+        GROUP: ensure_attribute(woo, existing, GROUP, "maalgruppe"),
+        COLOUR: ensure_attribute(woo, existing, COLOUR, "farve"),
+    }
+    current_sizes = [text(t["name"]) for t in woo.get_all(f"wc/v3/products/attributes/{attributes[SIZE]}/terms", _fields="name")]
+    sizes = sorted({*current_sizes, *(size for s in specs for size in s.sizes)}, key=rules.size_sort_key)
+    ensure_terms(woo, attributes[SIZE], sizes)
+    ensure_terms(woo, attributes[GROUP], list(rules.GROUP_NAMES.values()))
+    colours = sorted({c for s in specs for c in s.colours})
+    ensure_terms(woo, attributes[COLOUR], colours)
+    categories = ensure_categories(woo, sorted({c for s in specs for c in s.categories}))
+    tags = ensure_tags(woo, sorted({t for s in specs for t in s.tags}))
+    return Ids(brand=ensure_brand(woo), attributes=attributes, categories=categories, tags=tags)
+
+
+# ---------------------------------------------------------------- payloads
+
+
+def fingerprint(spec: catalog.ProductSpec, webshop: str | None) -> str:
+    return f"{IMPORTER_VERSION}:{webshop or '-'}:{spec.fingerprint()}"
+
+
+def attributes_payload(spec: catalog.ProductSpec, ids: Ids) -> list[dict]:
+    attributes = []
+    if spec.kind == "variable":
+        attributes.append({"id": ids.attributes[SIZE], "visible": True, "variation": True, "options": spec.sizes, "position": 0})
+    if spec.groups:
+        attributes.append({"id": ids.attributes[GROUP], "visible": True, "variation": False, "options": spec.groups, "position": 1})
+    if spec.colours:
+        attributes.append({"id": ids.attributes[COLOUR], "visible": True, "variation": False, "options": spec.colours, "position": 2})
+    return attributes
+
+
+def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], webshop: str | None, creating: bool) -> dict:
+    meta = dict(spec.meta)
+    meta["_wchc_import_hash"] = fingerprint(spec, webshop)
+    meta["_wchc_import_issue"] = " · ".join(spec.issues)
+    meta["_wchc_import_note"] = " · ".join(spec.notes)
+    payload = {
+        "sku": spec.sku,
+        "brands": [{"id": ids.brand}],
+        "attributes": attributes_payload(spec, ids),
+        "weight": spec.weight,
+        "dimensions": spec.dimensions or {"length": "", "width": "", "height": ""},
+        "meta_data": [{"key": k, "value": v} for k, v in meta.items()],
+    }
+    if creating:
+        payload["type"] = spec.kind
+        if spec.intro_year:
+            payload["date_created"] = f"{min(spec.intro_year, dt.date.today().year)}-01-01T00:00:00"
+    if spec.kind == "simple":
+        payload["regular_price"] = str(spec.price) if spec.price else ""
+        payload["global_unique_id"] = spec.ean
+    if "texts" in fields:
+        payload.update(name=spec.name, short_description=spec.short_description, description=spec.description)
+    if "categories" in fields:
+        payload["categories"] = [{"id": ids.categories[c]} for c in spec.categories]
+    if "tags" in fields:
+        payload["tags"] = [{"id": ids.tags[t]} for t in spec.tags if t in ids.tags]
+    if "status" in fields:
+        payload["status"] = spec.status
+    if "webshops" in fields:
+        payload["webshops"] = [webshop] if webshop and not spec.adult_only else []
+    if "stock" in fields:
+        payload.update(manage_stock=False, stock_status="instock")
+    return payload
+
+
+def variation_payload(variation: catalog.VariationSpec, index: int, ids: Ids, fields: set[str]) -> dict:
+    payload = {
+        "sku": variation.sku,
+        "regular_price": str(variation.price) if variation.price else "",
+        "global_unique_id": variation.ean,
+        "weight": variation.weight,
+        "status": "publish" if variation.price else "private",
+        "menu_order": index,
+        "attributes": [{"id": ids.attributes[SIZE], "option": variation.size}],
+        "meta_data": [{"key": "_supplier_article_code", "value": variation.code}],
+    }
+    if "stock" in fields:
+        payload.update(manage_stock=False, stock_status="instock")
+    return payload
+
+
+# ---------------------------------------------------------------- import
+
+
+@dataclass
+class Existing:
+    id: int
+    sku: str
+    type: str
+    hash: str
+
+
+def index_products(woo: Woo, workers: int) -> tuple[dict[str, Existing], dict[str, Existing]]:
+    """Guirca products already in WooCommerce, by article number and by SKU."""
+    print("Læser eksisterende produkter i WooCommerce …")
+    params = {"status": "any", "_fields": "id,sku,type,meta_data", "per_page": 100}
+    first, headers = woo.request("GET", "wc/v3/products", params={**params, "page": 1})
+    pages = int(headers.get("X-WP-TotalPages") or 1)
+    products = list(first)
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        for data in pool.map(lambda p: woo.get("wc/v3/products", **params, page=p), range(2, pages + 1)):
+            products += data
+    by_code, by_sku = {}, {}
+    for product in products:
+        meta = {m["key"]: m["value"] for m in product.get("meta_data", [])}
+        existing = Existing(product["id"], product.get("sku", ""), product["type"], str(meta.get("_wchc_import_hash", "")))
+        if existing.sku:
+            by_sku[existing.sku] = existing
+        if meta.get("_supplier") == "Guirca":
+            for code in str(meta.get("_supplier_article_codes", "")).split(","):
+                if code.strip():
+                    by_code[code.strip()] = existing
+    print(f"  {len(products)} produkter, heraf {len(set(e.id for e in by_code.values()))} fra Guirca")
+    return by_code, by_sku
+
+
+class Importer:
+    def __init__(self, woo: Woo, ids: Ids | None, args):
+        self.woo, self.ids, self.args = woo, ids, args
+        self.webshop = None if args.no_webshop else args.webshop
+        self.overwrite = set(SHOP_OWNED) if args.overwrite == "all" else {f for f in (args.overwrite or "").split(",") if f}
+        self.lock = threading.Lock()
+        self.counts = collections.Counter()
+        self.log = open(args.log, "a", encoding="utf-8") if args.log else None
+        self.started = time.time()
+
+    def record(self, action: str, spec: catalog.ProductSpec, product_id: int | None = None, error: str | None = None, **extra):
+        with self.lock:
+            self.counts[action] += 1
+            if self.log:
+                entry = {"time": dt.datetime.now().isoformat(timespec="seconds"), "action": action, "sku": spec.sku, "name": spec.name, "id": product_id, "error": error, **extra}
+                self.log.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                self.log.flush()
+            if error:
+                print(f"  FEJL {spec.sku} {spec.name}: {error}")
+
+    def lookup_skus(self, skus: list[str]) -> dict[str, dict]:
+        found = {}
+        for start in range(0, len(skus), 50):
+            chunk = skus[start:start + 50]
+            for item in self.woo.get("wc/v3/products", sku=",".join(chunk), status="any", per_page=100, _fields="id,sku,type,parent_id"):
+                found[item["sku"]] = item
+        return found
+
+    def create_chunk(self, chunk: list[catalog.ProductSpec]) -> None:
+        fields = set(SHOP_OWNED)
+        body = {"create": [product_payload(s, self.ids, fields, self.webshop, creating=True) for s in chunk]}
+        try:
+            results = self.woo.post("wc/v3/products/batch", body).get("create", [])
+        except WooError as error:
+            print(f"  batch-fejl ({error}); tjekker hvad der blev gemt …")
+            results = [None] * len(chunk)
+        unresolved = []
+        for spec, result in zip(chunk, results + [None] * (len(chunk) - len(results))):
+            if result and result.get("id") and not result.get("error"):
+                self.after_save(spec, result["id"], created=True, fresh=True)
+            elif result and result.get("error") and result["error"].get("code") not in ("product_invalid_sku", "woocommerce_rest_product_not_created"):
+                self.record("error", spec, error=f"{result['error'].get('code')}: {result['error'].get('message')}")
+            else:
+                unresolved.append((spec, result))
+        if unresolved:
+            found = self.lookup_skus([s.sku for s, _ in unresolved])
+            for spec, result in unresolved:
+                if spec.sku in found:
+                    self.after_save(spec, found[spec.sku]["id"], created=True)
+                else:
+                    message = (result or {}).get("error", {}).get("message", "ikke gemt")
+                    self.record("error", spec, error=message)
+
+    def update_chunk(self, chunk: list[tuple[catalog.ProductSpec, Existing]]) -> None:
+        body = {"update": [{"id": e.id, **product_payload(s, self.ids, self.overwrite, self.webshop, creating=False)} for s, e in chunk]}
+        try:
+            results = self.woo.post("wc/v3/products/batch", body, safe_to_repeat=True).get("update", [])
+        except WooError as error:
+            for spec, existing in chunk:
+                self.record("error", spec, existing.id, error=str(error))
+            return
+        for (spec, existing), result in zip(chunk, results):
+            if result.get("error"):
+                self.record("error", spec, existing.id, error=f"{result['error'].get('code')}: {result['error'].get('message')}")
+            else:
+                self.after_save(spec, existing.id, created=False)
+
+    def after_save(self, spec: catalog.ProductSpec, product_id: int, created: bool, fresh: bool = False) -> None:
+        if spec.kind == "variable":
+            error = self.sync_variations(spec, product_id, created, fresh)
+            if error:
+                self.record("error", spec, product_id, error=error)
+                return
+        self.record("created" if created else "updated", spec, product_id)
+
+    def sync_variations(self, spec: catalog.ProductSpec, product_id: int, created: bool, fresh: bool) -> str | None:
+        """Create and update the product's sizes. `fresh`: just created, so it has none yet."""
+        fields = set(SHOP_OWNED) if created else self.overwrite
+        for attempt in range(2):
+            if fresh and attempt == 0:
+                existing = {}
+            else:
+                existing = {v["sku"]: v["id"] for v in self.woo.get_all(f"wc/v3/products/{product_id}/variations", _fields="id,sku")}
+            create, update = [], []
+            for index, variation in enumerate(spec.variations):
+                if variation.sku in existing:
+                    update.append({"id": existing[variation.sku], **variation_payload(variation, index, self.ids, fields)})
+                else:
+                    create.append(variation_payload(variation, index, self.ids, fields | {"stock"}))
+            try:
+                result = self.woo.post(f"wc/v3/products/{product_id}/variations/batch", {"create": create, "update": update}, safe_to_repeat=not create)
+            except WooError as error:
+                if attempt == 0:
+                    continue  # look again at what was saved, then retry the rest
+                return f"størrelser: {error}"
+            errors = [r["error"].get("message", "") for r in result.get("create", []) + result.get("update", []) if r.get("error")]
+            return f"størrelser: {'; '.join(errors)}" if errors else None
+        return None
+
+    def run(self, specs: list[catalog.ProductSpec], by_code: dict[str, Existing], by_sku: dict[str, Existing]) -> int:
+        creates, updates, unchanged, conflicts = [], [], 0, []
+        for spec in specs:
+            matches = {by_code[c].id: by_code[c] for c in spec.codes if c in by_code}
+            if spec.sku in by_sku:
+                matches[by_sku[spec.sku].id] = by_sku[spec.sku]
+            if not matches:
+                creates.append(spec)
+                continue
+            existing = max(matches.values(), key=lambda e: sum(by_code.get(c) is e for c in spec.codes))
+            if len(matches) > 1:
+                conflicts.append(f"{spec.sku}: flere produkter matcher ({', '.join(str(i) for i in matches)}), opdaterer {existing.id}")
+            if existing.type != spec.kind:
+                conflicts.append(f"{spec.sku}: produkt {existing.id} er {existing.type}, arket siger {spec.kind} – springes over")
+                continue
+            if existing.hash == fingerprint(spec, self.webshop) and not self.args.force:
+                unchanged += 1
+            else:
+                updates.append((spec, existing))
+        print(f"Plan: opret {len(creates)}, opdatér {len(updates)}, uændrede {unchanged}")
+        for conflict in conflicts:
+            print(f"  OBS {conflict}")
+        if self.args.dry_run:
+            return 0
+
+        size = self.args.batch
+        jobs = [(self.create_chunk, creates[i:i + size]) for i in range(0, len(creates), size)]
+        jobs += [(self.update_chunk, updates[i:i + size]) for i in range(0, len(updates), size)]
+        with ThreadPoolExecutor(max_workers=self.args.workers) as pool:
+            futures = [pool.submit(fn, chunk) for fn, chunk in jobs]
+            for done, future in enumerate(as_completed(futures), 1):
+                future.result()
+                elapsed = time.time() - self.started
+                c = self.counts
+                print(f"[{done}/{len(jobs)}] oprettet {c['created']}, opdateret {c['updated']}, fejl {c['error']} · {elapsed / 60:.1f} min", flush=True)
+        print(f"Færdig: oprettet {self.counts['created']}, opdateret {self.counts['updated']}, uændrede {unchanged}, fejl {self.counts['error']}")
+        return 1 if self.counts["error"] else 0
+
+
+def run_import(args) -> int:
+    specs, skipped = load_specs(args)
+    specs = select(specs, args)
+    print(f"{len(specs)} produkter valgt ({len(skipped)} rækker i arket sprunget over)")
+    woo = Woo.from_env()
+    # A dry run only reads: it plans against the products already in WooCommerce.
+    ids = None if args.dry_run else setup(woo, specs, None if args.no_webshop else args.webshop)
+    by_code, by_sku = index_products(woo, args.workers)
+    return Importer(woo, ids, args).run(specs, by_code, by_sku)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Importér Guircas produktark i WooCommerce.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("report", "import"):
+        p = sub.add_parser(name)
+        p.add_argument("sheet", help="Guircas Excel-ark (PRODUCTS_INFORMATIONS.xlsx)")
+        p.add_argument("--image-status", help="TSV med url og HTTP-status fra et billedtjek; døde links udelades")
+    sub.choices["report"].add_argument("--out", default=".", help="Mappe til oversigten (CSV)")
+    p = sub.choices["import"]
+    p.add_argument("--dry-run", action="store_true", help="Vis planen uden at skrive til WooCommerce")
+    p.add_argument("--sample", type=int, help="Kun N produkter, fordelt over kategorierne")
+    p.add_argument("--limit", type=int, help="Kun de første N produkter")
+    p.add_argument("--codes", help="Kun produkter med disse Guirca-numre (kommasepareret)")
+    p.add_argument("--webshop", default=DEFAULT_WEBSHOP, help=f"Webshop, nye produkter tildeles (standard: {DEFAULT_WEBSHOP})")
+    p.add_argument("--no-webshop", action="store_true", help="Tildel ingen webshop")
+    p.add_argument("--overwrite", help=f"Sæt også disse felter på eksisterende produkter: {','.join(SHOP_OWNED)} eller 'all'")
+    p.add_argument("--force", action="store_true", help="Opdatér også produkter, der ikke er ændret")
+    p.add_argument("--workers", type=int, default=3, help="Samtidige forespørgsler (standard 3)")
+    p.add_argument("--batch", type=int, default=20, help="Produkter pr. forespørgsel (standard 20)")
+    p.add_argument("--log", help="JSONL-log over hvert produkt")
+    args = parser.parse_args(argv)
+    return report(args) if args.command == "report" else run_import(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

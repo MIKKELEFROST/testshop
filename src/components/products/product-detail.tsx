@@ -9,7 +9,7 @@ import { ProductImage } from "./product-image";
 import { StockBadge } from "./stock-badge";
 
 /** Gallery + purchase panel (variant selection, quantity, add to cart). */
-export function ProductDetail({ product }: { product: Product }) {
+export function ProductDetail({ product, categoryName }: { product: Product; categoryName?: string }) {
   const { add, lines } = useCart();
   const isVariable = product.type === "variable";
   const [selection, setSelection] = useState<Record<string, string>>(() => initialSelection(product));
@@ -90,7 +90,7 @@ export function ProductDetail({ product }: { product: Product }) {
       </div>
 
       <div className="lg:sticky lg:top-28 lg:self-start">
-        {product.categories[0] && <p className="text-sm text-muted">{product.categories[0].name}</p>}
+        {(categoryName ?? product.categories[0]?.name) && <p className="text-sm text-muted">{categoryName ?? product.categories[0]?.name}</p>}
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">{product.name}</h1>
         <div className="mt-4">
           {isVariable && !variation ? (
@@ -140,6 +140,17 @@ export function ProductDetail({ product }: { product: Product }) {
             </div>
           </fieldset>
         ))}
+
+        {product.sizeChart && (
+          <a
+            href={product.sizeChart}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-block text-sm underline underline-offset-4 hover:text-ink"
+          >
+            Se størrelsesguide
+          </a>
+        )}
 
         <div className="mt-7">
           {(!isVariable || variation) && <StockBadge status={stockStatus} quantity={stockQuantity} />}

@@ -3,9 +3,9 @@ import { cacheLife, cacheTag } from "next/cache";
 import { z } from "zod";
 import { storeConfig } from "@/config/store";
 import { describeError } from "@/lib/log";
-import type { Loadable, Product, ProductCategory, ProductSummary } from "@/types/commerce";
+import type { Loadable, Product, ProductCategory, ProductList } from "@/types/commerce";
 import { wooRequest } from "./client";
-import { mapCategory, mapProduct, mapProductSummary, shopCategoryCounts } from "./mappers";
+import { mapCategory, mapProduct, mapProductSummary } from "./mappers";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 /**
@@ -33,27 +33,54 @@ const FAILURE_LIFE = { stale: 30, revalidate: 30, expire: 300 };
 
 const SHOP = { wchc_shop: storeConfig.id };
 
-/** Safety limit for reading the whole catalogue (100 products per page). */
-const MAX_CATALOG_PAGES = 10;
+/** Products per listing page (fills 2, 3 and 4 columns). */
+export const PAGE_SIZE = 24;
 
-export async function getProducts(options: { categoryId?: number; perPage?: number } = {}): Promise<Loadable<ProductSummary[]>> {
+/** What a product card needs; keeps listing responses small (no descriptions). */
+const SUMMARY_FIELDS = [
+  "id", "name", "slug", "type", "status", "price", "regular_price", "sale_price", "on_sale", "purchasable",
+  "stock_status", "stock_quantity", "manage_stock", "backorders_allowed", "categories", "images", "headless_prices", "meta_data",
+].join(",");
+
+/**
+ * Category counts are recounted every 15 minutes (one small request per category), not
+ * every minute like product lists.
+ */
+const CATEGORY_LIFE = { stale: 300, revalidate: 900, expire: 86400 };
+
+/** Newest first. A category includes its subcategories' products. */
+export async function getProducts(
+  options: { categoryId?: number; page?: number; perPage?: number; search?: string } = {},
+): Promise<Loadable<ProductList>> {
   "use cache";
   cacheTag(CATALOG_TAG);
 
+  const page = options.page ?? 1;
   try {
-    const { data } = await wooRequest("wc/v3/products", {
+    const { data, headers } = await wooRequest("wc/v3/products", {
       query: {
         ...SHOP,
         status: "publish",
-        per_page: options.perPage ?? 50,
+        per_page: options.perPage ?? PAGE_SIZE,
+        page,
         orderby: "date",
         order: "desc",
         category: options.categoryId,
+        search: options.search || undefined,
+        _fields: SUMMARY_FIELDS,
       },
       schema: z.array(wcProductSchema),
     });
     cacheLife("minutes");
-    return { ok: true, data: data.map(mapProductSummary) };
+    return {
+      ok: true,
+      data: {
+        products: data.map(mapProductSummary),
+        total: Number(headers.get("x-wp-total") ?? data.length),
+        totalPages: Number(headers.get("x-wp-totalpages") ?? 1),
+        page,
+      },
+    };
   } catch (error) {
     logCatalogError("getProducts", error);
     cacheLife(FAILURE_LIFE);
@@ -96,26 +123,29 @@ export async function getProductBySlug(slug: string): Promise<Loadable<Product |
   }
 }
 
+/** This shop's categories (with products), each with the shop's own product count. */
 export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
   "use cache";
   cacheTag(CATALOG_TAG);
 
   try {
-    const [{ data }, products] = await Promise.all([
-      wooRequest("wc/v3/products/categories", {
-        query: { per_page: 100, hide_empty: true, orderby: "name" },
+    const categories: z.infer<typeof wcCategorySchema>[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const { data, headers } = await wooRequest("wc/v3/products/categories", {
+        query: { per_page: 100, page, hide_empty: true },
         schema: z.array(wcCategorySchema),
-      }),
-      getCatalogIndex(),
-    ]);
+      });
+      categories.push(...data);
+      if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+    }
     // WooCommerce counts every webshop's products; count (and show) only this shop's.
-    const counts = shopCategoryCounts(data, products);
-    cacheLife("minutes");
+    const counts = await mapWithLimit(categories, 6, (c) => countProducts(c.id));
+    cacheLife(CATEGORY_LIFE);
     return {
       ok: true,
-      data: data
-        .filter((c) => c.slug !== "uncategorized" && (counts.get(c.id) ?? 0) > 0)
-        .map((c) => ({ ...mapCategory(c), count: counts.get(c.id) ?? 0 })),
+      data: categories
+        .map((c, i) => ({ ...mapCategory(c), count: counts[i] ?? 0 }))
+        .filter((c) => c.slug !== "uncategorized" && c.count > 0),
     };
   } catch (error) {
     logCatalogError("getCategories", error);
@@ -124,19 +154,27 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
   }
 }
 
-/** Categories of every published product of this shop. */
-async function getCatalogIndex(): Promise<{ id: number; categories: { id: number }[] }[]> {
-  const schema = z.array(z.object({ id: z.number(), categories: z.array(z.object({ id: z.number() })).default([]) }));
-  const products: z.infer<typeof schema> = [];
-  for (let page = 1; page <= MAX_CATALOG_PAGES; page++) {
-    const { data, headers } = await wooRequest("wc/v3/products", {
-      query: { ...SHOP, status: "publish", per_page: 100, page, _fields: "id,categories" },
-      schema,
-    });
-    products.push(...data);
-    if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+/** Number of this shop's published products in a category (subcategories included). */
+async function countProducts(categoryId: number): Promise<number> {
+  const { headers } = await wooRequest("wc/v3/products", {
+    query: { ...SHOP, status: "publish", category: categoryId, per_page: 1, _fields: "id" },
+    schema: z.array(z.object({ id: z.number() })),
+  });
+  return Number(headers.get("x-wp-total") ?? 0);
+}
+
+/** Like Promise.all(items.map(fn)), but at most `limit` requests at a time. */
+async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]!);
+    }
   }
-  return products;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 function logCatalogError(operation: string, error: unknown) {

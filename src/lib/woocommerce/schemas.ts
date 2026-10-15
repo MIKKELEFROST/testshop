@@ -57,6 +57,7 @@ export const wcProductSchema = z.object({
     .default([]),
   variations: z.array(z.number()).default([]),
   headless_prices: wcHeadlessPricesSchema,
+  meta_data: z.array(z.object({ key: z.string(), value: z.unknown() })).default([]),
 });
 
 export const wcVariationSchema = z.object({
@@ -84,6 +85,7 @@ export const wcCategorySchema = z.object({
   parent: z.number().default(0),
   description: z.string().default(""),
   count: z.number().default(0),
+  menu_order: z.number().default(0),
   image: wcImageSchema.nullable().optional(),
 });
 

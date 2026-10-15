@@ -1,6 +1,9 @@
 /** Storefront domain types. Prices are decimal strings in the shop currency, as displayed. */
 
-export type ProductImage = { src: string; alt: string };
+/**
+ * `fit: "contain"`: a supplier photo on a white background, shown whole instead of cropped.
+ */
+export type ProductImage = { src: string; alt: string; fit?: "contain" };
 
 export type StockStatus = "instock" | "outofstock" | "onbackorder";
 
@@ -9,8 +12,13 @@ export type ProductCategory = {
   name: string;
   slug: string;
   description: string;
+  /** Number of this shop's products in the category, including its subcategories. */
   count: number;
   image: ProductImage | null;
+  /** Parent category ID (0 for a top-level category). */
+  parent: number;
+  /** Position set in WooCommerce (Products → Categories). */
+  menuOrder: number;
 };
 
 export type ProductSummary = {
@@ -56,6 +64,18 @@ export type Product = ProductSummary & {
   stockQuantity: number | null;
   attributes: ProductAttribute[];
   variations: ProductVariation[];
+  /** Link to the supplier's size chart (image), if any. */
+  sizeChart: string | null;
+  /** Link to the supplier's product safety label with warnings (EU GPSR), if any. */
+  safetyInfo: string | null;
+};
+
+/** One page of a product listing. */
+export type ProductList = {
+  products: ProductSummary[];
+  total: number;
+  totalPages: number;
+  page: number;
 };
 
 /** Result wrapper so pages can render a friendly message when WooCommerce is down. */

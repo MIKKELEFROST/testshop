@@ -4,6 +4,8 @@ import { ProductGrid, ProductGridSkeleton } from "@/components/products/product-
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import { isDark, storeConfig } from "@/config/store";
+import { productCount } from "@/lib/format";
+import { topLevelCategories } from "@/lib/woocommerce/category-tree";
 import { getCategories, getProducts } from "@/lib/woocommerce/products";
 
 export default function HomePage() {
@@ -93,7 +95,7 @@ export default function HomePage() {
 async function FeaturedProducts() {
   const products = await getProducts({ perPage: 8 });
   if (!products.ok) return <Alert tone="warning">{products.error}</Alert>;
-  return <ProductGrid products={products.data} />;
+  return <ProductGrid products={products.data.products} />;
 }
 
 async function CategoryTiles() {
@@ -101,16 +103,14 @@ async function CategoryTiles() {
   if (!categories.ok || categories.data.length === 0) return null;
   return (
     <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {categories.data.map((category) => (
+      {topLevelCategories(categories.data).map((category) => (
         <li key={category.id}>
           <Link
             href={`/kategori/${category.slug}`}
             className="group flex h-28 flex-col justify-between rounded-[var(--radius-card)] border border-line bg-surface p-5 transition-colors hover:border-ink"
           >
             <span className="text-lg font-medium">{category.name}</span>
-            <span className="text-sm text-muted group-hover:text-ink">
-              {category.count} {category.count === 1 ? "vare" : "varer"} →
-            </span>
+            <span className="text-sm text-muted group-hover:text-ink">{productCount(category.count)} →</span>
           </Link>
         </li>
       ))}

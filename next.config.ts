@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
+import { SUPPLIER_IMAGE_HOSTS } from "./src/config/images";
 
-/** Product images are served from the WooCommerce host. */
+/** Product images are served from the WooCommerce host (and supplier hosts, see src/config/images.ts). */
 function wooImagePattern() {
   try {
     const url = new URL(process.env.WOOCOMMERCE_URL ?? "");
@@ -26,7 +27,13 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   poweredByHeader: false,
   images: {
-    remotePatterns: pattern ? [pattern] : [],
+    remotePatterns: [
+      ...(pattern ? [pattern] : []),
+      ...SUPPLIER_IMAGE_HOSTS.map((hostname) => ({ protocol: "https" as const, hostname, pathname: "/**" })),
+    ],
+    // Product photos rarely change: keep optimized copies for 31 days, which also keeps the
+    // number of image transformations (limited on Vercel's Hobby plan) down.
+    minimumCacheTTL: 2678400,
     // The image optimizer refuses private hosts; the local Docker test shop is served as-is.
     unoptimized: isLocalBackend,
   },

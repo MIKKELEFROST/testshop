@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { ProductDetail } from "@/components/products/product-detail";
 import { Alert } from "@/components/ui/alert";
-import { getProductBySlug } from "@/lib/woocommerce/products";
+import { categoryPath, primaryCategory } from "@/lib/woocommerce/category-tree";
+import { getCategories, getProductBySlug } from "@/lib/woocommerce/products";
 
 export async function generateMetadata(props: PageProps<"/produkter/[slug]">) {
   const { slug } = await props.params;
@@ -27,30 +28,28 @@ export default function ProductPage(props: PageProps<"/produkter/[slug]">) {
 
 async function ProductContent({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const result = await getProductBySlug(slug);
+  const [result, categories] = await Promise.all([getProductBySlug(slug), getCategories()]);
   if (!result.ok) return <Alert tone="warning">{result.error}</Alert>;
   const product = result.data;
   if (!product) notFound();
 
+  // File the product under its most specific category, with that category's parents.
+  const primary = categories.ok ? primaryCategory(categories.data, product.categories) : undefined;
+  const path = primary && categories.ok ? categoryPath(categories.data, primary) : product.categories.slice(0, 1);
+
   return (
     <>
-      <nav aria-label="Brødkrummer" className="mb-6 text-sm text-muted">
-        <Link href="/produkter" className="hover:text-ink">
-          Alle produkter
-        </Link>
-        {product.categories[0] && (
-          <>
-            {" / "}
-            <Link href={`/kategori/${product.categories[0].slug}`} className="hover:text-ink">
-              {product.categories[0].name}
-            </Link>
-          </>
-        )}
-      </nav>
+      <Breadcrumbs
+        className="mb-6"
+        items={[
+          { name: "Alle produkter", href: "/produkter" },
+          ...path.map((c) => ({ name: c.name, href: `/kategori/${c.slug}` })),
+        ]}
+      />
 
-      <ProductDetail product={product} />
+      <ProductDetail product={product} categoryName={path.at(-1)?.name} />
 
-      {product.description.length > 0 && (
+      {(product.description.length > 0 || product.safetyInfo) && (
         <section className="mt-16 max-w-3xl border-t border-line pt-10" aria-labelledby="beskrivelse">
           <h2 id="beskrivelse" className="text-xl font-semibold">
             Beskrivelse
@@ -59,6 +58,13 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
             {product.description.map((paragraph, i) => (
               <p key={i}>{paragraph}</p>
             ))}
+            {product.safetyInfo && (
+              <p>
+                <a href={product.safetyInfo} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-ink">
+                  Sikkerhedsinformation og advarsler (åbner producentens mærkat)
+                </a>
+              </p>
+            )}
           </div>
         </section>
       )}
