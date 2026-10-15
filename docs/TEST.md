@@ -47,7 +47,7 @@ Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at test
 | Forkert beløb / forkert ordrenøgle / anden butik | Integration | Bestået |
 | Betaling efter udløbet reservation, varen solgt | Integration: automatisk refundering, intet oversalg | Bestået |
 | Ugyldig/forfalsket webhook-signatur | Unit (rigtig Stripe-signaturverifikation) | Bestået |
-| **Rabatkoder**: rabatten i quote, ordre og betaling; ukendt kode og minimumsbeløb afvises med WooCommerces begrundelse; kode begrænset til bestemte e-mails | Integration + browsertest (Playwright, mobil og desktop) | Bestået |
+| **Rabatkoder**: rabatten i quote, ordre og betaling; ukendt kode og minimumsbeløb afvises med WooCommerces begrundelse; kode begrænset til bestemte e-mails | Integration + browsertest (Playwright, mobil og desktop) + rigtigt køb 15-10-2026 | **Bestået** |
 | Rabatkode med brugsgrænse: kunden kan prøve igen efter afvist betaling, andre kan ikke bruge koden imens, forbrug tælles én gang | Integration | Bestået |
 | Ubetalt ordre ældre end "Hold lager" genoptages ikke: ny ordre, den gamle og dens PaymentIntent annulleres | Integration | Bestået |
 | Pluginet annullerer forladte ubetalte ordrer og frigiver lageret; nye ordrer røres ikke | Integration | Bestået |
@@ -75,8 +75,19 @@ Købt på `https://testshop-weld.vercel.app` med kort 4242. Tjekket i Vercels re
 - **Prisændring under checkout**, ordre #32: prisen blev ændret fra 99 til 119 kr. i WooCommerce, mens kassen var åben. Ordren og betalingen blev på 119 kr. Kassen hentede den nye pris, før der blev trykket Betal, så `total_changed` (409) blev ikke udløst i denne test. Den gren er dækket af integrationstesten.
 - Klarna og Amazon Pay er slået fra i Stripe, så kun kort tilbydes.
 - **Åbent punkt:** Confirmation-siden loggede to gange `WooCommerce is unreachable` (18:28 og 21:01 dansk tid). Der var ingen konsekvens for ordrerne. Loggen viser nu den underliggende netværksfejl, så årsagen kan findes, hvis det sker igen.
-- **Åbent punkt:** WooCommerce har endnu ikke annulleret de ubetalte ordrer automatisk, selvom "Hold lager" er 60 minutter og WP-Cron er slået til. Lagerreservationerne udløber af sig selv, så de blokerer ikke varer. Plugin 1.1 annullerer selv ubetalte ordrer (testet lokalt), men det er endnu ikke installeret på test.piece.dk.
+- WooCommerce annullerede først den ubetalte ordre #29 næste morgen kl. 07:38, cirka 12½ time efter fristen på 60 minutter, fordi WooCommerces oprydning kun kører, når siden får besøg. Plugin 1.1 rydder selv op og er installeret (se nedenfor).
 - MobilePay-købet (#22) genbrugte en ubetalt ordre fra tidligere på dagen og fik derfor dens nummer og dato. Plugin 1.1 opretter en ny ordre i stedet, når den gamle er ældre end "Hold lager"-tiden.
+
+### Rigtigt testkøb 15-10-2026 (plugin 1.1)
+
+Plugin 1.1.0 er installeret på test.piece.dk, og shoppen kører commit `d61c8a5` i produktion. Tjekket via WooCommerce REST API og Stripe API:
+
+- `/status` viser version 1.1.0 og rabatkoder slået til. Oprydningen af ubetalte ordrer kørte første gang kl. 11:13 og er planlagt hvert kvarter.
+- En ukendt kode afvises med WooCommerces danske tekst: *Kupon "…" kan ikke anvendes, fordi den ikke findes.*
+- Ordre #42 med kuponen `TEST10` (10 %): Piratkostume 299 kr. + Superheltekappe 179 kr. − rabat 47,80 kr. + DAO til Døren 49 kr. = **479,20 kr.** (heraf moms 95,84 kr.). Stripe trak præcis 479,20 kr.
+- Ordren viser betalingsmetoden "Visa-kort (Stripe)" i stedet for den faste tekst fra før.
+- Lageret faldt én gang (Piratkostume 10 → 9, Superheltekappe 6 → 5). "Behandler ordre" og "Ny ordre" blev sendt én gang hver.
+- Kuponen er talt som brugt én gang og registreret på kundens e-mail.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
