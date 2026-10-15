@@ -12,6 +12,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Field, SelectField } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
+import { loadCheckoutDraft, saveCheckoutDraft } from "@/lib/checkout/form-draft";
 import { includesShipping, type ClientQuote } from "@/lib/checkout/quote";
 import { DELIVERY_ESTIMATE, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
@@ -110,11 +111,14 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const elements = useElements();
   const { lines, hydrated } = useCart();
 
-  const [contact, setContact] = useState({ email: "", phone: "" });
-  const [shipping, setShipping] = useState<Address>(emptyAddress);
-  const [billingSame, setBillingSame] = useState(true);
-  const [billing, setBilling] = useState<Address>(emptyAddress);
-  const [note, setNote] = useState("");
+  // What was typed before (e.g. before a cancelled MobilePay payment) is restored. Only read in
+  // the browser; the form itself is first rendered after hydration (see `hydrated` below).
+  const [draft] = useState(() => loadCheckoutDraft());
+  const [contact, setContact] = useState(draft?.contact ?? { email: "", phone: "" });
+  const [shipping, setShipping] = useState<Address>(draft?.shipping ?? emptyAddress);
+  const [billingSame, setBillingSame] = useState(draft?.billingSame ?? true);
+  const [billing, setBilling] = useState<Address>(draft?.billing ?? emptyAddress);
+  const [note, setNote] = useState(draft?.note ?? "");
   const [shippingRateId, setShippingRateId] = useState<string | null>(null);
   const [couponCodes, setCouponCodes] = useState<string[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -145,6 +149,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   // Follow WooCommerce's choice when the selected rate is not (or no longer) available.
   const quotedRateId = quote?.shippingRateId ?? null;
   const selectedRateId = quote && quote.shippingRates.some((r) => r.id === shippingRateId) ? shippingRateId : quotedRateId;
+
+  useEffect(() => {
+    saveCheckoutDraft({ contact, shipping, billingSame, billing, note });
+  }, [contact, shipping, billingSame, billing, note]);
 
   const amountMinor = quote ? toMinorUnits(quote.totals.total, stripeCurrencyExponent(quote.currency)) : null;
   useEffect(() => {
