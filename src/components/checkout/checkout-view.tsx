@@ -16,6 +16,7 @@ import { loadCheckoutDraft, saveCheckoutDraft } from "@/lib/checkout/form-draft"
 import { includesShipping, type ClientQuote } from "@/lib/checkout/quote";
 import { DELIVERY_ESTIMATE, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
+import { cityForPostcode } from "@/lib/postcodes";
 import { getStripeClient } from "@/lib/stripe/client";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
 import { CouponField } from "./coupon-field";
@@ -130,6 +131,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentLoadError, setPaymentLoadError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  // The town filled in from the postcode, per address: replaced when the postcode changes, unless the customer edited it.
+  const filledCity = useRef<Record<"shipping" | "billing", string | null>>({ shipping: null, billing: null });
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
   const emailValid = contactSchema.shape.email.safeParse(contact.email).success;
@@ -382,7 +385,13 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         inputMode="numeric"
         maxLength={4}
         value={value.postcode}
-        onChange={(e) => set({ ...value, postcode: e.target.value.replace(/\D/g, "") })}
+        onChange={(e) => {
+          const postcode = e.target.value.replace(/\D/g, "");
+          const next = cityForPostcode({ country: value.country, postcode, city: value.city, filled: filledCity.current[scope] });
+          filledCity.current[scope] = next.filled;
+          set({ ...value, postcode, city: next.city });
+          if (next.city !== value.city) validateField(scope, "city", next.city);
+        }}
         onBlur={(e) => validateField(scope, "postcode", e.target.value)}
         error={errors[`${scope}.postcode`]}
         required
