@@ -33,7 +33,7 @@ Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at test
 | Lagerstatus matcher WooCommerce | Integration + browsertest (udsolgt størrelse overstreget, "Kun 2 tilbage") | Bestået |
 | **Kurv**: tilføj, ændr antal, fjern, varianter, gem mellem besøg, maks. = lager | Unit (reducer/persistens) + browsertest (Playwright) | Bestået |
 | **Checkout**: adressevalidering, fragtvalg, total fra WooCommerce på Betal-knappen | Unit (Zod) + browsertest (Playwright) | Bestået |
-| Moms og fragt beregnes korrekt (25 %, fragt momspligtig, gratis fragt-grænse) | Integration | Bestået |
+| Moms og fragt beregnes korrekt (25 %, fragt momspligtig, gratis fragt-grænse, "Fri fragt fra" på fast sats: ved beløbet, under det og efter rabat, også på ordren og betalingen) | Integration | Bestået |
 | **Ordre** oprettes i WooCommerce (pending, butiks-ID, lagerreservation) | Integration | Bestået |
 | Betaling registreres, ordrestatus "processing", transaktions-ID | Integration (fake Stripe) | Bestået |
 | Lageret trækkes præcis én gang | Integration | Bestået |

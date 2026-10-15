@@ -11,7 +11,7 @@
    ```
    Svaret viser plugin- og WooCommerce-version, moms- og lagerindstillinger, om rabatkoder er slået til, og hvornår ubetalte ordrer sidst blev ryddet op.
 
-Pluginet kræver WooCommerce 8.5+ og PHP 7.4+. Det understøtter både HPOS og det klassiske ordrelager. Det ændrer ikke butikkens normale checkout. Fra version 1.2 tilføjer det **Produkter → Webshops**, boksen **Webshops** på produkterne og kolonnen **Webshop** i ordrelisten (se afsnit 8).
+Pluginet kræver WooCommerce 8.5+ og PHP 7.4+. Det understøtter både HPOS og det klassiske ordrelager. Det ændrer ikke butikkens normale checkout, bortset fra at "Fri fragt fra" også gælder dér (afsnit 10). Fra version 1.2 tilføjer det **Produkter → Webshops**, boksen **Webshops** på produkterne og kolonnen **Webshop** i ordrelisten (se afsnit 8).
 
 ## 2. REST API-nøgle
 
@@ -34,7 +34,7 @@ Forbindelsen bruger HTTP Basic auth over **HTTPS**. WooCommerce afviser Basic au
 | Beregn moms ud fra | Moms | Kundens leveringsadresse |
 | Vis priser i butik/kurv | Moms | Inkl. moms |
 | Standardsats | Moms → Standardsatser | DK, 25 %, gælder fragt ✔ |
-| Fragtzone | Fragt | "Danmark" med f.eks. Flat rate (pris **ekskl. moms**, f.eks. 39,20 = 49 kr. inkl. moms) |
+| Fragtzone | Fragt | "Danmark" med f.eks. Fast sats (pris **ekskl. moms**, f.eks. 39,20 = 49 kr. inkl. moms). Se afsnit 10. |
 | Lagerstyring | Produkter → Lager | Aktivér lagerstyring ✔, Hold lager: 60 minutter |
 
 Storefronten beregner **ingen** moms eller fragt selv. Den viser WooCommerces tal, så andre opsætninger (priser ekskl. moms, gratis fragt over X kr., afhentning, flere zoner) virker automatisk.
@@ -97,6 +97,14 @@ Leverandørimporten ([IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) gemmer data på produ
 | `_wchc_safety_info` | Link til leverandørens sikkerhedsmærkat med advarsler (EU's GPSR) |
 | `_supplier`, `_supplier_article_codes` | Leverandør og varenumre; importen finder varen igen med dem |
 | `_wchc_import_issue` | Hvorfor importen lavede varen som kladde (f.eks. manglende pris) |
+
+## 10. Fragt og fri fragt
+
+Fragtmetoderne oprettes under **WooCommerce → Indstillinger → Forsendelse** i zonen "Danmark" og er fælles for alle webshops. Kassen viser dem i zonens rækkefølge, og den første er valgt på forhånd.
+
+- **Pris:** "Fast sats" indtastes **ekskl. moms**. 39 kr. inkl. moms skrives som 31,20 (39 / 1,25).
+- **Fri fragt fra** (plugin 1.3): feltet på en Fast sats-metode. Når varerne koster mindst beløbet (inkl. moms og efter rabat, som i kurven), viser kassen metoden som "Gratis", og ordren får 0 kr. i fragt. Kunden vælger stadig selv fragtfirma. Lad feltet stå tomt på metoder, der altid koster det samme, f.eks. levering til døren.
+- WooCommerces egen metode **Gratis forsendelse** virker også, men den vises som et ekstra valg ved siden af de betalte metoder. Den skal bruges, hvis en rabatkode skal give fri fragt (kuponens afkrydsning for gratis forsendelse). "Fri fragt fra" reagerer ikke på sådanne rabatkoder.
 
 ## Kendte begrænsninger
 

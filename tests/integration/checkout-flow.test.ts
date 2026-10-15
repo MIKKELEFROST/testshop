@@ -21,6 +21,7 @@ import {
   productBySku,
   runUnpaidOrderCleanup,
   updateProduct,
+  updateShippingMethod,
   configureLocalWooEnv,
   variationBySku,
 } from "../support/woo-admin";
@@ -128,6 +129,32 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       const above = await quoteFor([{ productId: ids.tshirt, quantity: 3 }], "free_shipping");
       expect(above.shipping_rate_id).toMatch(/^free_shipping:/);
       expect(above.totals.total).toBe("747.00");
+    });
+
+    it('makes a flat rate free from its "Fri fragt fra" amount, after discounts', async () => {
+      // Typed with the shop's decimal comma, as in the admin; 2 × 249 = 498 reaches it exactly.
+      const method = await updateShippingMethod(1, { wchc_free_from: "498,00" });
+      expect(method.settings.wchc_free_from).toMatchObject({ label: "Fri fragt fra", type: "price" });
+      const discount = await createCoupon({ code: `fragt${Date.now().toString(36)}`, discount_type: "percent", amount: "10" });
+      try {
+        const two = [{ productId: ids.tshirt, quantity: 2 }];
+        const free = await quoteFor(two);
+        expect(free.shipping_rates.find((r) => r.id === free.shipping_rate_id)).toMatchObject({ method_id: "flat_rate", cost: "0.00", tax: "0.00" });
+        expect(free.totals).toMatchObject({ shipping: "0.00", shipping_tax: "0.00", total: "498.00" });
+
+        expect((await quoteFor([{ productId: ids.tshirt, quantity: 1 }])).totals).toMatchObject({ shipping: "39.20", shipping_tax: "9.80" });
+        // 10 % off takes the goods to 448.20, below the amount, so the shipping price is back.
+        expect((await quoteFor(two, "flat_rate", [discount.code])).totals).toMatchObject({ shipping: "39.20", total: "497.20" });
+
+        // The order and the payment get the free shipping the customer saw.
+        const stripe = new FakeStripe();
+        const { order, paymentIntentId } = await readyCheckout(stripe, two);
+        expect(await getOrder(order.id)).toMatchObject({ shipping_total: "0.00", shipping_tax: "0.00", total: "498.00" });
+        expect((await stripe.retrieve(paymentIntentId)).amount).toBe(49800);
+      } finally {
+        await updateShippingMethod(1, { wchc_free_from: "" });
+        await deleteCoupon(discount.id);
+      }
     });
 
     it("reports sold-out and insufficient stock", async () => {
@@ -540,7 +567,7 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       await expect(readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }])).resolves.toMatchObject({ type: "ready" });
 
       const status = await pluginStatus();
-      expect(status).toMatchObject({ version: "1.2.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
+      expect(status).toMatchObject({ version: "1.3.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
       expect((status.unpaid_orders as { last_cleanup: string | null }).last_cleanup).not.toBeNull();
     });
   });

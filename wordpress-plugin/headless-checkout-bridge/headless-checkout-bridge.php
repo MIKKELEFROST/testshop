@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Headless Checkout Bridge
  * Description:       Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe). Uses WooCommerce's own cart, tax, shipping, order and stock-reservation logic.
- * Version:           1.2.0
+ * Version:           1.3.0
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WCHC_VERSION', '1.2.0' );
+define( 'WCHC_VERSION', '1.3.0' );
 define( 'WCHC_PATH', plugin_dir_path( __FILE__ ) );
 
 /*
@@ -63,10 +63,12 @@ add_action(
 		require_once WCHC_PATH . 'includes/class-wchc-rest-controller.php';
 		require_once WCHC_PATH . 'includes/class-wchc-product-fields.php';
 		require_once WCHC_PATH . 'includes/class-wchc-shops.php';
+		require_once WCHC_PATH . 'includes/class-wchc-shipping.php';
 
 		add_action( 'rest_api_init', array( new WCHC_REST_Controller(), 'register_routes' ) );
 		WCHC_Product_Fields::init();
 		WCHC_Shops::init();
+		WCHC_Shipping::init();
 		WCHC_Orders::init_hooks();
 	}
 );

@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Requires PHP: 7.4
 WC requires at least: 8.5
-Stable tag: 1.2.0
+Stable tag: 1.3.0
 License: GPLv2 or later
 
 Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe).
@@ -27,7 +27,7 @@ use WooCommerce's own cart, tax, shipping, order and stock-reservation logic:
 
 All routes require a WooCommerce REST API key (read/write) of a user with the
 manage_woocommerce capability; order routes additionally require the order key.
-The plugin does not change the shop's normal checkout.
+The plugin does not change the shop's normal checkout, except for "Fri fragt fra" below.
 
 Several storefronts can share this WooCommerce ("webshops"). Products → Webshops lists
 them; the slug of a webshop is its storefront's store ID. Tick the webshops that sell a
@@ -44,6 +44,10 @@ so cleanup does not depend on site traffic.
 Also adds `headless_prices` (display prices according to the shop's tax display
 setting) to REST API v3 product and variation responses.
 
+Flat rate shipping methods get the setting "Fri fragt fra" (free from). When the goods
+reach that amount (after discounts, incl. tax when the cart shows prices incl. tax), the
+method costs 0, so the customer still chooses the carrier. Empty: the normal price.
+
 == Installation ==
 
 Plugins → Add New → Upload Plugin → choose the zip → Install → Activate.
@@ -51,6 +55,10 @@ To update, upload the new zip the same way and choose "Replace current with uplo
 Check: GET /wp-json/wc-headless/v1/status with the API key.
 
 == Changelog ==
+
+= 1.3.0 =
+* Shipping: "Fri fragt fra" on flat rates. From that amount (goods after discounts, as the
+  cart shows them) the method is free, in quotes, orders and the normal checkout.
 
 = 1.2.0 =
 * Webshops: assign products to one or more storefronts (Products → Webshops). Each

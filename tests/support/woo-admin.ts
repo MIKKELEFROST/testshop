@@ -100,6 +100,13 @@ export async function deleteCoupon(id: number) {
   await admin(`coupons/${id}?force=true`, { method: "DELETE" });
 }
 
+type ShippingMethod = { instance_id: number; settings: Record<string, { label: string; type: string; value: string }> };
+
+/** Change a shipping method's settings in the local zone "Danmark" (zone 1, see seed.php). */
+export async function updateShippingMethod(instanceId: number, settings: Record<string, string>): Promise<ShippingMethod> {
+  return admin<ShippingMethod>(`shipping/zones/1/methods/${instanceId}`, { method: "PUT", body: { settings } });
+}
+
 /** The plugin's health endpoint. */
 export async function pluginStatus(): Promise<Record<string, unknown>> {
   return (await plugin("status")).body as Record<string, unknown>;
