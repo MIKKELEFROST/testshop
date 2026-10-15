@@ -89,6 +89,9 @@ Check: GET /wp-json/wc-headless/v1/status with the API key.
   shipping, the refund within 14 days, the hygiene exception and the seller (company name, CVR,
   address). WordPress does not have these details, so the storefront sends them in `store`;
   details it does not send are left out.
+* Category counts are also recounted after a product is trashed or restored in the products
+  list, published by WP-Cron (scheduled) and after a webshop is created, renamed or deleted.
+  A recount that overlapped such a change is not cached, so it cannot keep stale counts.
 * REST: `wchc_in_category=<id>[,<id>…]` lists only products that are also in each of these
   categories, e.g. category=Damekostumer&wchc_in_category=Halloween. Works with `wchc_shop`.
 * REST: `wchc_not_in_category=<id>[,<id>…]` leaves out products in any of these categories
