@@ -25,8 +25,8 @@ Lageret er fælles: sælger begge webshops samme produkt, trækker de fra samme 
 
 | Webshop | Butiks-ID | Brand | Adresse |
 | --- | --- | --- | --- |
-| piece.dk (test) | `piece-dk` | Hverdag | https://testshop-weld.vercel.app |
-| halloween-kostumer.dk (test) | `halloween-kostumer-dk` | Maskerade | https://testshop-maskerade.vercel.app |
+| piece.dk (test) | `piece-dk` | Hverdag | https://testshop-weld.vercel.app (Vercel-projekt `testshop`) |
+| halloween-kostumer.dk (test) | `halloween-kostumer-dk` | Maskerade | https://testshop-maskerade.vercel.app (Vercel-projekt `testshop-maskerade`) |
 
 | Produkt | Hverdag | Maskerade |
 | --- | --- | --- |

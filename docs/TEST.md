@@ -91,6 +91,19 @@ Plugin 1.1.0 er installeret på test.piece.dk, og shoppen kører commit `d61c8a5
 - Lageret faldt én gang (Piratkostume 10 → 9, Superheltekappe 6 → 5). "Behandler ordre" og "Ny ordre" blev sendt én gang hver.
 - Kuponen er talt som brugt én gang og registreret på kundens e-mail.
 
+### To webshops live 15-10-2026 (plugin 1.2)
+
+Plugin 1.2.0 på test.piece.dk. Webshops oprettet: `piece-dk` (Hverdag, https://testshop-weld.vercel.app) og `halloween-kostumer-dk` (Maskerade, https://testshop-maskerade.vercel.app). Fordeling: Piratkostume og Superheltekappe i begge, Prinsessekostume kun i Hverdag, Halloweenmaske og Heksehat kun i Maskerade.
+
+| Tjek | Resultat |
+| --- | --- |
+| Hverdag viser Pirat, Prinsesse, Superhelt og kun kategorien Kostumer | Bestået |
+| Maskerade viser Pirat, Superhelt, Halloweenmaske, Heksehat og kategorierne Kostumer (2) og Tilbehør (2) | Bestået |
+| Produktside for en vare fra den anden webshop giver "ikke fundet" (begge veje) | Bestået |
+| Kassen i Hverdag afviser Heksehat, og Maskerade afviser Prinsessekostume ("Produktet sælges ikke i denne webshop.") | Bestået |
+| Delt vare (Piratkostume) kan købes i begge: quote 348,00 kr. inkl. DAO-fragt i Maskerade | Bestået |
+| Maskeradens domæne registreret til Apple Pay/Google Pay i Stripe (test), eget webhook-endpoint | Gjort |
+
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
 Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe listen` kører, eller webhooken er oprettet i Stripe.
