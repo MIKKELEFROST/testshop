@@ -5,14 +5,14 @@ import type { ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { useQuote } from "@/components/checkout/use-quote";
 import { ProductImage } from "@/components/products/product-image";
-import { QuantityStepper } from "@/components/products/product-detail";
+import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
 import type { CartLine } from "@/lib/cart/cart";
 import type { ClientQuote } from "@/lib/checkout/quote";
-import { formatPrice, multiplyAmount } from "@/lib/money";
+import { formatPrice, fromMinorUnits, multiplyAmount, toMinorUnits } from "@/lib/money";
 
 /** The /kurv page. Its parts are shared with the cart drawer. */
 export function CartView() {
@@ -168,6 +168,7 @@ export function CartLineItem({
 export function CartTotals({ quote, loading, className = "" }: { quote: ClientQuote | null; loading: boolean; className?: string }) {
   return (
     <div className={className}>
+      {quote && <FreeShippingProgress quote={quote} />}
       <dl className="space-y-3 text-[15px]">
         <div className="flex justify-between">
           <dt className="text-ink-soft">Foreløbig total</dt>
@@ -183,6 +184,35 @@ export function CartTotals({ quote, loading, className = "" }: { quote: ClientQu
       <p className="mt-4 text-xs text-muted">
         {quote?.taxDisplay === "excl" ? "Priser er ekskl. moms." : "Alle priser er inkl. moms."} Priser og lager kontrolleres igen ved betaling.
       </p>
+    </div>
+  );
+}
+
+/** How far the goods (after discounts) are from free shipping, with a bar. */
+export function FreeShippingProgress({ quote }: { quote: ClientQuote }) {
+  const threshold = quote.freeShippingFrom;
+  if (!threshold || !quote.needsShipping || quote.items.length === 0) return null;
+  const goods = toMinorUnits(quote.totals.subtotal, 2) - toMinorUnits(quote.totals.discount, 2);
+  const target = toMinorUnits(threshold, 2);
+  const missing = target - goods;
+  const percent = target > 0 ? Math.max(0, Math.min(100, Math.round((goods / target) * 100))) : 100;
+  return (
+    <div className="mb-4 rounded-[var(--radius-control)] bg-accent-soft/70 px-4 py-3">
+      <p className="text-sm font-semibold text-ink" aria-live="polite">
+        {missing > 0
+          ? `Køb for ${formatPrice(fromMinorUnits(missing, 2))} mere, så får du fri fragt til pakkeshop.`
+          : "Du har fri fragt til pakkeshop."}
+      </p>
+      <div
+        className="mt-2 h-2 overflow-hidden rounded-full bg-white"
+        role="progressbar"
+        aria-label="Fri fragt"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <div className="h-full rounded-full bg-success transition-[width] duration-500" style={{ width: `${percent}%` }} />
+      </div>
     </div>
   );
 }

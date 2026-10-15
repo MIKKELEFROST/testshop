@@ -104,6 +104,7 @@ Fragtmetoderne oprettes under **WooCommerce → Indstillinger → Forsendelse** 
 
 - **Pris:** "Fast sats" indtastes **ekskl. moms**. 39 kr. inkl. moms skrives som 31,20 (39 / 1,25).
 - **Fri fragt fra** (plugin 1.3): feltet på en Fast sats-metode. Når varerne koster mindst beløbet (inkl. moms og efter rabat, som i kurven), viser kassen metoden som "Gratis", og ordren får 0 kr. i fragt. Kunden vælger stadig selv fragtfirma. Lad feltet stå tomt på metoder, der altid koster det samme, f.eks. levering til døren.
+- Shoppen læser det laveste "Fri fragt fra"-beløb og viser det i sine løfter ("Fri fragt v/ 599 kr.") og i kurven ("Køb for 120 kr. mere …"). Teksterne følger derfor med, når beløbet ændres i WooCommerce (inden for en time).
 - WooCommerces egen metode **Gratis forsendelse** virker også, men den vises som et ekstra valg ved siden af de betalte metoder. Den skal bruges, hvis en rabatkode skal give fri fragt (kuponens afkrydsning for gratis forsendelse). "Fri fragt fra" reagerer ikke på sådanne rabatkoder.
 
 ## Kendte begrænsninger

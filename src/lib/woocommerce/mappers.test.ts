@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mapCategory, mapProduct, mapProductSummary, productImages } from "./mappers";
+import { discountPercent } from "@/lib/pricing";
+import { mapCategory, mapProduct, mapProductSummary, productImages, youtubeIds } from "./mappers";
 import { wcCategorySchema, wcProductSchema } from "./schemas";
 
 function product(overrides: Record<string, unknown> = {}) {
@@ -54,6 +55,48 @@ describe("mapProduct", () => {
     expect(p.sizeChart).toBe("https://static.guirca.com/media/mailing/tallas/UK/Size%20chart_CHILD_TEEN.jpg");
     expect(p.safetyInfo).toBeNull();
     expect(mapProduct(product(), []).sizeChart).toBeNull();
+  });
+});
+
+describe("product card facts", () => {
+  const sizes = { id: 1, name: "Størrelse", slug: "pa_storrelse", variation: true, options: ["3-4 år", "5-6 år", "7-9 år"] };
+  const audience = { id: 2, name: "Målgruppe", slug: "pa_maalgruppe", variation: false, options: ["Piger"] };
+
+  it("counts the sizes (or other variants) and reads the target group", () => {
+    const summary = mapProductSummary(product({ attributes: [sizes, audience] }));
+    expect(summary.variantSummary).toBe("3 størrelser");
+    expect(summary.audience).toEqual(["Piger"]);
+    expect(mapProductSummary(product({ attributes: [{ ...sizes, options: ["One size"] }] })).variantSummary).toBe("1 størrelse");
+    expect(mapProductSummary(product({ attributes: [{ ...sizes, name: "Farve", options: ["Rød", "Blå"] }] })).variantSummary).toBe("2 varianter");
+    expect(mapProductSummary(product({ type: "simple", attributes: [audience] })).variantSummary).toBeNull();
+  });
+
+  it("knows the discount on simple products only", () => {
+    const sale = { type: "simple", price: "199", regular_price: "249", sale_price: "199", on_sale: true };
+    expect(mapProductSummary(product(sale)).discountPercent).toBe(20);
+    expect(mapProductSummary(product({ ...sale, type: "variable" })).discountPercent).toBeNull();
+    expect(discountPercent("199.00", "199.00", true)).toBeNull();
+    expect(discountPercent("199", "249", false)).toBeNull();
+    expect(discountPercent("249", "199", true)).toBeNull();
+  });
+
+  it("finds YouTube videos in the import's links", () => {
+    expect(
+      youtubeIds([
+        "https://www.youtube.com/watch?v=iCih5sZbxhE",
+        "https://youtu.be/ZD33COusHX4",
+        "https://www.youtube.com/embed/iCih5sZbxhE", // duplicate
+        "http://www.youtube.com/watch?v=aaaaaaaaaaa", // not https
+        "https://vimeo.com/123",
+        "https://www.youtube.com/watch?v=<script>",
+        7,
+      ]),
+    ).toEqual(["iCih5sZbxhE", "ZD33COusHX4"]);
+    expect(youtubeIds("https://youtu.be/ZD33COusHX4")).toEqual([]);
+    const withVideo = product({ meta_data: [{ key: "_wchc_videos", value: ["https://youtu.be/ZD33COusHX4"] }] });
+    expect(mapProductSummary(withVideo).hasVideo).toBe(true);
+    expect(mapProduct(withVideo, []).videos).toEqual(["ZD33COusHX4"]);
+    expect(mapProductSummary(product()).hasVideo).toBe(false);
   });
 });
 

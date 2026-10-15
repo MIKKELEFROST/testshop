@@ -42,6 +42,7 @@ export const wcProductSchema = z.object({
   stock_status: z.string().default("instock"),
   backorders_allowed: z.boolean().default(false),
   categories: z.array(z.object({ id: z.number(), name: z.string(), slug: z.string() })).default([]),
+  tags: z.array(z.object({ id: z.number(), name: z.string(), slug: z.string() })).default([]),
   images: z.array(wcImageSchema).default([]),
   attributes: z
     .array(
@@ -87,6 +88,17 @@ export const wcCategorySchema = z.object({
   count: z.number().default(0),
   menu_order: z.number().default(0),
   image: wcImageSchema.nullable().optional(),
+});
+
+export const wcShippingZoneSchema = z.object({ id: z.number(), name: z.string() });
+
+export const wcShippingLocationSchema = z.object({ code: z.string(), type: z.string() });
+
+export const wcShippingMethodSchema = z.object({
+  instance_id: z.number(),
+  method_id: z.string(),
+  enabled: z.boolean().default(false),
+  settings: z.record(z.string(), z.object({ value: z.unknown() })).default({}),
 });
 
 export type WcProduct = z.infer<typeof wcProductSchema>;

@@ -97,9 +97,24 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 ## Caching
 
 - Katalogdata hentes med `'use cache'` + `cacheLife('minutes')` + tags. WooCommerce-produktwebhooks (`/api/revalidate`) og betalte ordrer invaliderer cachen.
-- Produktlister, kategorier og søgning hentes 24 varer ad gangen (`?side=2`). Kategoriernes antal tælles pr. webshop med én lille forespørgsel pr. kategori og caches i et kvarter.
+- Produktlister, kategorier og søgning hentes 30 varer ad gangen (`?side=2`), så rækkerne går op med 5, 3 og 2 kort. Kategoriernes antal tælles pr. webshop med én lille forespørgsel pr. kategori og caches i et kvarter.
 - Produktbilleder: WooCommerces egne billeder, ellers leverandørens fotos, som en import har linket til (meta `_wchc_external_images`, kun fra værterne i `src/config/images.ts`). Alle billeder går gennem Next.js' billedoptimering og caches i 31 dage. Fejler et billede, vises en pladsholder.
 - Lager og priser på produktsider er informative. Kurv og checkout henter altid friske tal fra WooCommerce.
+
+## Produktkort og produktside
+
+- **Produktkort** (`components/products/product-card.tsx`): hvide kort på en lys baggrund (`bg-canvas`), billedet vist helt, rabatmærke (`-20 %`, kendes kun for simple produkter), videomærke, antal størrelser, stor pris i farven `price` og lagerstatus. 5 pr. række på computer, 3 på tablet og 2 på mobil.
+- **Produktside** (`app/(shop)/produkter/[slug]`):
+  - Galleri med video. YouTube-videoer (`_wchc_videos`) indlæses først, når kunden trykker afspil, og i YouTubes privatlivstilstand (youtube-nocookie.com).
+  - Pris med "Spar X kr." og lagerstatus. Størrelsesknapperne viser kropshøjden, når beskrivelsen har den ("Størrelser: 3-4 år (109 cm) …", se `lib/product-text.ts`).
+  - Under knappen står webshoppens løfter og foldbare afsnit med beskrivelse, størrelser, levering og retur samt produktsikkerhed.
+  - På mobil kommer en købsbjælke frem, når man har scrollet forbi knappen. Uden valgt størrelse ruller bjælken op til størrelserne.
+- **Relevant tilbehør og Lignende produkter** (`getRelatedProducts`, `lib/woocommerce/related.ts`):
+  - Tilbehør er varer i kategorierne fra `ACCESSORY_CATEGORY_SLUGS` (Tilbehør og Make-up) med et af produktets temaer (tags). Er der for få, bruges tilbehør fra produktets øvrige kategorier, f.eks. Halloween.
+  - Rækken viser én af hver slags (hat, paryk, maske …), før der kommer to af samme slags.
+  - Lignende produkter er produkter fra produktets mest specifikke kategori, og dem med samme temaer kommer først.
+  - Begge foretrækker produktets målgruppe. Børnevarer til voksenkostumer og omvendt kommer sidst.
+- **Løfter (USP'er)** står i `config/usps.ts` og er fælles for webshops: baren øverst, rækken over footeren og 2 × 2-boksen på produktsiden. Beløbet for fri fragt (`{fri_fragt}`) læses fra WooCommerce ("Fri fragt fra" på fragtmetoderne, `lib/woocommerce/shipping.ts`). Løfter om fri fragt udelades, hvis ingen metode har det. Kurven viser, hvor meget der mangler til fri fragt.
 
 ## Flere webshops
 

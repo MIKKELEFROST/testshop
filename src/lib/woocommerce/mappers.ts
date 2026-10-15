@@ -1,4 +1,5 @@
 import { SUPPLIER_IMAGE_HOSTS } from "@/config/images";
+import { discountPercent } from "@/lib/pricing";
 import type {
   Product,
   ProductCategory,
@@ -63,22 +64,65 @@ function prices(source: WcProduct | WcVariation) {
   };
 }
 
+/** "6 størrelser" (or "3 varianter") from a variable product's variation attribute. */
+function variantSummary(product: WcProduct): string | null {
+  if (product.type !== "variable") return null;
+  const attribute = product.attributes.find((a) => a.variation && a.options.length > 0);
+  if (!attribute) return null;
+  const count = attribute.options.length;
+  if (/^st(ø|oe?)rrelse$/i.test(decodeEntities(attribute.name).trim())) return count === 1 ? "1 størrelse" : `${count} størrelser`;
+  return count === 1 ? "1 variant" : `${count} varianter`;
+}
+
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/** YouTube video IDs from links (youtube.com/watch?v=…, youtu.be/…, /embed/…, /shorts/…). */
+export function youtubeIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.map((link) => {
+    try {
+      const url = new URL(String(link));
+      if (url.protocol !== "https:") return null;
+      const host = url.hostname.replace(/^(www|m)\./, "");
+      const id =
+        host === "youtu.be"
+          ? url.pathname.slice(1)
+          : host === "youtube.com" || host === "youtube-nocookie.com"
+            ? url.pathname === "/watch"
+              ? url.searchParams.get("v")
+              : (/^\/(?:embed|shorts)\/([^/]+)/.exec(url.pathname)?.[1] ?? null)
+            : null;
+      return id && YOUTUBE_ID.test(id) ? id : null;
+    } catch {
+      return null;
+    }
+  });
+  return [...new Set(ids.filter((id): id is string => id !== null))];
+}
+
 export function mapProductSummary(product: WcProduct): ProductSummary {
   const display = product.headless_prices;
   const min = emptyToNull(display?.min_price);
   const max = emptyToNull(display?.max_price);
+  const productPrices = prices(product);
 
   return {
     id: product.id,
     slug: product.slug,
     name: decodeEntities(product.name),
     type: product.type === "simple" || product.type === "variable" ? product.type : "other",
-    ...prices(product),
+    ...productPrices,
     onSale: product.on_sale,
     priceRange: min && max ? { min, max } : null,
     image: productImages(product)[0] ?? null,
     stockStatus: stockStatus(product.stock_status),
+    stockQuantity: product.manage_stock === true && !product.backorders_allowed ? product.stock_quantity : null,
     categories: product.categories.map((c) => ({ ...c, name: decodeEntities(c.name) })),
+    tags: product.tags.map((t) => ({ id: t.id, name: decodeEntities(t.name) })),
+    audience: product.attributes.find((a) => /^m(å|aa)lgruppe$/i.test(decodeEntities(a.name).trim()))?.options ?? [],
+    variantSummary: variantSummary(product),
+    discountPercent: product.type === "simple" ? discountPercent(productPrices.price, productPrices.regularPrice, product.on_sale) : null,
+    hasVideo: youtubeIds(meta(product, "_wchc_videos")).length > 0,
   };
 }
 
@@ -104,7 +148,6 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
     shortDescription: htmlToParagraphs(product.short_description),
     images: productImages(product),
     purchasable: product.purchasable,
-    stockQuantity: product.manage_stock === true && !product.backorders_allowed ? product.stock_quantity : null,
     attributes: product.attributes
       .filter((a) => a.variation)
       .map((a) => ({ name: decodeEntities(a.name), slug: attributeKey(a), options: a.options })),
@@ -112,6 +155,7 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
     // Links only; any https host is fine (they are not passed to the image optimizer).
     sizeChart: supplierUrl(meta(product, "_wchc_size_chart"), null),
     safetyInfo: supplierUrl(meta(product, "_wchc_safety_info"), null),
+    videos: youtubeIds(meta(product, "_wchc_videos")),
   };
 }
 

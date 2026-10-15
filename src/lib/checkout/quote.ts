@@ -28,6 +28,8 @@ export type ClientQuote = {
   coupons: { code: string; discount: string }[];
   /** Requested coupons WooCommerce rejected, with its reason. */
   couponErrors: { code: string; message: string }[];
+  /** Goods from this amount get free shipping (some methods), when the quote route knows it. */
+  freeShippingFrom?: string | null;
 };
 
 const EXP = 4; // WooCommerce never returns more than 4 decimals.

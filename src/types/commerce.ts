@@ -34,7 +34,19 @@ export type ProductSummary = {
   priceRange: { min: string; max: string } | null;
   image: ProductImage | null;
   stockStatus: StockStatus;
+  /** Null when stock is not tracked. */
+  stockQuantity: number | null;
   categories: { id: number; name: string; slug: string }[];
+  /** Themes (WooCommerce tags), e.g. "Pirater". Only in listings that ask for them. */
+  tags: { id: number; name: string }[];
+  /** Target groups (attribute "Målgruppe"), e.g. ["Piger"]. */
+  audience: string[];
+  /** "6 størrelser" for a product with sizes, or "3 varianter". */
+  variantSummary: string | null;
+  /** Percentage off the regular price, when known (simple products on sale). */
+  discountPercent: number | null;
+  /** Whether the product has a video (shown on its page). */
+  hasVideo: boolean;
 };
 
 export type ProductAttribute = { name: string; slug: string; options: string[] };
@@ -61,13 +73,14 @@ export type Product = ProductSummary & {
   shortDescription: string[];
   images: ProductImage[];
   purchasable: boolean;
-  stockQuantity: number | null;
   attributes: ProductAttribute[];
   variations: ProductVariation[];
   /** Link to the supplier's size chart (image), if any. */
   sizeChart: string | null;
   /** Link to the supplier's product safety label with warnings (EU GPSR), if any. */
   safetyInfo: string | null;
+  /** YouTube video IDs (from the import's `_wchc_videos` links). */
+  videos: string[];
 };
 
 /** One page of a product listing. */

@@ -132,6 +132,24 @@ Zonen "Danmark" på test.piece.dk, i kassens rækkefølge: PostNord, GLS og DAO 
 | 7 hekseparykker med `TEST10` (560,70 kr.) | Under 599 kr. efter rabat, så pakkeshop koster 39 kr. igen, i alt 599,70 kr. |
 | WooCommerces REST API for fragtmetoderne | Med plugin 1.3.0 skrev REST API'et PHP-advarslen "Undefined array key wchc_free_from" ind i JSON-svaret, fordi metoderne var gemt før feltet fandtes. Rettet på test.piece.dk ved at gemme feltet på alle fem metoder. Plugin 1.3.1 gør det selv for gamle fragtmetoder. |
 
+### Produktkort, produktside og begge webshops 15-10-2026
+
+Testprodukterne fra opsætningen ligger i papirkurven, og alle Guirca-varer (undtagen de 37 til 18+) sælges nu af begge webshops: 8.569 varer i Hverdag og 8.569 i Maskerade. En prøvekørsel af importen bagefter planlagde 0 ændringer.
+
+Browsertest (Playwright) mod en lokal build af Maskerade på test.piece.dk:
+
+| Tjek | Resultat |
+| --- | --- |
+| Kategoriside, computer (1440 px) | 5 kort pr. række og 30 varer pr. side. Kortene har rabat- og videomærke, antal størrelser, stor pris og "På lager". |
+| Kategori- og produktside, mobil (390 px) | 2 kort pr. række og ingen vandret scroll. |
+| Relevant tilbehør (nonnekostume) | Korsvedhæng, glorie, præstehue, englevinger, ansigtsglimmer, korstatovering og hyrdestav. Lignende produkter: andre nonnekostumer. |
+| Relevant tilbehør (enhjørningekostume til piger) | Enhjørningesæt til børn, hårextension med enhjørning, enhjørningebriller og skelettilbehør |
+| Størrelser | Børnekostumer viser højden under størrelsen (3-4 år · 109 cm …), og linket til størrelsesguiden står over knapperne. |
+| Købsbjælke på mobil | Skjult ved start og vises, når man har scrollet forbi knappen. Uden valgt størrelse ruller den op og viser "Vælg størrelse først." |
+| Kurv | "Køb for 460,00 kr. mere, så får du fri fragt til pakkeshop" med bjælke ved 139 kr. i kurven. Beløbet læses fra WooCommerce (599 kr.). |
+| Løfter | Baren øverst, rækken over footeren og 2 × 2-boksen på produktsiden viser "599 kr." fra WooCommerce. |
+| JavaScript-fejl | Ingen |
+
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
 Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe listen` kører, eller webhooken er oprettet i Stripe.

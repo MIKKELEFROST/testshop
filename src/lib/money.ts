@@ -62,6 +62,14 @@ export function multiplyAmount(decimal: string, quantity: number, exponent = 2):
 
 const formatters = new Map<string, Intl.NumberFormat>();
 
+/** "199" or "199,50" (no øre on whole amounts, no currency): for large price displays. */
+export function formatAmount(amount: string, locale: string = storeConfig.locale): string {
+  // Display only: a 2-decimal string formats safely as a number.
+  const value = Number(amount);
+  const whole = Number.isInteger(value);
+  return value.toLocaleString(locale, { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 });
+}
+
 export function formatPrice(
   amount: string | null | undefined,
   currency: string = storeConfig.currency,

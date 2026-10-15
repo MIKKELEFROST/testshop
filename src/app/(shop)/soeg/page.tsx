@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { productCount } from "@/lib/format";
 import { SearchForm } from "@/components/layout/search-form";
-import { ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
+import { CardBand, ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { pageHref, Pagination } from "@/components/ui/pagination";
 import { parsePage } from "@/lib/pagination";
@@ -14,18 +14,20 @@ export const metadata: Metadata = { title: "Søg", robots: { index: false } };
 
 export default function SearchPage(props: PageProps<"/soeg">) {
   return (
-    <div className="container-shop pt-10">
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Søg</h1>
-      <Suspense
-        fallback={
-          <div className="mt-8">
-            <ProductGridSkeleton />
-          </div>
-        }
-      >
-        <SearchResults searchParams={props.searchParams} />
-      </Suspense>
-    </div>
+    <CardBand>
+      <div className="container-shop pt-10">
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Søg</h1>
+        <Suspense
+          fallback={
+            <div className="mt-8">
+              <ProductGridSkeleton />
+            </div>
+          }
+        >
+          <SearchResults searchParams={props.searchParams} />
+        </Suspense>
+      </div>
+    </CardBand>
   );
 }
 

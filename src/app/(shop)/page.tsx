@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
+import { CardBand, ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import { isDark, storeConfig } from "@/config/store";
@@ -60,40 +60,27 @@ export default function HomePage() {
         </Suspense>
       </section>
 
-      <section id="udvalgte" className="container-shop mt-16 scroll-mt-28" aria-labelledby="udvalgte-titel">
-        <div className="mb-6 flex items-end justify-between gap-4">
-          <h2 id="udvalgte-titel" className="text-2xl font-semibold tracking-tight">
-            Udvalgte varer
-          </h2>
-          <Link href="/produkter" className="text-sm font-medium underline underline-offset-4">
-            Se alle
-          </Link>
-        </div>
-        <Suspense fallback={<ProductGridSkeleton />}>
-          <FeaturedProducts />
-        </Suspense>
-      </section>
-
-      <section className="container-shop mt-20">
-        <ul className="grid gap-6 rounded-[var(--radius-card)] border border-line bg-surface p-6 sm:grid-cols-3 sm:p-8">
-          {[
-            ["Sikker betaling", "Kortoplysninger håndteres af Stripe og rammer aldrig vores servere."],
-            ["Levering i Danmark", "Fragtprisen beregnes ud fra din adresse ved kassen."],
-            ["Personlig service", "Skriv til os, hvis du har spørgsmål til en vare eller ordre."],
-          ].map(([title, text]) => (
-            <li key={title}>
-              <p className="font-medium">{title}</p>
-              <p className="mt-1 text-sm text-muted">{text}</p>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <CardBand className="mt-16 pt-12">
+        <section id="udvalgte" className="container-shop scroll-mt-28" aria-labelledby="udvalgte-titel">
+          <div className="mb-6 flex items-end justify-between gap-4">
+            <h2 id="udvalgte-titel" className="text-2xl font-semibold tracking-tight">
+              Udvalgte varer
+            </h2>
+            <Link href="/produkter" className="text-sm font-medium underline underline-offset-4">
+              Se alle
+            </Link>
+          </div>
+          <Suspense fallback={<ProductGridSkeleton />}>
+            <FeaturedProducts />
+          </Suspense>
+        </section>
+      </CardBand>
     </>
   );
 }
 
 async function FeaturedProducts() {
-  const products = await getProducts({ perPage: 8 });
+  const products = await getProducts({ perPage: 10 });
   if (!products.ok) return <Alert tone="warning">{products.error}</Alert>;
   return <ProductGrid products={products.data.products} />;
 }

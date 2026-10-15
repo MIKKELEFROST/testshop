@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { UspBar, UspBarItems } from "@/components/marketing/usps";
 import { storeConfig } from "@/config/store";
+import { resolveTexts, USP_BAR } from "@/config/usps";
 import { topLevelCategories } from "@/lib/woocommerce/category-tree";
 import { getCategories } from "@/lib/woocommerce/products";
 import { CartButton } from "./cart-button";
@@ -12,8 +14,10 @@ const MENU_CATEGORIES = 8;
 export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur supports-[backdrop-filter]:bg-paper/75">
-      <div className="bg-action py-2 text-center text-xs font-medium tracking-wide text-white">
-        Sikker betaling · Levering i hele Danmark
+      <div className="bg-action text-white">
+        <Suspense fallback={<UspBarItems texts={resolveTexts(USP_BAR, null)} />}>
+          <UspBar />
+        </Suspense>
       </div>
       <div className="container-shop flex h-16 items-center gap-4 sm:gap-6">
         <Link href="/" className="shrink-0 text-xl font-semibold tracking-tight" aria-label={`${storeConfig.name} – forside`}>

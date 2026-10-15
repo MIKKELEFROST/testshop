@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { CartDrawer } from "@/components/cart/cart-drawer";
+import { UspStrip } from "@/components/marketing/usps";
 import { Footer } from "./footer";
 import { Header } from "./header";
 
@@ -10,6 +12,9 @@ export function ShopChrome({ children }: { children: React.ReactNode }) {
       <main id="indhold" className="flex-1">
         {children}
       </main>
+      <Suspense fallback={<div className="mt-20" />}>
+        <UspStrip />
+      </Suspense>
       <Footer />
       <CartDrawer />
     </>

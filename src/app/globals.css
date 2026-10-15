@@ -24,7 +24,13 @@
   --color-tint-strong: #e2dad0;
   --color-hero: #e9e2d8;
   --color-hero-blob: #d8cdbf;
-  --color-sale: #a4402a;
+  --color-sale: #d6233c;
+  /* Prices on product cards and pages. */
+  --color-price: #d97706;
+  /* Behind product cards: white cards on a light background. */
+  --color-canvas: #f3f1ee;
+  /* The "has video" mark on product cards. */
+  --color-video: #0284c7;
   --color-success: #2f7a4f;
   --color-warning: #9a6a12;
   --color-danger: #b42318;

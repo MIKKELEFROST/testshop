@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { productCount } from "@/lib/format";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
-import { ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
+import { CardBand, ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { pageHref, Pagination } from "@/components/ui/pagination";
 import { parsePage } from "@/lib/pagination";
@@ -20,20 +20,22 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">) {
 
 export default function CategoryPage(props: PageProps<"/kategori/[slug]">) {
   return (
-    <div className="container-shop pt-10">
-      <Suspense
-        fallback={
-          <>
-            <div className="h-10 w-48 animate-pulse rounded bg-black/5" />
-            <div className="mt-8">
-              <ProductGridSkeleton />
-            </div>
-          </>
-        }
-      >
-        <CategoryContent params={props.params} searchParams={props.searchParams} />
-      </Suspense>
-    </div>
+    <CardBand>
+      <div className="container-shop pt-10">
+        <Suspense
+          fallback={
+            <>
+              <div className="h-10 w-48 animate-pulse rounded bg-black/5" />
+              <div className="mt-8">
+                <ProductGridSkeleton />
+              </div>
+            </>
+          }
+        >
+          <CategoryContent params={props.params} searchParams={props.searchParams} />
+        </Suspense>
+      </div>
+    </CardBand>
   );
 }
 

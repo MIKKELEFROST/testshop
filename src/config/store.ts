@@ -22,7 +22,9 @@ export type StoreTheme = Partial<
     | "tint-strong"
     | "hero"
     | "hero-blob"
-    | "sale",
+    | "sale"
+    | "price"
+    | "canvas",
     string
   >
 >;
@@ -80,7 +82,9 @@ export const brands: Record<string, StoreBrand> = {
       "tint-strong": "#e3d4ec",
       hero: "#2a1838",
       "hero-blob": "#7a3fa8",
-      sale: "#c2410c",
+      sale: "#d6233c",
+      price: "#e2620a",
+      canvas: "#f3eff5",
     },
   },
 };

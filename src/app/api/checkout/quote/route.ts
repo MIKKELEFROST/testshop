@@ -7,6 +7,7 @@ import { createRateLimiter } from "@/lib/security/rate-limit";
 import { clientIp, isSameOrigin, jsonError, rateLimited, readJson } from "@/lib/security/request";
 import { quoteRequestSchema } from "@/lib/validation/checkout";
 import { fetchQuote } from "@/lib/woocommerce/checkout-api";
+import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 
 /**
  * POST /api/checkout/quote — authoritative prices, stock, tax and shipping for a cart,
@@ -41,7 +42,8 @@ export async function POST(request: Request) {
       coupons,
       email,
     });
-    return Response.json(toClientQuote(quote), { headers: { "Cache-Control": "no-store" } });
+    const freeShippingFrom = await getFreeShippingFrom();
+    return Response.json({ ...toClientQuote(quote), freeShippingFrom }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof ConfigError) {
       console.error("[quote] configuration:", error.message);

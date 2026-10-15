@@ -4,7 +4,7 @@ import { storeConfig } from "@/config/store";
 
 export function Footer() {
   return (
-    <footer className="mt-24 border-t border-line bg-surface">
+    <footer className="border-t border-line bg-surface">
       <div className="container-shop grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-4">
         <div className="lg:col-span-2">
           <p className="text-lg font-semibold">{storeConfig.name}</p>
