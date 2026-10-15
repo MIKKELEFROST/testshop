@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkoutRequestSchema, quoteRequestSchema } from "@/lib/validation/checkout";
-import { ESTIMATE_ADDRESS, expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates } from "./express";
-import type { ClientQuote } from "./quote";
+import { expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates } from "./express";
+import { ESTIMATE_ADDRESS, type ClientQuote } from "./quote";
 
 const quote: ClientQuote = {
   currency: "DKK",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { formatPrice } from "@/lib/money";
 import { quoteSchema } from "@/lib/woocommerce/schemas";
-import { includesShipping, toClientQuote } from "./quote";
+import { cartShippingLabel, cheapestShipping, includesShipping, toClientQuote } from "./quote";
 
 const base = {
   currency: "DKK",
@@ -50,5 +51,29 @@ describe("includesShipping", () => {
 
   it("is true when nothing is shipped", () => {
     expect(includesShipping({ ...client, needsShipping: false }, null)).toBe(true);
+  });
+});
+
+describe("shipping in the cart", () => {
+  const client = toClientQuote(quoteSchema.parse({ ...base, coupons_enabled: false, coupons: [], coupon_errors: [] }));
+  const rate = (id: string, price: string) => ({ id, label: id, price });
+  const rates = [rate("dao-doer", "49.00"), rate("postnord-pakkeshop", "39.00"), rate("gls-doer", "59.00")];
+
+  it("shows the cheapest rate", () => {
+    expect(cheapestShipping({ ...client, shippingRates: rates })).toBe("39.00");
+    expect(cartShippingLabel({ ...client, shippingRates: rates })).toBe(`fra ${formatPrice("39.00")}`);
+  });
+
+  it("says free to the parcel shop above the free shipping amount", () => {
+    const free = rates.map((r) => (r.id.includes("pakkeshop") ? { ...r, price: "0.00" } : r));
+    expect(cartShippingLabel({ ...client, shippingRates: free })).toBe("Gratis til pakkeshop");
+    expect(cartShippingLabel({ ...client, shippingRates: rates.map((r) => ({ ...r, price: "0.00" })) })).toBe("Gratis");
+  });
+
+  it("leaves shipping to the checkout without rates, and says nothing when nothing is shipped", () => {
+    expect(cheapestShipping(client)).toBeNull();
+    expect(cartShippingLabel(client)).toBe("Beregnes ved kassen");
+    expect(cartShippingLabel(null)).toBe("Beregnes ved kassen");
+    expect(cartShippingLabel({ ...client, needsShipping: false })).toBeNull();
   });
 });

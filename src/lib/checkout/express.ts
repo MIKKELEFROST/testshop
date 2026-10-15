@@ -65,15 +65,9 @@ export function walletShippingRates(quote: ClientQuote): WalletShippingRate[] {
 }
 
 /**
- * Prices the wallet sheet before the customer has typed an address: WooCommerce only returns
- * shipping rates for an address with a postcode. The flat rates are the same in all of
- * Denmark, and the sheet is repriced as soon as the customer picks their own address.
- */
-export const ESTIMATE_ADDRESS = { country: "DK", postcode: "1050", city: "København K" };
-
-/**
  * The quote to open the wallet sheet with: the form's quote when it has shipping rates (or
- * nothing is shipped), else the quote for ESTIMATE_ADDRESS. Null when neither can be used.
+ * nothing is shipped), else the quote for ESTIMATE_ADDRESS (the sheet is repriced as soon as
+ * the customer picks their own address). Null when neither can be used.
  */
 export function walletOpeningQuote(formQuote: ClientQuote, estimate: ClientQuote | null): ClientQuote | null {
   if (!formQuote.needsShipping || formQuote.shippingRates.length > 0) return formQuote;

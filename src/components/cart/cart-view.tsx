@@ -11,9 +11,8 @@ import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { storeConfig } from "@/config/store";
 import { savedSubtotal, type CartLine } from "@/lib/cart/cart";
-import type { ClientQuote } from "@/lib/checkout/quote";
+import { cartShippingLabel, ESTIMATE_ADDRESS, type ClientQuote } from "@/lib/checkout/quote";
 import { formatPrice, fromMinorUnits, multiplyAmount, toMinorUnits } from "@/lib/money";
 
 /** The /kurv page. Its parts are shared with the cart drawer. */
@@ -70,7 +69,8 @@ export function CartView() {
  */
 export function useCartQuote(enabled: boolean) {
   const { lines } = useCart();
-  const { quote, loading, error, temporary, retry } = useQuote(lines, { country: storeConfig.defaultCountry }, null, enabled);
+  // Priced for a sample address, so WooCommerce returns the shipping rates ("Fragt: fra 39 kr.").
+  const { quote, loading, error, temporary, retry } = useQuote(lines, ESTIMATE_ADDRESS, null, enabled);
   const canCheckout = !loading && (quote !== null ? quote.errors.length === 0 && !error : temporary);
   return { quote, loading, error, temporary, retry, canCheckout };
 }
@@ -171,7 +171,12 @@ export function CartLineItem({
               label={`Antal af ${line.name}`}
             />
           </div>
-          <button onClick={() => remove(line.key)} className="text-sm text-muted underline underline-offset-4 hover:text-ink">
+          <button
+            type="button"
+            onClick={() => remove(line.key)}
+            aria-label={`Fjern ${line.name}${line.variantLabel ? `, ${line.variantLabel}` : ""}`}
+            className="-mr-2 inline-flex min-h-11 items-center px-2 text-sm text-muted underline underline-offset-4 hover:text-ink"
+          >
             Fjern
           </button>
         </div>
@@ -180,11 +185,12 @@ export function CartLineItem({
   );
 }
 
-/** Subtotal from the quote. Shipping depends on the address, so it is left to the checkout. */
+/** Subtotal from the quote, and what shipping costs at least (the customer picks the method in the checkout). */
 export function CartTotals({ quote, loading, className = "" }: { quote: ClientQuote | null; loading: boolean; className?: string }) {
   const { lines } = useCart();
   // Without a quote (WooCommerce not reachable), the prices saved in the cart give an idea.
   const estimate = quote ? null : savedSubtotal(lines);
+  const shipping = cartShippingLabel(quote);
   return (
     <div className={className}>
       {quote && <FreeShippingProgress quote={quote} />}
@@ -195,10 +201,12 @@ export function CartTotals({ quote, loading, className = "" }: { quote: ClientQu
             {loading && !quote ? <Spinner /> : quote ? formatPrice(quote.totals.subtotal) : estimate ? `ca. ${formatPrice(estimate)}` : "–"}
           </dd>
         </div>
-        <div className="flex justify-between text-sm text-muted">
-          <dt>Fragt</dt>
-          <dd>Beregnes ved kassen</dd>
-        </div>
+        {shipping && (
+          <div className="flex justify-between text-sm text-muted">
+            <dt>Fragt</dt>
+            <dd className={loading ? "opacity-50" : ""}>{shipping}</dd>
+          </div>
+        )}
       </dl>
       <p className="mt-4 text-xs text-muted">
         {quote?.taxDisplay === "excl" ? "Priser er ekskl. moms." : "Alle priser er inkl. moms."} Priser og lager kontrolleres igen ved betaling.

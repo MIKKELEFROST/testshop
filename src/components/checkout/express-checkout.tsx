@@ -12,8 +12,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { storeConfig } from "@/config/store";
 import type { CartLine } from "@/lib/cart/cart";
-import { ESTIMATE_ADDRESS, expressCheckoutRequest, quoteAmount, walletOpeningQuote, walletPostcode, walletShippingRates } from "@/lib/checkout/express";
-import type { ClientQuote } from "@/lib/checkout/quote";
+import { expressCheckoutRequest, quoteAmount, walletOpeningQuote, walletPostcode, walletShippingRates } from "@/lib/checkout/express";
+import { ESTIMATE_ADDRESS, type ClientQuote } from "@/lib/checkout/quote";
 import { checkoutRequestSchema } from "@/lib/validation/checkout";
 import { TermsNotice } from "./legal-links";
 

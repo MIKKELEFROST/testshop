@@ -1,4 +1,4 @@
-import { fromMinorUnits, toMinorUnits } from "@/lib/money";
+import { formatPrice, fromMinorUnits, toMinorUnits } from "@/lib/money";
 import type { WcQuote } from "@/lib/woocommerce/schemas";
 
 /**
@@ -31,11 +31,6 @@ export type ClientQuote = {
   /** Goods from this amount get free shipping (some methods), when the quote route knows it. */
   freeShippingFrom?: string | null;
 };
-
-/** Whether the quote's total includes delivery: nothing is shipped, or a shipping method is chosen. */
-export function includesShipping(quote: ClientQuote, selectedRateId: string | null): boolean {
-  return !quote.needsShipping || (selectedRateId !== null && quote.shippingRates.some((r) => r.id === selectedRateId));
-}
 
 const EXP = 4; // WooCommerce never returns more than 4 decimals.
 
@@ -86,4 +81,35 @@ export function toClientQuote(quote: WcQuote): ClientQuote {
     coupons: quote.coupons.map((c) => ({ code: c.code, discount: withTax(c.discount, c.discount_tax) })),
     couponErrors: quote.coupon_errors,
   };
+}
+
+/**
+ * A Danish address for prices before the customer has typed one (the cart, the Apple Pay /
+ * Google Pay sheet): WooCommerce only returns shipping rates for an address with a postcode,
+ * and the flat rates are the same in all of Denmark.
+ */
+export const ESTIMATE_ADDRESS = { country: "DK", postcode: "1050", city: "København K" };
+
+/** The cheapest shipping rate's price, or null when the quote has no rates. */
+export function cheapestShipping(quote: ClientQuote): string | null {
+  if (quote.shippingRates.length === 0) return null;
+  return quote.shippingRates.reduce((low, rate) => (toMinorUnits(rate.price, EXP) < toMinorUnits(low, EXP) ? rate.price : low), quote.shippingRates[0]!.price);
+}
+
+/**
+ * "Fragt" in the cart, from a quote for ESTIMATE_ADDRESS: "fra 39,00 kr.", or "Gratis til
+ * pakkeshop" once the goods reach "Fri fragt fra" (the free rates are the parcel shop ones).
+ * Null when nothing is shipped.
+ */
+export function cartShippingLabel(quote: ClientQuote | null): string | null {
+  if (quote && !quote.needsShipping) return null;
+  const cheapest = quote ? cheapestShipping(quote) : null;
+  if (!quote || cheapest === null) return "Beregnes ved kassen";
+  if (toMinorUnits(cheapest, EXP) > 0) return `fra ${formatPrice(cheapest, quote.currency)}`;
+  return quote.shippingRates.every((r) => toMinorUnits(r.price, EXP) === 0) ? "Gratis" : "Gratis til pakkeshop";
+}
+
+/** Whether the quote's total includes delivery: nothing is shipped, or a shipping method is chosen. */
+export function includesShipping(quote: ClientQuote, selectedRateId: string | null): boolean {
+  return !quote.needsShipping || (selectedRateId !== null && quote.shippingRates.some((r) => r.id === selectedRateId));
 }
