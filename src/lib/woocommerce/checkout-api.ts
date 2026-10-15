@@ -50,12 +50,22 @@ export type StoreBrandingInput = {
   name: string;
   /** The storefront's address (http or https). */
   url?: string;
-  /** Reply-To of the customer's e-mails. */
+  /** Reply-To of the customer's e-mails, {store_email}, and where the customer gives notice of withdrawal. */
   email: string;
   /** Base colour, #rrggbb. */
   color: string;
   /** Header image (https). */
   logo?: string;
+  // The seller and the return rules for the withdrawal information and the standard withdrawal
+  // form in the order confirmation (plain text). WordPress does not have them.
+  company_name: string;
+  company_address: string;
+  cvr: string;
+  return_address: string;
+  /** Who pays the return shipping, as a sentence. */
+  return_shipping: string;
+  /** The shop's return period in days, at least the statutory 14. */
+  return_days: number;
 };
 
 export type CreateOrderInput = {

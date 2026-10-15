@@ -30,6 +30,7 @@ import {
 } from "../support/woo-admin";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
 import { storeBranding } from "@/lib/checkout/branding";
+import { INFO_PAGES } from "@/content/info-pages";
 
 const enabled = Boolean(process.env.WC_INTEGRATION);
 if (enabled) configureLocalWooEnv();
@@ -629,6 +630,15 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       color: "#5b2b82",
       logo: "https://halloweenkostumer.example/email-logo.png",
     };
+    // The seller and return rules the storefront sends for the withdrawal information (src/config/company.ts).
+    const seller = {
+      company_name: "Kostumer ApS",
+      company_address: "Testvej 1, 8000 Aarhus C",
+      cvr: "12345678",
+      return_address: "Kostumer ApS, Returvej 2, 8000 Aarhus C",
+      return_shipping: "Du betaler selv returfragten.",
+      return_days: 30,
+    };
     // The WordPress site's own e-mail design, which orders without a brand keep.
     const siteLogo = "https://wp.example/site-logo.png";
     const siteColor = "#123456";
@@ -663,11 +673,12 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
     type Mail = { order: number; to: string; subject: string; message: string; headers: string; from_name: string; from_email: string };
 
     /**
-     * Send the customer's "Processing order" and the shop's "New order" e-mail for each order, as
-     * a payment does, and capture them instead of mailing them (pre_wp_mail). The texts use the
-     * placeholders, and the site has its own header image and base colour.
+     * Send the customer's "Processing order", the shop's "New order" and the customer's "Order
+     * on-hold" e-mail for each order, as a payment does, and capture them instead of mailing them
+     * (pre_wp_mail). The texts use the placeholders, and the site has its own header image and
+     * base colour. `plain` sends the customer's e-mails as plain text.
      */
-    async function sendOrderEmails(orderIds: number[]) {
+    async function sendOrderEmails(orderIds: number[], { plain = false } = {}) {
       const out = await wpEval(`
         $mails = array();
         $order = 0;
@@ -682,13 +693,19 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
         $emails     = WC()->mailer()->get_emails();
         $processing = $emails['WC_Email_Customer_Processing_Order'];
         $new_order  = $emails['WC_Email_New_Order'];
+        $on_hold    = $emails['WC_Email_Customer_On_Hold_Order'];
         $processing->settings['heading']            = 'Tak for din ordre hos {site_title}';
-        $processing->settings['additional_content'] = 'Se {store_url}';
+        $processing->settings['additional_content'] = 'Se {store_url} eller skriv til {store_email}';
         $new_order->settings['subject']             = 'Ny ordre #{order_number}';
+        if ( ${plain ? "true" : "false"} ) {
+          $processing->email_type = 'plain';
+          $on_hold->email_type    = 'plain';
+        }
         $site = array( 'from_name' => $processing->get_from_name(), 'from_email' => $processing->get_from_address(), 'blogname' => get_option( 'blogname' ), 'host' => wp_parse_url( home_url(), PHP_URL_HOST ) );
         foreach ( array( ${orderIds.map((id) => Math.trunc(id)).join(", ")} ) as $order ) {
           $processing->trigger( $order );
           $new_order->trigger( $order );
+          $on_hold->trigger( $order );
         }
         echo "\\n@@" . wp_json_encode( array( 'site' => $site, 'mails' => $mails ) );
       `);
@@ -697,14 +714,23 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
         mails: Mail[];
       };
       const forOrder = (id: number) => {
-        const [customer, shop] = mails.filter((m) => m.order === id);
-        if (!customer || !shop) throw new Error(`No e-mails for order ${id}`);
-        return { customer, shop };
+        const [customer, shop, onHold] = mails.filter((m) => m.order === id);
+        if (!customer || !shop || !onHold) throw new Error(`No e-mails for order ${id}`);
+        return { customer, shop, onHold };
       };
       return { site, forOrder };
     }
 
     const replyTo = (headers: string) => headers.split(/\r?\n/).filter((line) => /^reply-to:/i.test(line));
+
+    /** An e-mail's text without markup, on one line (plain-text e-mails are wrapped at 70 characters). */
+    const textOf = (message: string) => message.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+
+    /** The standard withdrawal form as the shop's page "Returret og fortrydelse" has it, without its address line. */
+    const withdrawalForm = INFO_PAGES.find((page) => page.slug === "fortrydelsesret")!
+      .sections.find((section) => section.heading === "Standardfortrydelsesformular")!
+      .blocks.flatMap((block) => (block.type === "list" ? block.items : block.type === "p" ? [block.text] : []))
+      .filter((line) => !line.includes("{"));
 
     it("stores the webshop's brand the storefront sends with the order", async () => {
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
@@ -726,12 +752,27 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
         email: "ikke-en-adresse",
         color: "red",
         logo: "http://halloweenkostumer.example/email-logo.png", // https only
+        company_name: "x".repeat(101),
+        company_address: "",
+        cvr: 12345678, // text only
+        return_shipping: "x".repeat(501),
+        return_days: "30", // a number only
       });
       expect(await storedBrand(invalid)).toBeUndefined();
       expect((await getOrder(invalid)).status).toBe("pending");
 
-      const mixed = await orderWithStore({ name: "<b>Maskerade</b>", url: "ftp://maskerade.example", email: brand.email, color: "#5B2B82", logo: brand.logo, extra: "x" });
-      expect(await storedBrand(mixed)).toEqual({ name: "Maskerade", email: brand.email, color: "#5B2B82", logo: brand.logo });
+      const mixed = await orderWithStore({
+        name: "<b>Maskerade</b>",
+        url: "ftp://maskerade.example",
+        email: brand.email,
+        color: "#5B2B82",
+        logo: brand.logo,
+        extra: "x",
+        return_address: " <b>Returvej 2</b>, 8000 Aarhus C ",
+        return_days: 13, // at least the statutory 14
+      });
+      expect(await storedBrand(mixed)).toEqual({ name: "Maskerade", email: brand.email, color: "#5B2B82", logo: brand.logo, return_address: "Returvej 2, 8000 Aarhus C" });
+      expect(await storedBrand(await orderWithStore({ ...seller, return_days: 366 }))).toEqual({ ...seller, return_days: undefined });
 
       // 100 characters, not bytes.
       expect(await storedBrand(await orderWithStore({ name: "æ".repeat(100) }))).toEqual({ name: "æ".repeat(100) });
@@ -739,7 +780,8 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
     });
 
     it("sends the customer's e-mails from the webshop: name, Reply-To, texts, logo and colour", async () => {
-      const orderId = await orderWithStore(brand);
+      const orderId = await orderWithStore({ ...brand, ...seller });
+      expect(await storedBrand(orderId)).toEqual({ ...brand, ...seller });
       const { site, forOrder } = await sendOrderEmails([orderId]);
       const { customer, shop } = forOrder(orderId);
 
@@ -748,7 +790,9 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       expect(customer.subject).toContain(brand.name); // "Your {site_title} order has been received!"
       expect(customer.subject).not.toContain(site.blogname);
       expect(customer.message).toContain(`>Tak for din ordre hos ${brand.name}<`);
-      expect(customer.message).toContain("Se https://halloweenkostumer.example");
+      // {store_email} is the webshop's e-mail, not the From address all webshops share.
+      expect(customer.message).toContain(`Se https://halloweenkostumer.example eller skriv til ${brand.email}`);
+      expect(customer.message).not.toContain(site.from_email);
       expect(customer.message).toContain("Hilsen Halloweenkostumer.dk, halloweenkostumer.example, https://halloweenkostumer.example");
       expect(customer.message).toContain(`src="${brand.logo}"`);
       expect(customer.message).toContain(`href="${brand.url}"`);
@@ -763,6 +807,66 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       expect(shop.message).toContain(`src="${brand.logo}"`);
     });
 
+    it("puts the withdrawal information and the standard withdrawal form into the customer's order confirmation", async () => {
+      const orderId = await orderWithStore({ ...brand, ...seller });
+      const { forOrder } = await sendOrderEmails([orderId]);
+      const { customer, shop, onHold } = forOrder(orderId);
+
+      for (const mail of [customer, onHold]) {
+        const text = textOf(mail.message);
+        expect(text).toContain("Fortrydelsesret og 30 dages returret");
+        expect(text).toContain("Som forbruger har du 14 dages fortrydelsesret efter forbrugeraftaleloven. Hos os får du 30 dages returret");
+        expect(text).toContain("Fristen regnes fra den dag, du modtager varen.");
+        expect(text).toContain(`Giv os besked på ${brand.email}, før fristen udløber. Skriv dit ordrenummer (#${orderId})`);
+        expect(text).toContain("Send varen retur senest 14 dage efter, at du har givet besked");
+        expect(text).toContain(`Send pakken til: ${seller.return_address}`);
+        expect(text).toContain(seller.return_shipping);
+        expect(text).toContain("senest 14 dage efter den dag, vi har modtaget din besked");
+        expect(text).toContain("Forseglede hygiejnevarer som make-up og ansigtsmaling kan ikke returneres, når forseglingen er brudt.");
+        expect(text).toContain(`Sælger: ${seller.company_name} · CVR ${seller.cvr} · ${seller.company_address}`);
+        // The whole standard form, addressed to the seller.
+        expect(text).toContain("Standardfortrydelsesformular");
+        expect(text).toContain(`Til ${seller.company_name}, ${seller.company_address}, ${brand.email}:`);
+        expect(withdrawalForm.length).toBe(8);
+        for (const line of withdrawalForm) expect(text).toContain(line);
+        expect(mail.message).toContain(`<a href="mailto:${brand.email}"`);
+      }
+      // Not in the e-mail to the shop.
+      expect(shop.message).not.toContain("Standardfortrydelsesformular");
+    });
+
+    it("sends the withdrawal information in plain-text e-mails too", async () => {
+      const orderId = await orderWithStore({ ...brand, ...seller });
+      const { forOrder } = await sendOrderEmails([orderId], { plain: true });
+      const { customer } = forOrder(orderId);
+
+      expect(customer.message).not.toContain("<");
+      expect(customer.message).toContain("FORTRYDELSESRET OG 30 DAGES RETURRET");
+      expect(customer.message).toContain("STANDARDFORTRYDELSESFORMULAR");
+      const text = textOf(customer.message);
+      expect(text).toContain(`Giv os besked på ${brand.email}, før fristen udløber.`);
+      expect(text).toContain(`Til ${seller.company_name}, ${seller.company_address}, ${brand.email}:`);
+      for (const line of withdrawalForm) expect(text).toContain(line);
+    });
+
+    it("leaves out the seller and return details a storefront does not send, and needs the webshop's e-mail", async () => {
+      // A brand from a storefront that sends no seller or return rules.
+      const older = await orderWithStore(brand);
+      const noEmail = await orderWithStore({ name: brand.name, ...seller });
+      const { forOrder } = await sendOrderEmails([older, noEmail]);
+
+      const text = textOf(forOrder(older).customer.message);
+      expect(text).toContain("Som forbruger har du 14 dages fortrydelsesret efter forbrugeraftaleloven. Fristen regnes");
+      expect(text).not.toContain("dages returret");
+      expect(text).toContain(`Til ${brand.name}, ${brand.email}:`);
+      for (const line of withdrawalForm) expect(text).toContain(line);
+      expect(text).not.toContain("Send pakken til:");
+      expect(text).not.toContain("Sælger:");
+
+      // Without the e-mail the customer would give notice to, nothing is added.
+      expect(forOrder(noEmail).customer.message).not.toContain("Standardfortrydelsesformular");
+    });
+
     it("sends the e-mails of an order without a brand as before, also right after a branded one", async () => {
       const branded = await orderWithStore(brand);
       const plain = await orderWithStore();
@@ -774,6 +878,8 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       expect(customer.subject).toContain(site.blogname);
       expect(customer.message).toContain(`>Tak for din ordre hos ${site.blogname}<`);
       expect(customer.message).toContain(`Hilsen ${site.blogname}, ${site.host}, {store_url}`);
+      expect(customer.message).toContain(`eller skriv til ${site.from_email}`);
+      expect(customer.message).not.toContain("Standardfortrydelsesformular");
       expect(customer.message).toContain(`src="${siteLogo}"`);
       expect(customer.message.toLowerCase()).toContain(siteColor);
       for (const value of [brand.name, brand.url, brand.email, brand.color, brand.logo]) {

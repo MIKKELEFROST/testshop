@@ -57,7 +57,7 @@ Alle routes ligger under `/wp-json/wc-headless/v1` og kræver API-nøglen. De ka
 | --- | --- |
 | `GET /status` | Sundhedstjek, inkl. oprydning af ubetalte ordrer |
 | `POST /quote` | Kurv → priser, lager (inkl. andres reservationer), rabatkoder, moms, fragtmetoder, total. Opretter intet. |
-| `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager og rabatkoder. Afviser, hvis totalen afviger fra den, kunden så, eller hvis en rabatkode ikke længere kan bruges. Gemmer webshoppens brand til ordremailene (afsnit 11). |
+| `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager og rabatkoder. Afviser, hvis totalen afviger fra den, kunden så, eller hvis en rabatkode ikke længere kan bruges. Gemmer webshoppens brand, sælger og returregler til ordremailene (afsnit 11). |
 | `POST /orders/{id}/payment-intent` | Tilknyt Stripe PaymentIntent (compare-and-set) |
 | `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) og den betalingsmetode, kunden brugte |
 | `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden |
@@ -125,18 +125,25 @@ Fra plugin 1.4 viser WooCommerces ordremails den webshop, kunden har købt i, i 
 | `email` | `storeConfig.supportEmail` (`NEXT_PUBLIC_SUPPORT_EMAIL`) | Gyldig e-mailadresse |
 | `color` | Brandets farve `action`, ellers `#1d1b19` | `#rrggbb` |
 | `logo` | `NEXT_PUBLIC_SITE_URL` + `/email-logo.png` (`public/email-logo.png` i shoppen) | https-adresse |
+| `company_name`, `company_address`, `cvr` | `company.name`, `company.address`, `company.cvr` i `src/config/company.ts` | Ren tekst, højst 100 / 200 / 50 tegn |
+| `return_address` | `company.returnAddress` | Ren tekst, højst 200 tegn |
+| `return_shipping` | `company.returnShipping` (hvem betaler returfragten, som en sætning) | Ren tekst, højst 500 tegn |
+| `return_days` | `RETURN_DAYS` i `src/lib/checkout/branding.ts` (30, som i handelsbetingelserne) | Helt tal, 14–365 |
 
 Mails om en ordre med brandet (kundens mails, f.eks. *Behandler*, *Gennemført*, *Afventer*, *Refunderet*, faktura og kundenote, og *Ny ordre* til butikken) ændres sådan:
 
-- **Afsendernavn:** webshoppens navn. Afsenderadressen er stadig WooCommerces (**WooCommerce → Indstillinger → E-mails**).
+- **Afsendernavn:** webshoppens navn. Afsenderadressen er stadig WooCommerces (**WooCommerce → Indstillinger → E-mails → Fra-adresse**), se nedenfor.
 - **Svar til (Reply-To):** webshoppens e-mail i kundens mails. *Ny ordre* og de andre mails til butikken har stadig kunden som Svar til, som i WooCommerce.
-- **Pladsholdere** i emne, overskrift, ekstra indhold og sidefodstekst: `{site_title}` bliver webshoppens navn, `{site_url}` webshoppens domæne og `{store_url}` dens fulde adresse.
+- **Pladsholdere** i emne, overskrift, ekstra indhold og sidefodstekst: `{site_title}` bliver webshoppens navn, `{site_url}` webshoppens domæne, `{store_url}` dens fulde adresse og `{store_email}` webshoppens e-mail (i WooCommerce er den ellers Fra-adressen, som alle webshops deler).
 - **Logo og farve:** headerbilledet er webshoppens logo og linker til webshoppen. Grundfarven er webshoppens farve.
 - **Ny ordre:** emnet nævner webshoppen, også hvis det ikke indeholder `{site_title}`, f.eks. "[Maskerade] Ny ordre #123".
+- **Fortrydelsesret i ordrebekræftelsen:** kundens *Behandler* og *Afventer* (HTML og ren tekst) får efter adresserne et afsnit "Fortrydelsesret og 30 dages returret" og hele standardfortrydelsesformularen. Forbrugeraftaleloven kræver oplysningerne på et varigt medium (mailen) senest ved levering; et link til siden er ikke nok. Afsnittet har: 14 dages fortrydelsesret og shoppens returret (`return_days`) fra modtagelsen, besked til webshoppens e-mail med ordrenummeret, returnering senest 14 dage efter beskeden, returadressen, returfragten, tilbagebetaling senest 14 dage efter beskeden, værdiforringelse, undtagelsen for forseglede hygiejnevarer og sælgeren (firmanavn, CVR, adresse). Formularen er stilet til firmaet, dets adresse og webshoppens e-mail. Teksten følger `/fortrydelsesret` og `/handelsbetingelser` (`src/content/info-pages.ts`); ændres de, skal `WCHC_Emails::withdrawal_sections()` i pluginet følge med (integrationstesten sammenligner formularen med siden). *Ny ordre* til butikken får det ikke.
 
-Et felt, der mangler eller er ugyldigt, bruger WooCommerces egen indstilling. Ordrer uden brand (fra en shop før plugin 1.4 eller oprettet i WordPress) får WooCommerces mails som før. WooCommerces blokbaserede e-mail-editor (slået fra som standard) får afsendernavn, Svar til og tekster. Dér kommer logo eller sidetitel og farver fra editorens skabelon.
+Et felt, der mangler eller er ugyldigt, bruger WooCommerces egen indstilling. Mangler sælger- eller returfelterne (en shop før denne version), udelades de linjer, og formularen stiles til webshoppens navn. Uden `email` kommer afsnittet ikke med. Firmaoplysninger, der stadig er pladsholdere (`[Returadresse]`), sendes som de er, så testmails viser, hvad der mangler. Udfyld dem i `src/config/company.ts`, før shoppen går live. Ordrer uden brand (fra en shop før plugin 1.4 eller oprettet i WordPress) får WooCommerces mails som før. WooCommerces blokbaserede e-mail-editor (slået fra som standard) får afsendernavn, Svar til og tekster. Dér kommer logo eller sidetitel og farver fra editorens skabelon.
 
-Sæt `NEXT_PUBLIC_SUPPORT_EMAIL` i hver webshops Vercel-projekt. Uden den bliver Svar til `kundeservice@example.com`.
+Sæt `NEXT_PUBLIC_SUPPORT_EMAIL` i hver webshops Vercel-projekt, hvis kundeservice skal have en anden adresse end brandets i `src/config/store.ts`.
+
+**Til ejeren – Fra-adressen:** pluginet ændrer ikke WooCommerces indstillinger. Fra-adressen (**WooCommerce → Indstillinger → E-mails → Fra-adresse**) er afsender på alle mails fra begge webshops. Sæt den til en neutral butiksadresse (f.eks. `ordre@fastelavnskostumer.dk`) i stedet for en personlig postkasse, og send mails fra WordPress gennem en godkendt SMTP-server med SPF og DKIM for domænet, så de ikke ender som spam.
 
 ## Kendte begrænsninger
 
