@@ -62,6 +62,7 @@ Alle routes ligger under `/wp-json/wc-headless/v1` og kræver API-nøglen. De ka
 | `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) og den betalingsmetode, kunden brugte |
 | `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden |
 | `GET /shops` · `PUT /shops/{butiks-id}` | Webshops: list, opret eller omdøb |
+| `GET /shops/{butiks-id}/category-counts` | (1.4) Antal udgivne produkter pr. kategori i webshoppen, underkategorier medregnet, i ét kald: `{"<kategori-id>": antal, …}`. Caches, til et produkt eller en kategori ændres. Frontenden bruger det til menuen i stedet for ét kald pr. kategori. |
 
 Produkt-svar i REST API v3 får desuden feltet `headless_prices` med priser beregnet efter butikkens momsvisning og feltet `webshops` med de webshops, der sælger produktet. `webshops` kan også sættes via API'et, og `GET /wc/v3/products?wchc_shop=<butiks-id>` viser kun webshoppens produkter.
 

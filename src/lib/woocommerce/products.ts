@@ -14,9 +14,11 @@ import { rankAccessories, rankSimilar } from "./related";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 /**
- * Catalogue reads. Cached with `use cache` (short lifetime + tags) and revalidated on
- * demand by WooCommerce webhooks (see /api/revalidate). Prices and stock shown here are
- * informational: the checkout always re-validates them against WooCommerce.
+ * Catalogue reads. Cached with `use cache: remote` (short lifetime + tags): one cache shared
+ * by all server instances, so the WordPress host is asked once per lifetime instead of once
+ * per cold instance (its web host refuses bursts with HTTP 508). Revalidated on demand by
+ * WooCommerce webhooks (see /api/revalidate). Prices and stock shown here are informational:
+ * the checkout always re-validates them against WooCommerce.
  *
  * Failures are cached only briefly, so a WooCommerce outage never sticks.
  *
@@ -99,7 +101,7 @@ export type ProductQuery = {
 
 /** A page of this shop's published products. */
 export async function getProducts(options: ProductQuery = {}): Promise<Loadable<ProductList>> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
 
   const page = options.page ?? 1;
@@ -146,7 +148,7 @@ export async function getProducts(options: ProductQuery = {}): Promise<Loadable<
 
 /** IDs of this shop's adult-only (18+) products, to leave them out of general listings. */
 async function getAdultProductIds(): Promise<number[]> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
   const categories = await getCategories();
   if (!categories.ok) throw new Error(categories.error);
@@ -165,7 +167,7 @@ async function getAdultProductIds(): Promise<number[]> {
 
 /** This shop's themes (WooCommerce product tags), name -> ID. */
 export async function getThemeIds(): Promise<Map<string, number>> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
   const tags = new Map<string, number>();
   for (let page = 1; page <= 10; page++) {
@@ -180,17 +182,20 @@ export async function getThemeIds(): Promise<Map<string, number>> {
   return tags;
 }
 
-/** What the WooCommerce plugin can do (Headless Checkout Bridge, from its status endpoint): 1.4 filters by more categories. */
-export async function getPluginFeatures(): Promise<{ alsoInCategory: boolean }> {
-  "use cache";
+/**
+ * What the WooCommerce plugin can do (Headless Checkout Bridge, from its status endpoint):
+ * 1.4 filters products by more categories and counts a shop's products per category in one request.
+ */
+export async function getPluginFeatures(): Promise<{ categoryFilters: boolean }> {
+  "use cache: remote";
   try {
     const { data } = await wooRequest("wc-headless/v1/status", { schema: z.object({ version: z.string() }).loose() });
     cacheLife("hours");
-    return { alsoInCategory: versionAtLeast(data.version, "1.4.0") };
+    return { categoryFilters: versionAtLeast(data.version, "1.4.0") };
   } catch (error) {
     logCatalogError("getPluginFeatures", error);
     cacheLife(FAILURE_LIFE);
-    return { alsoInCategory: false };
+    return { categoryFilters: false };
   }
 }
 
@@ -211,7 +216,7 @@ export async function collectionQuery(collection: Collection): Promise<ProductQu
   if (collection.themes?.length && tagIds.length === 0) return null;
   let alsoInCategoryIds: number[] = [];
   if (collection.alsoIn?.length) {
-    if (plugin.alsoInCategory) alsoInCategoryIds = idsOf(collection.alsoIn);
+    if (plugin.categoryFilters) alsoInCategoryIds = idsOf(collection.alsoIn);
     // An older plugin ignores "also in": narrow by the fallback themes instead (unless the page has themes).
     else if (tagIds.length === 0) tagIds = themeIds(collection.alsoInFallbackThemes);
   }
@@ -223,7 +228,7 @@ export async function collectionQuery(collection: Collection): Promise<ProductQu
 
 /** Slugs of all this shop's published products (for the sitemap); refreshed a few times a day. */
 export async function getAllProductSlugs(): Promise<string[]> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
   try {
     const slugs: string[] = [];
@@ -253,7 +258,7 @@ export async function getProductsByIds(ids: number[]): Promise<Loadable<ProductS
 }
 
 export async function getProductBySlug(slug: string): Promise<Loadable<Product | null>> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
 
   try {
@@ -300,7 +305,7 @@ export type RelatedProducts = { accessories: ProductSummary[]; similar: ProductS
  * Both prefer the product's target group. A failure only hides the rows.
  */
 export async function getRelatedProducts(product: Pick<Product, "id" | "tags" | "audience" | "categories">): Promise<RelatedProducts> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG, productTag(product.id));
 
   try {
@@ -365,7 +370,7 @@ async function relatedQuery(query: Record<string, string | number>, excludeId: n
 
 /** This shop's categories (with products), each with the shop's own product count. */
 export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
 
   try {
@@ -378,8 +383,9 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
       categories.push(...data);
       if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
     }
-    // WooCommerce counts every webshop's products; count (and show) only this shop's.
-    const counts = await mapWithLimit(categories, 6, (c) => countProducts(c.id));
+    // WooCommerce counts every webshop's products; count (and show) only this shop's: in one
+    // request with plugin 1.4, else one small request per category.
+    const counts = await shopCategoryCounts(categories.map((c) => c.id));
     cacheLife(CATEGORY_LIFE);
     return {
       ok: true,
@@ -392,6 +398,18 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
     cacheLife(FAILURE_LIFE);
     return { ok: false, error: UNAVAILABLE };
   }
+}
+
+/** This shop's number of published products per category (subcategories included), in the order given. */
+async function shopCategoryCounts(categoryIds: number[]): Promise<number[]> {
+  const plugin = await getPluginFeatures();
+  if (plugin.categoryFilters) {
+    const { data } = await wooRequest(`wc-headless/v1/shops/${encodeURIComponent(storeConfig.id)}/category-counts`, {
+      schema: z.record(z.string(), z.number()),
+    });
+    return categoryIds.map((id) => data[String(id)] ?? 0);
+  }
+  return mapWithLimit(categoryIds, 3, (id) => countProducts(id));
 }
 
 /** Number of this shop's published products in a category (subcategories included). */

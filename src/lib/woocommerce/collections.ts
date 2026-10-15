@@ -59,7 +59,7 @@ export async function getSeasonalProducts(query: ProductQuery & { page: number; 
   const [categories, plugin] = await Promise.all([getCategories(), getPluginFeatures()]);
   const seasonIds = categories.ok ? categories.data.filter((c) => seasonFirst.categories.includes(c.slug)).map((c) => c.id) : [];
   const ownCategory = query.categoryIds?.some((id) => seasonIds.includes(id));
-  if (query.sort !== "anbefalet" || !plugin.alsoInCategory || seasonIds.length === 0 || ownCategory) return getProducts(query);
+  if (query.sort !== "anbefalet" || !plugin.categoryFilters || seasonIds.length === 0 || ownCategory) return getProducts(query);
 
   const perPage = query.perPage ?? PAGE_SIZE;
   const start = (query.page - 1) * perPage;

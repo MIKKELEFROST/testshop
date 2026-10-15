@@ -183,6 +183,26 @@ describe.skipIf(!enabled)("webshops", () => {
     });
   });
 
+  it("counts each webshop's products per category in one request, subcategories included", async () => {
+    await withCategories(async ({ women, halloween, witches }) => {
+      const counts = async (shop: string) => {
+        const { status, body } = await plugin(`shops/${shop}/category-counts`);
+        expect(status).toBe(200);
+        const all = body as Record<string, number>;
+        return [women, halloween, witches].map((id) => all[String(id)] ?? 0);
+      };
+      // A sells shared (women, Hekse under Halloween) and onlyA (women); B sells shared and onlyB (women, Halloween).
+      expect(await counts(A)).toEqual([2, 1, 1]);
+      expect(await counts(B)).toEqual([2, 2, 1]);
+      // The same numbers as counting with the REST API's category filter, one request per category.
+      for (const id of [women, halloween, witches]) {
+        expect((await listProducts({ category: String(id), wchc_shop: B })).length).toBe((await counts(B))[[women, halloween, witches].indexOf(id)]);
+      }
+      // A store ID that is not a webshop counts every published product.
+      expect(await counts("ikke-en-webshop")).toEqual([3, 2, 1]);
+    });
+  });
+
   it("a store ID that is not a webshop sees every product, as before", async () => {
     const all = (await listProducts({ wchc_shop: "ikke-en-webshop" })).map((p) => p.id);
     expect(all).toEqual(expect.arrayContaining(Object.values(ids)));

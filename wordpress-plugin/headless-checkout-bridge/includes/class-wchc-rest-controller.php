@@ -95,6 +95,16 @@ final class WCHC_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/shops/(?P<slug>' . WCHC_Shops::SLUG_PATTERN . ')/category-counts',
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'category_counts' ),
+				'permission_callback' => array( $this, 'permission' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/orders/(?P<id>\d+)',
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -147,6 +157,15 @@ final class WCHC_REST_Controller {
 	 */
 	public function list_shops(): WP_REST_Response {
 		return new WP_REST_Response( WCHC_Shops::all(), 200 );
+	}
+
+	/**
+	 * Products per category in a webshop: `{ "<category id>": <count>, … }`.
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function category_counts( WP_REST_Request $request ): WP_REST_Response {
+		return new WP_REST_Response( (object) WCHC_Shops::category_counts( (string) $request['slug'] ), 200 );
 	}
 
 	/**

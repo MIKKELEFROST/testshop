@@ -24,6 +24,9 @@ final class WCHC_Shops {
 
 	const TAXONOMY = 'wchc_shop';
 
+	/** Cached category counts per store ID (see category_counts). */
+	const COUNTS_TRANSIENT = 'wchc_category_counts';
+
 	/** Webshop slugs are store IDs as the storefront sends them (see sanitize_key). */
 	const SLUG_PATTERN = '[a-z0-9_\-]{1,50}';
 
@@ -38,6 +41,11 @@ final class WCHC_Shops {
 		add_filter( 'woocommerce_rest_product_schema', array( __CLASS__, 'add_to_schema' ) );
 		add_filter( 'woocommerce_rest_pre_insert_product_object', array( __CLASS__, 'validate_request' ), 10, 2 );
 		add_action( 'woocommerce_rest_insert_product_object', array( __CLASS__, 'save_from_request' ), 10, 2 );
+
+		// Category counts (category_counts) are recounted after changes to products or categories.
+		foreach ( array( 'woocommerce_new_product', 'woocommerce_update_product', 'woocommerce_delete_product', 'woocommerce_trash_product', 'set_object_terms', 'created_product_cat', 'edited_product_cat', 'delete_product_cat' ) as $hook ) {
+			add_action( $hook, array( __CLASS__, 'forget_category_counts' ) );
+		}
 
 		// Orders list: "Webshop" column (HPOS and legacy posts storage).
 		add_filter( 'manage_woocommerce_page_wc-orders_columns', array( __CLASS__, 'add_order_column' ) );
@@ -115,6 +123,73 @@ final class WCHC_Shops {
 	public static function sells( string $store_id, int $product_id ): bool {
 		$shop = self::find( $store_id );
 		return ! $shop || has_term( $shop->term_id, self::TAXONOMY, $product_id );
+	}
+
+	/**
+	 * Number of published products per product category in a webshop, in one query instead
+	 * of one REST request per category. A category counts its subcategories' products too
+	 * (each product once), like the REST API's `category` filter. A store ID that is not a
+	 * webshop counts every published product. Cached until a product or category changes.
+	 *
+	 * @param string $store_id Store ID / webshop slug.
+	 * @return array<int,int> Category term ID => number of products (categories without products are left out).
+	 */
+	public static function category_counts( string $store_id ): array {
+		$cached = get_transient( self::COUNTS_TRANSIENT );
+		$cached = is_array( $cached ) ? $cached : array();
+		if ( isset( $cached[ $store_id ] ) && is_array( $cached[ $store_id ] ) ) {
+			return $cached[ $store_id ];
+		}
+
+		global $wpdb;
+		$shop      = self::find( $store_id );
+		$shop_join = $shop
+			? $wpdb->prepare( "INNER JOIN {$wpdb->term_relationships} shop ON shop.object_id = p.ID AND shop.term_taxonomy_id = %d", $shop->term_taxonomy_id )
+			: '';
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- $shop_join is prepared above; the result is cached.
+		$rows = $wpdb->get_results(
+			"SELECT p.ID AS product, tt.term_id AS category
+			FROM {$wpdb->posts} p
+			{$shop_join}
+			INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
+			INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_cat'
+			WHERE p.post_type = 'product' AND p.post_status = 'publish'"
+		);
+		// phpcs:enable
+
+		$parents = get_terms(
+			array(
+				'taxonomy'   => 'product_cat',
+				'hide_empty' => false,
+				'fields'     => 'id=>parent',
+			)
+		);
+		$parents = is_array( $parents ) ? $parents : array();
+
+		// Each product counts once in its categories and all their parents.
+		$in = array();
+		foreach ( (array) $rows as $row ) {
+			for ( $id = (int) $row->category; $id > 0 && ! isset( $in[ (int) $row->product ][ $id ] ); $id = (int) ( $parents[ $id ] ?? 0 ) ) {
+				$in[ (int) $row->product ][ $id ] = true;
+			}
+		}
+		$counts = array();
+		foreach ( $in as $categories ) {
+			foreach ( array_keys( $categories ) as $id ) {
+				$counts[ $id ] = ( $counts[ $id ] ?? 0 ) + 1;
+			}
+		}
+
+		$cached[ $store_id ] = $counts;
+		set_transient( self::COUNTS_TRANSIENT, $cached, HOUR_IN_SECONDS );
+		return $counts;
+	}
+
+	/**
+	 * Drop the cached category counts (a product or category changed).
+	 */
+	public static function forget_category_counts(): void {
+		delete_transient( self::COUNTS_TRANSIENT );
 	}
 
 	/**

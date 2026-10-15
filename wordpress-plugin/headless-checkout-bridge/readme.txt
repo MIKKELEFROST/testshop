@@ -80,6 +80,10 @@ Check: GET /wp-json/wc-headless/v1/status with the API key.
   categories, e.g. category=Damekostumer&wchc_in_category=Halloween. Works with `wchc_shop`.
 * REST: `wchc_not_in_category=<id>[,<id>…]` leaves out products in any of these categories
   or their subcategories, e.g. Halloween and Christmas on a Fastelavn theme page.
+* REST: `GET /wc-headless/v1/shops/<slug>/category-counts` gives the webshop's number of
+  published products per category (subcategories included) in one request, cached until a
+  product or category changes. The storefront no longer counts with one request per category,
+  which kept small web hosts from answering (HTTP 508).
 * REST: `wchc_in_any_category=<id>[,<id>…]` lists only products in one of these categories
   (or their subcategories): with `wchc_not_in_category` a category page lists its own
   season's products first and the rest after.

@@ -44,6 +44,32 @@ export type WooResponse<T> = { status: number; data: T; headers: Headers };
 
 const RETRY_DELAYS_MS = [250, 750];
 
+/**
+ * At most this many reads (GET) at a time from one server instance. The shop's web host
+ * limits concurrent requests and answers HTTP 508 ("Resource Limit Is Reached") beyond it, so
+ * a cold instance must not fire dozens of catalogue reads at once. Writes are not queued.
+ */
+const MAX_CONCURRENT_GETS = 4;
+let activeGets = 0;
+const waitingGets: (() => void)[] = [];
+
+async function withGetSlot<T>(run: () => Promise<T>): Promise<T> {
+  while (activeGets >= MAX_CONCURRENT_GETS) await new Promise<void>((resolve) => waitingGets.push(resolve));
+  activeGets++;
+  try {
+    return await run();
+  } finally {
+    activeGets--;
+    waitingGets.shift()?.();
+  }
+}
+
+/** Wait before retrying: longer when the host says it is overloaded (508, 429). */
+function retryDelay(attempt: number, previous: WooCommerceError | undefined): number {
+  const overloaded = previous?.status === 508 || previous?.status === 429;
+  return overloaded ? 1500 * attempt : RETRY_DELAYS_MS[attempt - 1]!;
+}
+
 export async function wooRequest<T extends z.ZodType>(
   path: string,
   options: RequestOptions<T>,
@@ -60,21 +86,26 @@ export async function wooRequest<T extends z.ZodType>(
   let lastError: WooCommerceError | undefined;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await sleep(RETRY_DELAYS_MS[attempt - 1]);
+    if (attempt > 0) await sleep(retryDelay(attempt, lastError));
 
     let response: Response;
+    let json: unknown;
     try {
-      response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Basic ${auth}`,
-          Accept: "application/json",
-          ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-        },
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-        signal: AbortSignal.timeout(options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS),
-        cache: "no-store",
-      });
+      const send = async () => {
+        const sent = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Basic ${auth}`,
+            Accept: "application/json",
+            ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+          },
+          body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+          signal: AbortSignal.timeout(options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS),
+          cache: "no-store",
+        });
+        return { sent, body: await sent.json().catch(() => undefined) };
+      };
+      ({ sent: response, body: json } = method === "GET" ? await withGetSlot(send) : await send());
     } catch (error) {
       const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
       // Keep the low-level error (e.g. "other side closed") so logs show the real cause.
@@ -88,7 +119,6 @@ export async function wooRequest<T extends z.ZodType>(
       continue;
     }
 
-    const json = await response.json().catch(() => undefined);
     const accepted = response.ok || (options.acceptStatus ?? []).includes(response.status);
 
     if (!accepted) {

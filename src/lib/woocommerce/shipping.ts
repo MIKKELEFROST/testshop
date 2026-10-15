@@ -16,7 +16,7 @@ const FREE_FROM = "wchc_free_from";
  * selling points ("Fri fragt v/ 599 kr.") and the cart use it, so they always match WooCommerce.
  */
 export async function getFreeShippingFrom(): Promise<string | null> {
-  "use cache";
+  "use cache: remote";
   cacheTag(CATALOG_TAG);
 
   try {

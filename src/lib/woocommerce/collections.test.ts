@@ -17,7 +17,7 @@ vi.mock("./products", () => ({
       { id: 104, slug: "jul-og-nytaar", name: "Jul og nytår", parent: 0 },
     ],
   }),
-  getPluginFeatures: async () => ({ alsoInCategory: pluginFilters }),
+  getPluginFeatures: async () => ({ categoryFilters: pluginFilters }),
   getProducts: async (query: ProductQuery) => {
     calls.push(query);
     // The Fastelavn shop prefers products outside Halloween and Christmas.
