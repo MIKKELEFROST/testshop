@@ -8,7 +8,7 @@ import { PAGE_SIZE, collectionQuery, getCategories, getPluginFeatures, getProduc
  * Every read goes through the cached catalogue functions.
  */
 
-/** A page of a theme page's products; null when the theme does not exist in this shop. */
+/** A page of a theme page's products; null when the theme does not exist in this shop (not when WooCommerce is unavailable). */
 export async function getCollectionProducts(
   slug: string,
   options: { page?: number; perPage?: number; sort?: SortKey } = {},
@@ -16,8 +16,9 @@ export async function getCollectionProducts(
   const collection = findCollection(slug);
   if (!collection) return null;
   const query = await collectionQuery(collection);
-  if (!query) return null;
-  return getProducts({ ...query, ...options });
+  if (!query.ok) return query;
+  if (!query.data) return null;
+  return getProducts({ ...query.data, ...options });
 }
 
 /** The first products behind a link to a category or theme page (for a tile's photo). */

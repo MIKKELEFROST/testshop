@@ -166,20 +166,26 @@ async function getAdultProductIds(): Promise<number[]> {
 }
 
 /** This shop's themes (WooCommerce product tags), name -> ID. */
-export async function getThemeIds(): Promise<Map<string, number>> {
+export async function getThemeIds(): Promise<Loadable<Map<string, number>>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  const tags = new Map<string, number>();
-  for (let page = 1; page <= 10; page++) {
-    const { data, headers } = await wooRequest("wc/v3/products/tags", {
-      query: { per_page: 100, page, hide_empty: true, _fields: "id,name" },
-      schema: z.array(z.object({ id: z.number(), name: z.string() })),
-    });
-    for (const tag of data) tags.set(decodeEntities(tag.name), tag.id);
-    if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+  try {
+    const tags = new Map<string, number>();
+    for (let page = 1; page <= 10; page++) {
+      const { data, headers } = await wooRequest("wc/v3/products/tags", {
+        query: { per_page: 100, page, hide_empty: true, _fields: "id,name" },
+        schema: z.array(z.object({ id: z.number(), name: z.string() })),
+      });
+      for (const tag of data) tags.set(decodeEntities(tag.name), tag.id);
+      if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+    }
+    cacheLife(CATEGORY_LIFE);
+    return { ok: true, data: tags };
+  } catch (error) {
+    logCatalogError("getThemeIds", error);
+    cacheLife(FAILURE_LIFE);
+    return { ok: false, error: UNAVAILABLE };
   }
-  cacheLife(CATEGORY_LIFE);
-  return tags;
 }
 
 /**
@@ -200,20 +206,21 @@ export async function getPluginFeatures(): Promise<{ categoryFilters: boolean }>
 }
 
 /**
- * The query for a theme page (src/config/merchandising.ts), or null when none of its
- * categories or themes exist in this shop.
+ * The query for a theme page (src/config/merchandising.ts): null when none of its categories
+ * or themes exist in this shop, an error when WooCommerce can't be read right now.
  */
-export async function collectionQuery(collection: Collection): Promise<ProductQuery | null> {
+export async function collectionQuery(collection: Collection): Promise<Loadable<ProductQuery | null>> {
   const [categories, themes, plugin] = await Promise.all([getCategories(), getThemeIds(), getPluginFeatures()]);
-  if (!categories.ok) return null;
+  if (!categories.ok) return categories;
+  if (!themes.ok) return themes;
   const idsOf = (slugs: string[] | undefined) =>
     (slugs ?? []).map((slug) => categories.data.find((c) => c.slug === slug)?.id).filter((id): id is number => id !== undefined);
-  const themeIds = (names: string[] | undefined) => (names ?? []).map((n) => themes.get(n)).filter((id): id is number => id !== undefined);
+  const themeIds = (names: string[] | undefined) => (names ?? []).map((n) => themes.data.get(n)).filter((id): id is number => id !== undefined);
 
   const categoryIds = idsOf(collection.categories);
-  if (collection.categories?.length && categoryIds.length === 0) return null;
+  if (collection.categories?.length && categoryIds.length === 0) return { ok: true, data: null };
   let tagIds = themeIds(collection.themes);
-  if (collection.themes?.length && tagIds.length === 0) return null;
+  if (collection.themes?.length && tagIds.length === 0) return { ok: true, data: null };
   let alsoInCategoryIds: number[] = [];
   if (collection.alsoIn?.length) {
     if (plugin.categoryFilters) alsoInCategoryIds = idsOf(collection.alsoIn);
@@ -223,7 +230,7 @@ export async function collectionQuery(collection: Collection): Promise<ProductQu
   // The shop's hidden categories (e.g. Halloween in the Fastelavn shop), unless the theme is about them.
   const wanted = new Set([...(collection.categories ?? []), ...(collection.alsoIn ?? [])]);
   const notInCategoryIds = idsOf(merchandising.hidden.filter((slug) => !wanted.has(slug)));
-  return { categoryIds, alsoInCategoryIds, notInCategoryIds, tagIds, hideAdult: true };
+  return { ok: true, data: { categoryIds, alsoInCategoryIds, notInCategoryIds, tagIds, hideAdult: true } };
 }
 
 /** Slugs of all this shop's published products (for the sitemap); refreshed a few times a day. */

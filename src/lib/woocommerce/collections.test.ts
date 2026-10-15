@@ -26,7 +26,7 @@ vi.mock("./products", () => ({
     const page = ids.slice(start, start + (query.perPage ?? 5));
     return { ok: true, data: { products: page.map((id) => ({ id })), total: ids.length, totalPages: 0, page: query.page ?? 1 } };
   },
-  collectionQuery: async () => null,
+  collectionQuery: async () => ({ ok: true, data: null }),
   getProductBySlug: async () => ({ ok: true, data: null }),
 }));
 
