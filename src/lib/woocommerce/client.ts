@@ -6,7 +6,8 @@ import { wooEnv } from "@/lib/env";
  * Minimal, server-only WooCommerce REST client.
  *
  * - Credentials are sent as HTTP Basic auth over HTTPS and never leave the server.
- * - Every request has a timeout; idempotent GETs are retried on network errors/5xx/429.
+ * - Every request has a timeout; GETs (and POSTs marked `retry`) are retried on network
+ *   errors/5xx/429.
  * - Responses are validated with Zod, so unexpected payloads fail loudly instead of
  *   leaking into pricing logic.
  * - Errors never include credentials, request bodies or customer data.
@@ -38,6 +39,11 @@ type RequestOptions<T extends z.ZodType> = {
   /** Status codes whose JSON body is a valid, expected result (e.g. 409 conflicts). */
   acceptStatus?: number[];
   timeoutMs?: number;
+  /**
+   * Retry a POST like a GET. Only for endpoints that change nothing (the quote): a retried
+   * order POST could create a second order.
+   */
+  retry?: boolean;
 };
 
 export type WooResponse<T> = { status: number; data: T; headers: Headers };
@@ -82,7 +88,7 @@ export async function wooRequest<T extends z.ZodType>(
   }
 
   const auth = Buffer.from(`${env.WOOCOMMERCE_CONSUMER_KEY}:${env.WOOCOMMERCE_CONSUMER_SECRET}`).toString("base64");
-  const attempts = method === "GET" ? RETRY_DELAYS_MS.length + 1 : 1;
+  const attempts = method === "GET" || options.retry ? RETRY_DELAYS_MS.length + 1 : 1;
   let lastError: WooCommerceError | undefined;
 
   for (let attempt = 0; attempt < attempts; attempt++) {

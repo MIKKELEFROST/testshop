@@ -94,7 +94,8 @@ export type PluginResult = { status: number; body: PluginResponse };
 const BUSINESS_STATUSES = [404, 409, 422];
 
 export async function fetchQuote(input: QuoteInput): Promise<WcQuote> {
-  const { data } = await wooRequest("wc-headless/v1/quote", { method: "POST", body: input, schema: quoteSchema });
+  // The quote creates nothing, so a busy host (508) or a dropped connection is retried.
+  const { data } = await wooRequest("wc-headless/v1/quote", { method: "POST", body: input, schema: quoteSchema, retry: true });
   return data;
 }
 

@@ -3,11 +3,10 @@
 import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type PointerEvent } from "react";
 import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
-import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import type { CartLine } from "@/lib/cart/cart";
 import { useCart } from "./cart-provider";
-import { CartLineItem, CartTotals, CheckoutButton, EmptyCart, useCartQuote } from "./cart-view";
+import { CartLineItem, CartQuoteError, CartTotals, CheckoutButton, EmptyCart, useCartQuote } from "./cart-view";
 
 const DRAWER_ID = "kurv-slider";
 
@@ -33,7 +32,7 @@ const drawerClasses = [
 export function CartDrawer() {
   const { lines, count, isOpen, closeCart, lastAdded } = useCart();
   // Prices are only fetched while the drawer is open (which also means the cart is hydrated).
-  const { quote, loading, error, canCheckout } = useCartQuote(isOpen);
+  const { quote, loading, error, temporary, retry, canCheckout } = useCartQuote(isOpen);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const pressedBackdrop = useRef(false);
   const [announcement, setAnnouncement] = useState("");
@@ -130,7 +129,7 @@ export function CartDrawer() {
                 <CartTotals quote={quote} loading={loading} />
                 {error && (
                   <div className="mt-3">
-                    <Alert tone="error">{error}</Alert>
+                    <CartQuoteError error={error} temporary={temporary} onRetry={retry} />
                   </div>
                 )}
                 <DispatchCountdown className="mt-4 text-sm" />

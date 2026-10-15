@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
+import { QuoteError } from "@/components/checkout/quote-error";
 import { useQuote } from "@/components/checkout/use-quote";
 import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { ProductImage } from "@/components/products/product-image";
@@ -11,14 +12,14 @@ import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
-import type { CartLine } from "@/lib/cart/cart";
+import { savedSubtotal, type CartLine } from "@/lib/cart/cart";
 import type { ClientQuote } from "@/lib/checkout/quote";
 import { formatPrice, fromMinorUnits, multiplyAmount, toMinorUnits } from "@/lib/money";
 
 /** The /kurv page. Its parts are shared with the cart drawer. */
 export function CartView() {
   const { lines, hydrated } = useCart();
-  const { quote, loading, error, canCheckout } = useCartQuote(hydrated);
+  const { quote, loading, error, temporary, retry, canCheckout } = useCartQuote(hydrated);
 
   if (!hydrated) {
     return <div className="mt-8 h-40 animate-pulse rounded-[var(--radius-card)] bg-black/5" aria-hidden="true" />;
@@ -44,7 +45,7 @@ export function CartView() {
 
         {error && (
           <div className="mt-4">
-            <Alert tone="error">{error}</Alert>
+            <CartQuoteError error={error} temporary={temporary} onRetry={retry} />
           </div>
         )}
 
@@ -62,12 +63,25 @@ export function CartView() {
   );
 }
 
-/** WooCommerce's prices, stock and totals for the cart. Only fetched while `enabled`. */
+/**
+ * WooCommerce's prices, stock and totals for the cart. Only fetched while `enabled`.
+ * When WooCommerce cannot be reached right now, the customer can still go to the checkout:
+ * it asks again there, and the server checks prices and stock before payment.
+ */
 export function useCartQuote(enabled: boolean) {
   const { lines } = useCart();
-  const { quote, loading, error } = useQuote(lines, { country: storeConfig.defaultCountry }, null, enabled);
-  const canCheckout = quote !== null && quote.errors.length === 0 && !loading && !error;
-  return { quote, loading, error, canCheckout };
+  const { quote, loading, error, temporary, retry } = useQuote(lines, { country: storeConfig.defaultCountry }, null, enabled);
+  const canCheckout = !loading && (quote !== null ? quote.errors.length === 0 && !error : temporary);
+  return { quote, loading, error, temporary, retry, canCheckout };
+}
+
+/** The cart's quote error with "Prøv igen". */
+export function CartQuoteError({ error, temporary, onRetry }: { error: string; temporary: boolean; onRetry: () => void }) {
+  return (
+    <QuoteError error={error} onRetry={onRetry}>
+      {temporary ? "Du kan stadig gå til kassen, hvor priserne beregnes igen." : null}
+    </QuoteError>
+  );
 }
 
 export function EmptyCart({ className, onNavigate }: { className: string; onNavigate?: () => void }) {
@@ -168,6 +182,9 @@ export function CartLineItem({
 
 /** Subtotal from the quote. Shipping depends on the address, so it is left to the checkout. */
 export function CartTotals({ quote, loading, className = "" }: { quote: ClientQuote | null; loading: boolean; className?: string }) {
+  const { lines } = useCart();
+  // Without a quote (WooCommerce not reachable), the prices saved in the cart give an idea.
+  const estimate = quote ? null : savedSubtotal(lines);
   return (
     <div className={className}>
       {quote && <FreeShippingProgress quote={quote} />}
@@ -175,7 +192,7 @@ export function CartTotals({ quote, loading, className = "" }: { quote: ClientQu
         <div className="flex justify-between">
           <dt className="text-ink-soft">Foreløbig total</dt>
           <dd className="font-medium tabular-nums">
-            {loading && !quote ? <Spinner /> : quote ? formatPrice(quote.totals.subtotal) : "–"}
+            {loading && !quote ? <Spinner /> : quote ? formatPrice(quote.totals.subtotal) : estimate ? `ca. ${formatPrice(estimate)}` : "–"}
           </dd>
         </div>
         <div className="flex justify-between text-sm text-muted">

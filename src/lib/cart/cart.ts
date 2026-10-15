@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fromMinorUnits, toMinorUnits } from "@/lib/money";
 
 /** Pure cart state logic (no React), unit tested. */
 
@@ -60,6 +61,18 @@ export function cartReducer(lines: CartLine[], action: CartAction): CartLine[] {
     case "replace":
       return action.lines;
   }
+}
+
+/**
+ * The cart's total at the prices saved when the items were added, or null when a price is
+ * unknown. Display only ("ca."), while WooCommerce cannot be asked; never used to charge.
+ */
+export function savedSubtotal(lines: CartLine[]): string | null {
+  if (lines.length === 0 || lines.some((l) => !l.unitPrice)) return null;
+  return fromMinorUnits(
+    lines.reduce((sum, l) => sum + toMinorUnits(l.unitPrice!, 2) * l.quantity, 0),
+    2,
+  );
 }
 
 const storedLineSchema = z.object({

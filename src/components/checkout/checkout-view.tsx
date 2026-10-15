@@ -20,6 +20,7 @@ import { CouponField } from "./coupon-field";
 import { ExpressCheckout } from "./express-checkout";
 import { LEGAL_LINKS, LegalLink, TermsNotice } from "./legal-links";
 import { OrderSummary } from "./order-summary";
+import { QuoteError } from "./quote-error";
 import { useQuote } from "./use-quote";
 
 type Address = {
@@ -127,7 +128,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
   const emailValid = contactSchema.shape.email.safeParse(contact.email).success;
-  const { quote, loading: quoteLoading, error: quoteError, setQuote } = useQuote(
+  const { quote, loading: quoteLoading, error: quoteError, setQuote, retry: retryQuote } = useQuote(
     lines,
     {
       country: shipping.country,
@@ -632,7 +633,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           <div className="space-y-4">
             {notice && <Alert tone="warning">{notice}</Alert>}
             {formError && <Alert tone="error">{formError}</Alert>}
-            {quoteError && <Alert tone="error">{quoteError}</Alert>}
+            {quoteError && <QuoteError error={quoteError} onRetry={retryQuote} />}
             {quoteErrors.length > 0 && (
               <Alert tone="error" title="Kurven skal rettes">
                 <ul className="list-disc pl-5">

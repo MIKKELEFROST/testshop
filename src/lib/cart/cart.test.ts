@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cartReducer, deserializeCart, serializeCart, type CartLine } from "./cart";
+import { cartReducer, deserializeCart, savedSubtotal, serializeCart, type CartLine } from "./cart";
 
 const tshirt = { productId: 10, variationId: 0, name: "T-shirt", slug: "t-shirt", unitPrice: "249.00", maxQuantity: 25, quantity: 1 };
 const hoodieM = { productId: 14, variationId: 16, name: "Hættetrøje", slug: "hood", variantLabel: "Størrelse: M", unitPrice: "449.00", maxQuantity: 2, quantity: 1 };
@@ -70,5 +70,16 @@ describe("cart persistence", () => {
   it("drops duplicate lines from storage", () => {
     const raw = JSON.stringify({ version: 1, lines: [tshirt, { ...tshirt, quantity: 3 }] });
     expect(deserializeCart(raw)).toHaveLength(1);
+  });
+});
+
+describe("saved subtotal", () => {
+  it("adds up the prices saved in the cart, or gives up when one is unknown", () => {
+    let lines: CartLine[] = [];
+    lines = cartReducer(lines, { type: "add", line: { ...tshirt, quantity: 2 } });
+    lines = cartReducer(lines, { type: "add", line: hoodieM });
+    expect(savedSubtotal(lines)).toBe("947.00");
+    expect(savedSubtotal([])).toBeNull();
+    expect(savedSubtotal(cartReducer(lines, { type: "add", line: { ...hoodieS, unitPrice: null } }))).toBeNull();
   });
 });
