@@ -42,9 +42,27 @@ export type QuoteInput = {
   email?: string;
 };
 
+/**
+ * The webshop's brand for WooCommerce's order e-mails (plugin 1.4; older plugins ignore it).
+ * The plugin stores the valid fields on the order and drops the others.
+ */
+export type StoreBrandingInput = {
+  name: string;
+  /** The storefront's address (http or https). */
+  url?: string;
+  /** Reply-To of the customer's e-mails. */
+  email: string;
+  /** Base colour, #rrggbb. */
+  color: string;
+  /** Header image (https). */
+  logo?: string;
+};
+
 export type CreateOrderInput = {
   checkout_id: string;
   store_id: string;
+  /** Without it the order e-mails show the WordPress site, as before plugin 1.4. */
+  store?: StoreBrandingInput;
   items: LineInput[];
   billing: AddressInput & { email: string };
   shipping: AddressInput;

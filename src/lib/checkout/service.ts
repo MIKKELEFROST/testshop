@@ -10,6 +10,7 @@ import type {
   PluginResult,
 } from "@/lib/woocommerce/checkout-api";
 import type { WcOrderSummary, WcQuote } from "@/lib/woocommerce/schemas";
+import { storeBranding } from "./branding";
 
 /**
  * Checkout orchestration — the only place where WooCommerce orders and Stripe
@@ -222,6 +223,7 @@ export function toCreateOrderInput(request: CheckoutRequest, context: CheckoutCo
   return {
     checkout_id: context.checkoutId,
     store_id: storeConfig.id,
+    store: storeBranding(),
     items: mergeLines(request.items),
     billing: { ...toAddress(billingSource), email: request.contact.email, phone: request.contact.phone ?? "" },
     shipping: { ...shipping, phone: request.contact.phone ?? "" },

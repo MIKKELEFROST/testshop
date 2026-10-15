@@ -55,6 +55,11 @@ Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at test
 | Ordren viser den brugte betalingsmetode (MobilePay, Apple Pay) | Integration | Bestået |
 | Afvist betalingsforsøg noteres én gang, selv om det meldes flere gange | Integration | Bestået |
 | **Webshops**: hver webshop viser kun sine produkter (også produktsider via slug); delte produkter i begge; quote og ordre afviser andre webshops' produkter; ukendt butiks-ID sælger alt; ordren får webshoppens ID | Integration (`webshops.test.ts`) + browsertest af begge brands mod lokal WooCommerce | Bestået |
+| Kategorifiltre: `wchc_in_category` giver kun produkter i alle kategorierne, `wchc_not_in_category` udelader produkter i en af dem, `wchc_in_any_category` giver produkter i mindst én (alle også via underkategori), alene og sammen med `category`, `tag` og webshop; "sæson først" + "resten" giver hele kategorien præcis én gang; ikke-numeriske ID'er ignoreres | Integration (`webshops.test.ts`) | Bestået |
+| Sæson først på kategorisider: rigtig rækkefølge og sideinddeling over grænsen mellem de to dele, almindelig liste ved anden sortering, i sæsonens egne kategorier og med ældre plugin | Unit (`collections.test.ts`) | Bestået |
+| Datoer: påske, fastelavn (7. februar 2027), halloween, nedtælling, danske helligdage, sommer- og vintertid; afsendelsesnedtælling kun på hverdage før kl. 19 | Unit (`seasons.test.ts`, `delivery.test.ts`) | Bestået |
+| Favoritter, søgeforslag (navnetræf først, kategorier og temaer), informationssidernes tekster (kun kendte felter, links til sider der findes, ingen glemte [klammer]) og merchandising (alle links til temasider findes) | Unit | Bestået |
+| **Ordremails pr. webshop**: ordren gemmer webshoppens brand, og ugyldige felter droppes; kundens mail har webshoppens afsendernavn, Svar til, emne, overskrift, sidefod, logo og farve; *Ny ordre* nævner webshoppen og har stadig kunden som Svar til; en ordre uden brand får mails som før, også lige efter en med | Integration (`checkout-flow.test.ts`, mails fanget med `pre_wp_mail`) | Bestået |
 | Webshops i WordPress-admin: boks på produktet, kolonne i produktlisten, masseredigering, kolonnen "Webshop" i ordrelisten (HPOS og klassisk) | Browsertest (Playwright) mod lokal WooCommerce | Bestået |
 | **Rigtig Stripe-testbetaling** (kort 4242, Vercel-produktion → test.piece.dk) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
 | Rigtig 3-D Secure- og afvist-betaling (kort 3155 og 9995) | Manuelt 14-10-2026, se nedenfor | **Bestået** |
@@ -149,6 +154,25 @@ Browsertest (Playwright) mod en lokal build af Maskerade på test.piece.dk:
 | Kurv | "Køb for 460,00 kr. mere, så får du fri fragt til pakkeshop" med bjælke ved 139 kr. i kurven. Beløbet læses fra WooCommerce (599 kr.). |
 | Løfter | Baren øverst, rækken over footeren og 2 × 2-boksen på produktsiden viser "599 kr." fra WooCommerce. |
 | JavaScript-fejl | Ingen |
+
+### Fastelavnskostumer.dk og Halloweenkostumer.dk 15-10-2026
+
+Browsertest (Playwright) mod lokale builds af begge webshops på test.piece.dk (plugin 1.3.1 live; 1.4 testet lokalt):
+
+| Tjek | Resultat |
+| --- | --- |
+| Forside, Fastelavn (1440 px og 390 px) | Konfettistribe, logo med kat i tønden, "Fastelavn er søndag 7. februar · om 115 dage", hero med tre kostumefotos, målgruppe-fliser, 8 temaer og 4 rækker uden halloween- og julevarer og uden gentagelser. Ingen vandret scroll. |
+| Forside, Halloween (1440 px og 390 px) | Mørk header og footer, græskarlogo, "Halloween er lørdag 31. oktober · om 16 dage", nattehimmel med måne og flagermus, temaerne Hekse … Horror-klovne, "Pynt huset" uden julepynt. |
+| Menu | Dropdown åbner ved hover og klik, Esc lukker. Mobilmenuen åbner, foldes ud og lukker, når et link vælges (→ /kategori/pigekostumer). |
+| Søgeforslag ("prinsesse") | Temaet "Prinsesser og prinser" øverst, derefter 6 produkter med foto og pris. Pil ned + Enter åbner det valgte produkt. |
+| Favoritter | Hjertet på produktsiden gemmer varen, headeren viser "Favoritter, 1", og /favoritter viser varen med frisk pris. |
+| Sortering | "Pris: lav til høj" på Pigekostumer giver 49, 59, 59, 59 kr. først. |
+| Produktside → kurv → kasse (mobil) | Hjerte ved "Læg i kurv", afsendelseslinjen, kurvskuffe med "Køb for 550,00 kr. mere …" og afsendelseslinjen, kassen med webshoppens logo. Ingen JavaScript-fejl. |
+| Informationssider | Handelsbetingelser m.fl. med webshoppens navn og e-mail; firmaoplysninger, der mangler, er fremhævet med gult. |
+| Favicon, hjemmeskærmsikon, delingsbillede, e-mail-logo | Genereret pr. webshop (200, image/png). |
+| `sitemap.xml` / `robots.txt` | 8.643 adresser i Fastelavn-shoppen / kurv, kasse, søgning, favoritter og API er udelukket. |
+| 18+ | 37 varer i Halloweenkostumer.dk (8.606 i alt), 0 i Fastelavnskostumer.dk (8.569). |
+| Billeder | Ølflaske – kostume til herrer: 3 fotos (86865, _01, _02), før 1. 80'er-kasket (kode med mellemrum i arket): 5, før 0. |
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 

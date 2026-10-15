@@ -1,106 +1,107 @@
+import { Lightbulb, Ruler, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
-import { CardBand, ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
-import { Alert } from "@/components/ui/alert";
-import { ButtonLink } from "@/components/ui/button";
-import { isDark, storeConfig } from "@/config/store";
-import { productCount } from "@/lib/format";
-import { topLevelCategories } from "@/lib/woocommerce/category-tree";
-import { getCategories, getProducts } from "@/lib/woocommerce/products";
+import { Hero } from "@/components/home/hero";
+import { AudienceTiles, ThemeTiles } from "@/components/home/tiles";
+import { CardBand } from "@/components/products/product-card";
+import { ProductRow, RelatedProductsSkeleton } from "@/components/products/related-products";
+import { merchandising, type HomePage as HomeConfig } from "@/config/merchandising";
+import { storeConfig } from "@/config/store";
+import { JsonLd, shopData } from "@/lib/seo";
+import { getCollectionProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
 
+/**
+ * The shop's front page (src/config/merchandising.ts): hero with the countdown to its holiday,
+ * who the costume is for, its themes, rows of products and a short guide.
+ */
 export default function HomePage() {
-  const dark = isDark(storeConfig.theme.hero);
+  const { home } = merchandising;
   return (
     <>
-      <section className="container-shop pt-6 sm:pt-10">
-        <div
-          className={`relative overflow-hidden rounded-[1.5rem] bg-hero px-6 py-16 sm:px-12 sm:py-24 lg:py-28 ${dark ? "text-white" : ""}`}
-        >
-          <div
-            className="pointer-events-none absolute -right-24 -top-24 size-96 rounded-full bg-hero-blob opacity-70 blur-2xl"
-            aria-hidden="true"
-          />
-          <div
-            className={`pointer-events-none absolute -bottom-32 right-24 size-80 rounded-full bg-accent-soft blur-2xl ${dark ? "opacity-20" : "opacity-80"}`}
-            aria-hidden="true"
-          />
-          <div className="relative max-w-xl">
-            <p className={`text-sm font-medium uppercase tracking-[0.16em] ${dark ? "text-white/75" : "text-ink-soft"}`}>
-              {storeConfig.heroEyebrow}
-            </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-              {storeConfig.tagline}
-            </h1>
-            <p className={`mt-5 max-w-md text-lg leading-relaxed ${dark ? "text-white/80" : "text-ink-soft"}`}>
-              {storeConfig.description}
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <ButtonLink href="/produkter" size="lg" className={dark ? "bg-white! text-ink! hover:bg-white/90!" : ""}>
-                Se alle produkter
-              </ButtonLink>
-              <ButtonLink
-                href="#udvalgte"
-                size="lg"
-                variant="secondary"
-                className={dark ? "border-white/40! bg-transparent! text-white! hover:border-white!" : ""}
-              >
-                Udvalgte varer
-              </ButtonLink>
-            </div>
-          </div>
-        </div>
-      </section>
+      <JsonLd data={shopData()} />
+      <Suspense fallback={<HeroSkeleton />}>
+        <HeroWithPhotos hero={home.hero} firstRow={home.rows[0]?.collection} />
+      </Suspense>
+      <Suspense fallback={<div className="container-shop mt-16 h-48 animate-pulse rounded-2xl bg-black/5" />}>
+        <AudienceTiles title={home.audiences.title} tiles={home.audiences.tiles} />
+      </Suspense>
+      <Suspense fallback={<div className="container-shop mt-20 h-96 animate-pulse rounded-2xl bg-black/5" />}>
+        <ThemeTiles title={home.themes.title} collections={home.themes.collections} />
+      </Suspense>
 
-      <section className="container-shop mt-16" aria-labelledby="kategorier">
-        <h2 id="kategorier" className="text-2xl font-semibold tracking-tight">
-          Kategorier
-        </h2>
-        <Suspense fallback={<div className="mt-6 h-28 animate-pulse rounded-[var(--radius-card)] bg-black/5" />}>
-          <CategoryTiles />
-        </Suspense>
-      </section>
-
-      <CardBand className="mt-16 pt-12">
-        <section id="udvalgte" className="container-shop scroll-mt-28" aria-labelledby="udvalgte-titel">
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <h2 id="udvalgte-titel" className="text-2xl font-semibold tracking-tight">
-              Udvalgte varer
-            </h2>
-            <Link href="/produkter" className="text-sm font-medium underline underline-offset-4">
-              Se alle
-            </Link>
-          </div>
-          <Suspense fallback={<ProductGridSkeleton />}>
-            <FeaturedProducts />
+      <CardBand className="mt-16 pt-12 sm:mt-20">
+        <div className="container-shop space-y-14">
+          <Suspense fallback={<RelatedProductsSkeleton />}>
+            <HomeRows rows={home.rows} />
           </Suspense>
-        </section>
+          <Guide guide={home.guide} />
+        </div>
       </CardBand>
     </>
   );
 }
 
-async function FeaturedProducts() {
-  const products = await getProducts({ perPage: 10 });
-  if (!products.ok) return <Alert tone="warning">{products.error}</Alert>;
-  return <ProductGrid products={products.data.products} />;
+async function HeroWithPhotos({ hero, firstRow }: { hero: HomeConfig["hero"]; firstRow?: string }) {
+  let products = hero.products.length > 0 ? await getProductsBySlug(hero.products) : [];
+  if (products.length === 0 && firstRow) {
+    const result = await getCollectionProducts(firstRow, { perPage: 6 });
+    products = result?.ok ? result.data.products : [];
+  }
+  return <Hero hero={hero} products={products} />;
 }
 
-async function CategoryTiles() {
-  const categories = await getCategories();
-  if (!categories.ok || categories.data.length === 0) return null;
+/** The rows of products, each without the products already shown above it. */
+async function HomeRows({ rows }: { rows: HomeConfig["rows"] }) {
+  // Twice as many as shown: rows overlap, and an older plugin leaves hidden categories to be filtered out here.
+  const results = await Promise.all(rows.map((row) => getCollectionProducts(row.collection, { perPage: 20 })));
+  const shown = new Set<number>();
+  return rows.map((row, i) => {
+    const result = results[i];
+    const products = (result?.ok ? result.data.products : []).filter((p) => !shown.has(p.id)).slice(0, 10);
+    products.forEach((p) => shown.add(p.id));
+    if (products.length === 0) return null;
+    return <ProductRow key={row.collection} id={`raekke-${i}`} title={row.title} intro={row.intro} href={row.href} products={products} />;
+  });
+}
+
+function Guide({ guide }: { guide: HomeConfig["guide"] }) {
+  const icons = [Ruler, Sparkles, Lightbulb];
+  const halloween = storeConfig.season === "halloween";
   return (
-    <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {topLevelCategories(categories.data).map((category) => (
-        <li key={category.id}>
-          <Link
-            href={`/kategori/${category.slug}`}
-            className="group flex h-28 flex-col justify-between rounded-[var(--radius-card)] border border-line bg-surface p-5 transition-colors hover:border-ink"
-          >
-            <span className="text-lg font-medium">{category.name}</span>
-            <span className="text-sm text-muted group-hover:text-ink">{productCount(category.count)} →</span>
-          </Link>
-        </li>
-      ))}
-    </ul>
+    <section aria-labelledby="guide" className={`rounded-[1.75rem] p-6 sm:p-10 ${halloween ? "bg-hero text-white" : "bg-tint"}`}>
+      <div className="max-w-2xl">
+        <h2 id="guide" className="heading text-[26px] sm:text-3xl">
+          {guide.title}
+        </h2>
+        <p className={`mt-2 ${halloween ? "text-white/75" : "text-ink-soft"}`}>{guide.text}</p>
+      </div>
+      <ul className="mt-8 grid gap-6 sm:grid-cols-3">
+        {guide.tips.map((tip, i) => {
+          const Icon = icons[i % icons.length]!;
+          return (
+            <li key={tip.title} className="flex gap-4">
+              <span className={`flex size-11 shrink-0 items-center justify-center rounded-full ${halloween ? "bg-action text-on-action" : "bg-surface text-highlight shadow-sm"}`}>
+                <Icon className="size-5" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="font-bold">{tip.title}</p>
+                <p className={`mt-1 text-[15px] leading-relaxed ${halloween ? "text-white/75" : "text-ink-soft"}`}>{tip.text}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <Link href={guide.link.href} className={`mt-8 inline-block font-bold underline underline-offset-4 ${halloween ? "text-action" : "text-accent"}`}>
+        {guide.link.label} →
+      </Link>
+    </section>
+  );
+}
+
+function HeroSkeleton() {
+  return (
+    <div className="container-shop pt-4 sm:pt-6">
+      <div className="h-[460px] animate-pulse rounded-[1.75rem] bg-hero opacity-60" />
+    </div>
   );
 }

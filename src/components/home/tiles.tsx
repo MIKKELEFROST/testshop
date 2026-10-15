@@ -1,0 +1,82 @@
+import Link from "next/link";
+import { ProductImage } from "@/components/products/product-image";
+import { COSTUME_CATEGORY_SLUGS } from "@/config/catalog";
+import { findCollection, type Tile } from "@/config/merchandising";
+import { storeConfig } from "@/config/store";
+import { getLinkProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
+
+/** "Hvem skal klædes ud?": round photos of who the costume is for. */
+export async function AudienceTiles({ title, tiles }: { title: string; tiles: Tile[] }) {
+  const photos = await Promise.all(tiles.map((tile) => tilePhoto(tile)));
+  return (
+    <section className="container-shop mt-12 sm:mt-16" aria-labelledby="hvem">
+      <h2 id="hvem" className="heading text-center text-[26px] text-ink sm:text-3xl">
+        {title}
+      </h2>
+      <ul className={`mt-7 grid grid-cols-3 gap-x-3 gap-y-6 sm:gap-x-5 ${tiles.length > 5 ? "lg:grid-cols-6" : "sm:grid-cols-5"}`}>
+        {tiles.map((tile, i) => (
+          <li key={tile.href}>
+            <Link href={tile.href} className="group flex flex-col items-center text-center">
+              <span className="relative block aspect-square w-full max-w-40 overflow-hidden rounded-full bg-white shadow-[0_6px_20px_-8px_rgb(0_0_0/0.25)] ring-4 ring-surface transition-transform group-hover:-translate-y-1 group-hover:ring-action">
+                <ProductImage image={photos[i] ?? null} name={tile.label} sizes="(min-width: 1024px) 160px, 30vw" />
+              </span>
+              <span className="mt-3 text-[15px] font-bold text-ink group-hover:text-accent sm:text-base">{tile.label}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Theme tiles: a photo with the theme's name on it. */
+export async function ThemeTiles({ title, collections }: { title: string; collections: string[] }) {
+  const themes = collections.map((slug) => findCollection(slug)).filter((c) => c !== undefined);
+  const photos = await Promise.all(themes.map((c) => tilePhoto({ label: c.title, href: `/tema/${c.slug}` })));
+  const halloween = storeConfig.season === "halloween";
+  return (
+    <section className="container-shop mt-14 sm:mt-20" aria-labelledby="temaer">
+      <h2 id="temaer" className="heading text-[26px] text-ink sm:text-3xl">
+        {title}
+      </h2>
+      <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+        {themes.map((theme, i) => (
+          <li key={theme.slug}>
+            <Link
+              href={`/tema/${theme.slug}`}
+              className="group relative block aspect-[4/5] overflow-hidden rounded-2xl bg-white ring-1 ring-black/5"
+            >
+              <ProductImage
+                image={photos[i] ?? null}
+                name={theme.title}
+                sizes="(min-width: 640px) 24vw, 48vw"
+                className="transition-transform duration-500 group-hover:scale-105"
+              />
+              <span
+                className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3 pt-12 sm:p-4 sm:pt-16 ${
+                  halloween ? "bg-gradient-to-t from-[#130f19] via-[#130f19]/80 to-transparent text-white" : "bg-gradient-to-t from-ink/85 via-ink/50 to-transparent text-white"
+                }`}
+              >
+                <span className="heading text-xl leading-tight sm:text-2xl">{theme.title}</span>
+                <span aria-hidden="true" className="mb-0.5 text-lg transition-transform group-hover:translate-x-1">
+                  →
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** A tile's photo: its chosen product's, or else the first costume (or product) behind its link. */
+async function tilePhoto(tile: Tile) {
+  if (tile.product) {
+    const [product] = await getProductsBySlug([tile.product]);
+    if (product?.image) return product.image;
+  }
+  const products = (await getLinkProducts(tile.href, 12)).filter((p) => p.image);
+  const costume = products.find((p) => p.categories.some((c) => COSTUME_CATEGORY_SLUGS.includes(c.slug)));
+  return (costume ?? products[0])?.image ?? null;
+}

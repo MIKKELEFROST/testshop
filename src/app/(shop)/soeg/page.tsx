@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { productCount } from "@/lib/format";
-import { SearchForm } from "@/components/layout/search-form";
+import { SearchBox } from "@/components/layout/search-box";
 import { CardBand, ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { pageHref, Pagination } from "@/components/ui/pagination";
@@ -16,7 +16,7 @@ export default function SearchPage(props: PageProps<"/soeg">) {
   return (
     <CardBand>
       <div className="container-shop pt-10">
-        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Søg</h1>
+        <h1 className="heading text-[34px] text-ink sm:text-5xl">Søg</h1>
         <Suspense
           fallback={
             <div className="mt-8">
@@ -40,8 +40,8 @@ async function SearchResults({ searchParams }: { searchParams: Promise<Record<st
   if (!q) {
     return (
       <>
-        <SearchForm autoFocus className="mt-6 max-w-xl" />
-        <p className="mt-6 text-muted">Skriv, hvad du leder efter – fx “heks”, “paryk” eller “pirat”.</p>
+        <SearchBox autoFocus className="mt-6 max-w-xl" />
+        <p className="mt-6 text-muted">Skriv, hvad du leder efter – fx “heks”, “prinsesse”, “paryk” eller “pirat”.</p>
       </>
     );
   }
@@ -49,7 +49,7 @@ async function SearchResults({ searchParams }: { searchParams: Promise<Record<st
   const result = await getProducts({ search: q, page });
   return (
     <>
-      <SearchForm defaultValue={q} className="mt-6 max-w-xl" />
+      <SearchBox key={q} defaultValue={q} className="mt-6 max-w-xl" />
       {!result.ok ? (
         <div className="mt-8">
           <Alert tone="warning">{result.error}</Alert>

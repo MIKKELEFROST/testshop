@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getRelatedProducts } from "@/lib/woocommerce/products";
 import type { Product, ProductSummary } from "@/types/commerce";
 import { ProductCard } from "./product-card";
@@ -21,14 +22,23 @@ export async function RelatedProducts({ product }: { product: Product }) {
   );
 }
 
-/** A row of cards: scrolls sideways on phones, a grid of four on larger screens. */
-function ProductRow({ id, title, intro, products }: { id: string; title: string; intro?: string; products: ProductSummary[] }) {
+/** A row of cards: scrolls sideways on phones, a grid on larger screens; "Se alle" links to `href`. */
+export function ProductRow({ id, title, intro, href, products }: { id: string; title: string; intro?: string; href?: string; products: ProductSummary[] }) {
   return (
     <section aria-labelledby={id}>
-      <h2 id={id} className="text-2xl font-extrabold tracking-tight text-ink">
-        {title}
-      </h2>
-      {intro && <p className="mt-1 text-muted">{intro}</p>}
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 id={id} className="heading text-[26px] text-ink sm:text-3xl">
+            {title}
+          </h2>
+          {intro && <p className="mt-1 text-muted">{intro}</p>}
+        </div>
+        {href && (
+          <Link href={href} className="shrink-0 text-sm font-bold text-accent underline underline-offset-4">
+            Se alle
+          </Link>
+        )}
+      </div>
       <ul className="-mx-4 mt-5 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-4 sm:overflow-visible sm:px-0 lg:grid-cols-4 xl:grid-cols-5">
         {products.map((product) => (
           <li key={product.id} className="w-[46%] shrink-0 snap-start sm:w-auto">

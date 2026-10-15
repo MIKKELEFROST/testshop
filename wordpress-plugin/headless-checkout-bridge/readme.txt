@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Requires PHP: 7.4
 WC requires at least: 8.5
-Stable tag: 1.3.1
+Stable tag: 1.4.0
 License: GPLv2 or later
 
 Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe).
@@ -37,6 +37,21 @@ products its webshop does not sell. A store ID that is not a webshop sells every
 as before. Product responses include `webshops`, which can also be set through the REST
 API, and the orders list shows which webshop each headless order came from.
 
+GET /wc/v3/products?category=<id>&wchc_in_category=<id>[,<id>…] lists only the products
+that are also in each of the wchc_in_category categories (or their subcategories);
+WooCommerce's own `category` matches any of its categories. wchc_not_in_category=<id>[,<id>…]
+leaves out products in any of its categories or their subcategories, and
+wchc_in_any_category=<id>[,<id>…] requires one of its categories. All combine with
+`category`, `tag` and `wchc_shop`.
+
+Order e-mails show the webshop the order came from. The storefront sends its brand with
+the order (`store`: name, url, email, color, logo), stored as order meta
+`_wchc_store_branding` (invalid fields are dropped). WooCommerce's e-mails for that order
+then use the webshop's name as From name and its e-mail as Reply-To (customer e-mails),
+put its name and address into {site_title}, {site_url} and {store_url}, and use its logo
+as header image and its colour as base colour. The "New order" subject names the webshop.
+Orders without it get the normal e-mails.
+
 Unpaid headless orders are cancelled after the shop's "Hold stock (minutes)" (60 when
 empty), by WP-Cron every 15 minutes and, throttled, from the storefront's own API calls,
 so cleanup does not depend on site traffic.
@@ -55,6 +70,19 @@ To update, upload the new zip the same way and choose "Replace current with uplo
 Check: GET /wp-json/wc-headless/v1/status with the API key.
 
 == Changelog ==
+
+= 1.4.0 =
+* E-mails: the customer's order e-mails and "New order" show the webshop the order came from:
+  From name, Reply-To, {site_title}, {site_url} and {store_url}, header image and base colour.
+  The storefront sends its brand with the order (`store`), stored as `_wchc_store_branding`.
+  Orders without it, e.g. from older storefronts, get the e-mails as before.
+* REST: `wchc_in_category=<id>[,<id>…]` lists only products that are also in each of these
+  categories, e.g. category=Damekostumer&wchc_in_category=Halloween. Works with `wchc_shop`.
+* REST: `wchc_not_in_category=<id>[,<id>…]` leaves out products in any of these categories
+  or their subcategories, e.g. Halloween and Christmas on a Fastelavn theme page.
+* REST: `wchc_in_any_category=<id>[,<id>…]` lists only products in one of these categories
+  (or their subcategories): with `wchc_not_in_category` a category page lists its own
+  season's products first and the rest after.
 
 = 1.3.1 =
 * Flat rates saved before 1.3 get the empty "Fri fragt fra" setting. Without it, WooCommerce's

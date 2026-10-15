@@ -126,9 +126,10 @@ class Texts(unittest.TestCase):
         self.assertIn("Fiestas Guirca, S.L.", text)
 
     def test_images_and_videos(self):
-        row = {"LINK": "http://marketing.guirca.com/1/1.jpg", "Link_CostumeBack": "http://marketing.guirca.com/1/1_02.jpg", "Link_CostumeCat": "http://marketing.guirca.com/1/1.jpg"}
+        row = {"ARTICLE CODE": "1", "LINK": "http://marketing.guirca.com/1/1.jpg", "Link_CostumeBack": "http://marketing.guirca.com/1/1_02.jpg", "Link_CostumeCat": "http://marketing.guirca.com/1/1.jpg"}
         self.assertEqual(rules.image_urls(row), ["https://marketing.guirca.com/1/1.jpg", "https://marketing.guirca.com/1/1_02.jpg"])
-        self.assertEqual(rules.image_urls(row, {"https://marketing.guirca.com/1/1.jpg"}), ["https://marketing.guirca.com/1/1_02.jpg"])
+        dead = rules.ImageStatus(dead=frozenset({"https://marketing.guirca.com/1/1.jpg"}))
+        self.assertEqual(rules.image_urls(row, dead), ["https://marketing.guirca.com/1/1_02.jpg"])
         videos = rules.video_urls({"LINK VIDEOS": "https://www.youtube.com/embed/0Jq9orJ4P0o, https://youtu.be/0Jq9orJ4P0o"})
         self.assertEqual(videos, ["https://www.youtube.com/watch?v=0Jq9orJ4P0o"])
 
@@ -144,6 +145,53 @@ class Catalog(unittest.TestCase):
         names={"WITCH HAT": "Heksehat", "BLACK WIG": "Sort paryk"},
         vocabulary={"CONTENT": {}, "MATERIALS": {}, "COLORS": {}, "FABRIC": {}, "THEME": {}},
     )
+
+
+    def test_photos_on_the_server_the_sheet_does_not_list(self):
+        # Ølflaske: the sheet lists only the main photo; the server also has _01 and _02.
+        row = {"ARTICLE CODE": "86865", "LINK": "http://marketing.guirca.com/86865/86865.jpg"}
+        names = rules.server_images("86865")
+        self.assertEqual(len(names), 21)
+        self.assertEqual(names[:3], ["https://marketing.guirca.com/86865/86865.jpg", "https://marketing.guirca.com/86865/86865_01.jpg", "https://marketing.guirca.com/86865/86865_07.jpg"])
+        self.assertIn("https://marketing.guirca.com/86865/86865.jpg", rules.image_candidates(row))
+        self.assertEqual(len(rules.image_candidates(row)), 21)
+        status = rules.ImageStatus.parse([
+            "https://marketing.guirca.com/86865/86865_02.jpg\t200\timage/jpeg",
+            "https://marketing.guirca.com/86865/86865_01.jpg\t200\timage/jpeg",
+            "https://marketing.guirca.com/86865/86865_07.jpg\t404\ttext/html",
+        ])
+        # Ordered like the sheet's columns: main, catalogue (_01), back (_02).
+        self.assertEqual(rules.image_urls(row, status), [
+            "https://marketing.guirca.com/86865/86865.jpg",
+            "https://marketing.guirca.com/86865/86865_01.jpg",
+            "https://marketing.guirca.com/86865/86865_02.jpg",
+        ])
+
+    def test_links_with_a_space_in_the_code_are_found_under_the_code(self):
+        row = {"ARTICLE CODE": "13101", "LINK": "http://marketing.guirca.com/13101 /13101 .jpg"}
+        self.assertEqual(rules.server_images(" 13101 ")[0], "https://marketing.guirca.com/13101/13101.jpg")
+        status = rules.ImageStatus.parse([
+            "https://marketing.guirca.com/13101%20/13101%20.jpg\t404\ttext/html",
+            "https://marketing.guirca.com/13101/13101.jpg\t200\timage/jpeg",
+        ])
+        self.assertEqual(rules.image_urls(row, status), ["https://marketing.guirca.com/13101/13101.jpg"])
+
+    def test_image_check_answers(self):
+        status = rules.ImageStatus.parse([
+            "https://x/a.jpg\t206\timage/jpeg",   # found (range request)
+            "https://x/b.jpg\t404\ttext/html",    # dead
+            "https://x/c.jpg\t000\t",             # no answer
+            "https://x/d.jpg\t503\ttext/html",    # server error: no answer
+            "https://x/e.jpg\t200\ttext/html",    # not a photo
+            "https://x/f.jpg\t404\ttext/html",
+            "https://x/f.jpg\t200\timage/jpeg",   # a later answer wins
+            "https://x/a.jpg\t000\t",             # ... but no answer keeps the last one
+        ])
+        self.assertEqual(status.found, {"https://x/a.jpg", "https://x/f.jpg"})
+        self.assertEqual(status.dead, {"https://x/b.jpg", "https://x/e.jpg"})
+        # Links without an answer are kept; photos not found on the server are not added.
+        row = {"ARTICLE CODE": "7", "LINK": "https://x/c.jpg"}
+        self.assertEqual(rules.image_urls(row, status), ["https://x/c.jpg"])
 
     def test_sizes_with_one_connector_become_one_variable_product(self):
         rows = [

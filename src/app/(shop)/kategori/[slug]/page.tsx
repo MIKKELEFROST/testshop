@@ -1,21 +1,28 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { productCount } from "@/lib/format";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
-import { CardBand, ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
+import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
-import { pageHref, Pagination } from "@/components/ui/pagination";
+import { ProductListing } from "@/components/products/listing";
+import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
+import { merchandising } from "@/config/merchandising";
 import { parsePage } from "@/lib/pagination";
 import { categoryPath, subcategories } from "@/lib/woocommerce/category-tree";
-import { getCategories, getProducts } from "@/lib/woocommerce/products";
+import { getSeasonalProducts } from "@/lib/woocommerce/collections";
+import { getCategories, parseSort } from "@/lib/woocommerce/products";
 import type { ProductCategory } from "@/types/commerce";
 
 export async function generateMetadata(props: PageProps<"/kategori/[slug]">) {
   const { slug } = await props.params;
   const categories = await getCategories();
   const category = categories.ok ? categories.data.find((c) => c.slug === slug) : undefined;
-  return { title: category?.name ?? "Kategori", description: category?.description || undefined };
+  if (!category) return { title: "Kategori" };
+  return {
+    title: category.name,
+    description: merchandising.categoryIntros[category.slug] ?? (category.description || undefined),
+    alternates: { canonical: `/kategori/${category.slug}` },
+  };
 }
 
 export default function CategoryPage(props: PageProps<"/kategori/[slug]">) {
@@ -48,31 +55,38 @@ async function CategoryContent({
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const page = parsePage(query.side);
+  const sort = parseSort(query.sorter);
   const categories = await getCategories();
   if (!categories.ok) return <Alert tone="warning">{categories.error}</Alert>;
 
   const category = categories.data.find((c) => c.slug === slug);
   if (!category) notFound();
 
-  const products = await getProducts({ categoryId: category.id, page });
+  const products = await getSeasonalProducts({ categoryIds: [category.id], page, sort });
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();
 
   const path = categoryPath(categories.data, category);
   const parent = path.length > 1 ? path[path.length - 2] : undefined;
   const children = subcategories(categories.data, category.id);
+  const intro = merchandising.categoryIntros[category.slug] ?? category.description;
 
   return (
     <>
       <Breadcrumbs
         items={[
-          { name: "Alle produkter", href: "/produkter" },
+          { name: "Forside", href: "/" },
           ...path.slice(0, -1).map((c) => ({ name: c.name, href: `/kategori/${c.slug}` })),
           { name: category.name },
         ]}
       />
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">{category.name}</h1>
-      <p className="mt-2 text-sm text-muted">{productCount(category.count)}</p>
-      {category.description && <p className="mt-3 max-w-2xl text-muted">{category.description}</p>}
+      <h1 className="heading mt-2 text-[34px] text-ink sm:text-5xl">{category.name}</h1>
+      {intro && <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-ink-soft">{intro}</p>}
+      {ADULT_CATEGORY_SLUGS.includes(category.slug) && (
+        <p className="mt-4 inline-flex items-center gap-2 rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-white">
+          <span className="rounded bg-white px-1.5 text-xs font-extrabold text-ink">18+</span>
+          Kun for voksne. Ved at handle her bekræfter du, at du er fyldt 18 år.
+        </p>
+      )}
 
       {children.length > 0 ? (
         <CategoryChips categories={children} />
@@ -86,11 +100,12 @@ async function CategoryContent({
         )
       )}
 
-      <div className="mt-8">
-        {products.ok ? <ProductGrid products={products.data.products} /> : <Alert tone="warning">{products.error}</Alert>}
-      </div>
-      {products.ok && (
-        <Pagination page={page} totalPages={products.data.totalPages} href={(p) => pageHref(`/kategori/${category.slug}`, p)} />
+      {products.ok ? (
+        <ProductListing list={products.data} sort={sort} path={`/kategori/${category.slug}`} />
+      ) : (
+        <div className="mt-8">
+          <Alert tone="warning">{products.error}</Alert>
+        </div>
       )}
     </>
   );

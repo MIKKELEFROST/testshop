@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { useQuote } from "@/components/checkout/use-quote";
+import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { ProductImage } from "@/components/products/product-image";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { Alert } from "@/components/ui/alert";
@@ -47,7 +48,8 @@ export function CartView() {
           </div>
         )}
 
-        <div className="mt-6">
+        <DispatchCountdown className="mt-6 text-sm" />
+        <div className="mt-3">
           <CheckoutButton canCheckout={canCheckout} loading={loading}>
             Gå til kassen
           </CheckoutButton>

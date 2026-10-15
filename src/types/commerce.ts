@@ -47,6 +47,8 @@ export type ProductSummary = {
   discountPercent: number | null;
   /** Whether the product has a video (shown on its page). */
   hasVideo: boolean;
+  /** For adults only (18+): in an ADULT_CATEGORY_SLUGS category. */
+  adult: boolean;
 };
 
 export type ProductAttribute = { name: string; slug: string; options: string[] };

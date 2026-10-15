@@ -1,8 +1,11 @@
 import "@fontsource-variable/inter";
+// The brands' heading fonts; only the one the brand uses is downloaded.
+import "@fontsource-variable/fredoka";
+import "@fontsource/bebas-neue";
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { CartProvider } from "@/components/cart/cart-provider";
-import { storeConfig, themeStyle } from "@/config/store";
+import { brandStyle, storeConfig } from "@/config/store";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
@@ -11,12 +14,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: storeConfig.theme.paper ?? "#faf8f5",
+  // The browser's toolbar matches the header.
+  themeColor: storeConfig.theme.chrome ?? "#ffffff",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="da" className="h-full antialiased" style={themeStyle(storeConfig.theme)}>
+    <html lang="da" className="h-full antialiased" style={brandStyle(storeConfig)}>
       <body className="flex min-h-full flex-col">
         <a
           href="#indhold"

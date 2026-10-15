@@ -129,7 +129,7 @@ def code_key(code: str) -> tuple:
     return (int(code), code) if code.isdigit() else (10**9, code)
 
 
-def build(rows: list[dict], translations: Translations, broken_images: set[str] | frozenset = frozenset()):
+def build(rows: list[dict], translations: Translations, images: rules.ImageStatus = rules.ImageStatus()):
     """(product specs, skipped rows) for the whole sheet."""
     skipped: list[Skipped] = []
     families: dict[str, list[dict]] = collections.defaultdict(list)
@@ -149,14 +149,14 @@ def build(rows: list[dict], translations: Translations, broken_images: set[str] 
         else:
             singles.append(row)
 
-    specs = [variable_spec(members, translations, broken_images) for members in families.values()]
-    specs += [simple_spec(row, translations, broken_images) for row in singles]
+    specs = [variable_spec(members, translations, images) for members in families.values()]
+    specs += [simple_spec(row, translations, images) for row in singles]
     disambiguate(specs)
     specs.sort(key=lambda s: code_key(s.codes[0]))
     return specs, skipped
 
 
-def common_fields(row: dict, translations: Translations, broken_images, groups: set[str], sized: bool):
+def common_fields(row: dict, translations: Translations, images: rules.ImageStatus, groups: set[str], sized: bool):
     vocabulary = translations.vocabulary
     categories = rules.main_categories(row, groups, sized)
     adult_only = categories == [rules.ADULT_ONLY]
@@ -165,7 +165,7 @@ def common_fields(row: dict, translations: Translations, broken_images, groups: 
         "_supplier": "Guirca",
         "_hs_code": row.get("HS CODE", ""),
         "_country_of_origin": row.get("COUNTRY OF ORIGIN", ""),
-        "_wchc_external_images": rules.image_urls(row, broken_images),
+        "_wchc_external_images": rules.image_urls(row, images),
     }
     if row.get("Link_GPSR"):
         meta["_wchc_safety_info"] = rules.https(row["Link_GPSR"])
@@ -206,7 +206,7 @@ def colours_of(rows: list[dict], translations: Translations) -> list[str]:
     return rules.translated(values, translations.vocabulary["COLORS"])
 
 
-def variable_spec(members: list[dict], translations: Translations, broken_images) -> ProductSpec:
+def variable_spec(members: list[dict], translations: Translations, images: rules.ImageStatus) -> ProductSpec:
     members = sorted(members, key=lambda r: rules.size_sort_key(rules.size_name(r.get("SIZE"))))
     by_code = sorted(members, key=lambda r: code_key(r["ARTICLE CODE"]))
     first = by_code[0]
@@ -244,13 +244,12 @@ def variable_spec(members: list[dict], translations: Translations, broken_images
     issues += [v.issue for v in variations if v.issue]
 
     colours = colours_of(members, translations)
-    common = common_fields(first, translations, broken_images, groups, sized=True)
+    common = common_fields(first, translations, images, groups, sized=True)
     seasons = [c for r in by_code for c in rules.season_categories(r)]
     common["categories"] = list(dict.fromkeys(common["categories"] + seasons))
-    for row in by_code[1:]:  # every size has the same photos; use the first with working links
-        if common["meta"]["_wchc_external_images"]:
-            break
-        common["meta"]["_wchc_external_images"] = rules.image_urls(row, broken_images)
+    # Each size has its own copy of the photos, and a few sizes have more than the others:
+    # use the size with the most (the lowest article number if several have as many).
+    common["meta"]["_wchc_external_images"] = max((rules.image_urls(row, images) for row in by_code), key=len)
     common["meta"]["_supplier_article_codes"] = ",".join(codes)
     common["meta"]["_guirca_size_connector"] = first.get("CONNECTOR SIZE", "")
     if first.get("SIZE_CHART"):
@@ -284,7 +283,7 @@ def variable_spec(members: list[dict], translations: Translations, broken_images
     )
 
 
-def simple_spec(row: dict, translations: Translations, broken_images) -> ProductSpec:
+def simple_spec(row: dict, translations: Translations, images: rules.ImageStatus) -> ProductSpec:
     description = row["_description"]
     groups = rules.groups_for([row.get("USER")])
     costume = row.get("PARENT CATEGORY", "").upper() in rules.COSTUME_PARENTS
@@ -305,7 +304,7 @@ def simple_spec(row: dict, translations: Translations, broken_images) -> Product
         notes.append(note)
 
     colours = colours_of([row], translations)
-    common = common_fields(row, translations, broken_images, groups, sized)
+    common = common_fields(row, translations, images, groups, sized)
     common["categories"] = list(dict.fromkeys(common["categories"] + rules.season_categories(row)))
     common["meta"]["_supplier_article_codes"] = row["ARTICLE CODE"]
     short, text = rules.describe(row, translations.vocabulary, costume=costume, groups=groups, colours=colours)

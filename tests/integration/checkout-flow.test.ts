@@ -18,6 +18,7 @@ import {
   getOrder,
   getProduct,
   orderNotes,
+  plugin,
   pluginStatus,
   productBySku,
   runUnpaidOrderCleanup,
@@ -28,6 +29,7 @@ import {
   variationBySku,
 } from "../support/woo-admin";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
+import { storeBranding } from "@/lib/checkout/branding";
 
 const enabled = Boolean(process.env.WC_INTEGRATION);
 if (enabled) configureLocalWooEnv();
@@ -580,7 +582,7 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       await expect(readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }])).resolves.toMatchObject({ type: "ready" });
 
       const status = await pluginStatus();
-      expect(status).toMatchObject({ version: "1.3.1", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
+      expect(status).toMatchObject({ version: "1.4.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
       expect((status.unpaid_orders as { last_cleanup: string | null }).last_cleanup).not.toBeNull();
     });
   });
@@ -616,6 +618,169 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       stripe.decline(ready.paymentIntentId);
       await handleStripeEvent(eventFor({ id: ready.paymentIntentId }, "payment_intent.payment_failed"), { backend, gateway: stripe });
       expect(await declinedNotes()).toBe(2);
+    });
+  });
+
+  describe("order e-mails in the webshop's name", () => {
+    const brand = {
+      name: "Halloweenkostumer.dk",
+      url: "https://halloweenkostumer.example",
+      email: "kundeservice@halloweenkostumer.example",
+      color: "#5b2b82",
+      logo: "https://halloweenkostumer.example/email-logo.png",
+    };
+    // The WordPress site's own e-mail design, which orders without a brand keep.
+    const siteLogo = "https://wp.example/site-logo.png";
+    const siteColor = "#123456";
+
+    /** A pending order created as a storefront does, sending `store` as given (or none, as before plugin 1.4). */
+    async function orderWithStore(store?: unknown): Promise<number> {
+      const quote = await quoteFor([{ productId: ids.tshirt, quantity: 1 }]);
+      const person = { first_name: "Test", last_name: "Kunde", address_1: address.address1, postcode: address.postcode, city: address.city, country: "DK" };
+      const { status, body } = await plugin("orders", {
+        method: "POST",
+        body: {
+          checkout_id: newCheckoutId(),
+          store_id: storeId,
+          items: [{ product_id: ids.tshirt, variation_id: 0, quantity: 1 }],
+          billing: { ...person, email: customerEmail },
+          shipping: person,
+          shipping_rate_id: quote.shipping_rate_id,
+          expected_total: quote.totals.total,
+          payment_method_title: "Stripe",
+          coupons: [],
+          ...(store === undefined ? {} : { store }),
+        },
+      });
+      expect(status).toBe(201);
+      return (body as { order: { id: number } }).order.id;
+    }
+
+    async function storedBrand(orderId: number) {
+      return (await getOrder(orderId)).meta_data.find((m) => m.key === "_wchc_store_branding")?.value;
+    }
+
+    type Mail = { order: number; to: string; subject: string; message: string; headers: string; from_name: string; from_email: string };
+
+    /**
+     * Send the customer's "Processing order" and the shop's "New order" e-mail for each order, as
+     * a payment does, and capture them instead of mailing them (pre_wp_mail). The texts use the
+     * placeholders, and the site has its own header image and base colour.
+     */
+    async function sendOrderEmails(orderIds: number[]) {
+      const out = await wpEval(`
+        $mails = array();
+        $order = 0;
+        add_filter( 'pre_wp_mail', function ( $short, $atts ) use ( &$mails, &$order ) {
+          $mails[] = array_merge( $atts, array( 'order' => $order, 'from_name' => apply_filters( 'wp_mail_from_name', 'WordPress' ), 'from_email' => apply_filters( 'wp_mail_from', 'wordpress@localhost' ) ) );
+          return true;
+        }, 10, 2 );
+        // After the plugin's own filters.
+        add_filter( 'pre_option_woocommerce_email_header_image', function ( $pre ) { return false === $pre ? '${siteLogo}' : $pre; }, 20 );
+        add_filter( 'pre_option_woocommerce_email_base_color', function ( $pre ) { return false === $pre ? '${siteColor}' : $pre; }, 20 );
+        add_filter( 'pre_option_woocommerce_email_footer_text', function () { return 'Hilsen {site_title}, {site_url}, {store_url}'; } );
+        $emails     = WC()->mailer()->get_emails();
+        $processing = $emails['WC_Email_Customer_Processing_Order'];
+        $new_order  = $emails['WC_Email_New_Order'];
+        $processing->settings['heading']            = 'Tak for din ordre hos {site_title}';
+        $processing->settings['additional_content'] = 'Se {store_url}';
+        $new_order->settings['subject']             = 'Ny ordre #{order_number}';
+        $site = array( 'from_name' => $processing->get_from_name(), 'from_email' => $processing->get_from_address(), 'blogname' => get_option( 'blogname' ), 'host' => wp_parse_url( home_url(), PHP_URL_HOST ) );
+        foreach ( array( ${orderIds.map((id) => Math.trunc(id)).join(", ")} ) as $order ) {
+          $processing->trigger( $order );
+          $new_order->trigger( $order );
+        }
+        echo "\\n@@" . wp_json_encode( array( 'site' => $site, 'mails' => $mails ) );
+      `);
+      const { site, mails } = JSON.parse(out.slice(out.lastIndexOf("@@") + 2)) as {
+        site: { from_name: string; from_email: string; blogname: string; host: string };
+        mails: Mail[];
+      };
+      const forOrder = (id: number) => {
+        const [customer, shop] = mails.filter((m) => m.order === id);
+        if (!customer || !shop) throw new Error(`No e-mails for order ${id}`);
+        return { customer, shop };
+      };
+      return { site, forOrder };
+    }
+
+    const replyTo = (headers: string) => headers.split(/\r?\n/).filter((line) => /^reply-to:/i.test(line));
+
+    it("stores the webshop's brand the storefront sends with the order", async () => {
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+      process.env.NEXT_PUBLIC_SITE_URL = "https://hverdag.example";
+      try {
+        const { order } = await readyCheckout(new FakeStripe(), [{ productId: ids.tshirt, quantity: 1 }]);
+        expect(await storedBrand(order.id)).toEqual(storeBranding());
+        expect(await storedBrand(order.id)).toMatchObject({ url: "https://hverdag.example", logo: "https://hverdag.example/email-logo.png" });
+      } finally {
+        if (siteUrl === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
+        else process.env.NEXT_PUBLIC_SITE_URL = siteUrl;
+      }
+    });
+
+    it("drops invalid brand fields, and the order still works", async () => {
+      const invalid = await orderWithStore({
+        name: "x".repeat(101),
+        url: "javascript:alert(1)",
+        email: "ikke-en-adresse",
+        color: "red",
+        logo: "http://halloweenkostumer.example/email-logo.png", // https only
+      });
+      expect(await storedBrand(invalid)).toBeUndefined();
+      expect((await getOrder(invalid)).status).toBe("pending");
+
+      const mixed = await orderWithStore({ name: "<b>Maskerade</b>", url: "ftp://maskerade.example", email: brand.email, color: "#5B2B82", logo: brand.logo, extra: "x" });
+      expect(await storedBrand(mixed)).toEqual({ name: "Maskerade", email: brand.email, color: "#5B2B82", logo: brand.logo });
+
+      // 100 characters, not bytes.
+      expect(await storedBrand(await orderWithStore({ name: "æ".repeat(100) }))).toEqual({ name: "æ".repeat(100) });
+      expect(await storedBrand(await orderWithStore("Maskerade"))).toBeUndefined();
+    });
+
+    it("sends the customer's e-mails from the webshop: name, Reply-To, texts, logo and colour", async () => {
+      const orderId = await orderWithStore(brand);
+      const { site, forOrder } = await sendOrderEmails([orderId]);
+      const { customer, shop } = forOrder(orderId);
+
+      expect(customer).toMatchObject({ to: customerEmail, from_name: brand.name, from_email: site.from_email });
+      expect(replyTo(customer.headers)).toEqual([`Reply-To: ${brand.name} <${brand.email}>`]);
+      expect(customer.subject).toContain(brand.name); // "Your {site_title} order has been received!"
+      expect(customer.subject).not.toContain(site.blogname);
+      expect(customer.message).toContain(`>Tak for din ordre hos ${brand.name}<`);
+      expect(customer.message).toContain("Se https://halloweenkostumer.example");
+      expect(customer.message).toContain("Hilsen Halloweenkostumer.dk, halloweenkostumer.example, https://halloweenkostumer.example");
+      expect(customer.message).toContain(`src="${brand.logo}"`);
+      expect(customer.message).toContain(`href="${brand.url}"`);
+      expect(customer.message.toLowerCase()).toContain(brand.color);
+      expect(customer.message).not.toContain(siteLogo);
+      expect(customer.message).not.toContain(siteColor);
+      expect(customer.message).not.toContain(site.blogname);
+
+      // The shop's "New order" names the webshop, even without {site_title}; replies still go to the customer.
+      expect(shop).toMatchObject({ from_name: brand.name, subject: `[${brand.name}] Ny ordre #${orderId}` });
+      expect(replyTo(shop.headers)).toEqual([`Reply-to: Test Kunde <${customerEmail}>`]);
+      expect(shop.message).toContain(`src="${brand.logo}"`);
+    });
+
+    it("sends the e-mails of an order without a brand as before, also right after a branded one", async () => {
+      const branded = await orderWithStore(brand);
+      const plain = await orderWithStore();
+      const { site, forOrder } = await sendOrderEmails([branded, plain]);
+      const { customer, shop } = forOrder(plain);
+
+      expect(customer).toMatchObject({ to: customerEmail, from_name: site.from_name, from_email: site.from_email });
+      expect(replyTo(customer.headers)).toEqual([`Reply-to: ${site.from_name} <${site.from_email}>`]);
+      expect(customer.subject).toContain(site.blogname);
+      expect(customer.message).toContain(`>Tak for din ordre hos ${site.blogname}<`);
+      expect(customer.message).toContain(`Hilsen ${site.blogname}, ${site.host}, {store_url}`);
+      expect(customer.message).toContain(`src="${siteLogo}"`);
+      expect(customer.message.toLowerCase()).toContain(siteColor);
+      for (const value of [brand.name, brand.url, brand.email, brand.color, brand.logo]) {
+        expect(customer.message.toLowerCase()).not.toContain(value.toLowerCase());
+        expect(shop.message.toLowerCase()).not.toContain(value.toLowerCase());
+      }
+      expect(shop).toMatchObject({ from_name: site.from_name, subject: `Ny ordre #${plain}` });
     });
   });
 });

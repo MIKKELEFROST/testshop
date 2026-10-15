@@ -1,3 +1,4 @@
+import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
 import { SUPPLIER_IMAGE_HOSTS } from "@/config/images";
 import { discountPercent } from "@/lib/pricing";
 import type {
@@ -123,6 +124,7 @@ export function mapProductSummary(product: WcProduct): ProductSummary {
     variantSummary: variantSummary(product),
     discountPercent: product.type === "simple" ? discountPercent(productPrices.price, productPrices.regularPrice, product.on_sale) : null,
     hasVideo: youtubeIds(meta(product, "_wchc_videos")).length > 0,
+    adult: product.categories.some((c) => ADULT_CATEGORY_SLUGS.includes(c.slug)),
   };
 }
 

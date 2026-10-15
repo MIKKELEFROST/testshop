@@ -5,10 +5,24 @@
  *   ./scripts/local-woocommerce/setup.sh && npm run test:integration
  *
  * Uses its own webshops ("it-shop-a", "it-shop-b"), so the default store of the other
- * integration tests stays unrestricted.
+ * integration tests stays unrestricted. Also covers the category filters of category and theme
+ * pages (`wchc_in_category`, `wchc_not_in_category`, `wchc_in_any_category`, plugin 1.4), alone and with a webshop.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { cancelOpenOrders, configureLocalWooEnv, listProducts, plugin, productBySku, saveWebshop, updateProduct } from "../support/woo-admin";
+import {
+  cancelOpenOrders,
+  configureLocalWooEnv,
+  createCategory,
+  createTag,
+  deleteCategory,
+  deleteTag,
+  getProduct,
+  listProducts,
+  plugin,
+  productBySku,
+  saveWebshop,
+  updateProduct,
+} from "../support/woo-admin";
 
 const enabled = Boolean(process.env.WC_INTEGRATION);
 if (enabled) configureLocalWooEnv();
@@ -55,7 +69,7 @@ describe.skipIf(!enabled)("webshops", () => {
     const { body } = await plugin("shops");
     expect(body).toEqual(expect.arrayContaining([expect.objectContaining({ slug: B, name: "Testshop B", products: 2 })]));
     const status = (await plugin("status")).body as { version: string; shops: { slug: string }[] };
-    expect(status.version).toBe("1.3.1");
+    expect(status.version).toBe("1.4.0");
     expect(status.shops.map((s) => s.slug)).toEqual(expect.arrayContaining([A, B]));
   });
 
@@ -89,6 +103,84 @@ describe.skipIf(!enabled)("webshops", () => {
     expect((await listProducts({ wchc_shop: A, slug: slugs.onlyA })).map((p) => p.id)).toEqual([ids.onlyA]);
     expect(await listProducts({ wchc_shop: A, slug: slugs.onlyB })).toEqual([]);
     expect((await listProducts({ wchc_shop: B, slug: slugs.shared })).map((p) => p.id)).toEqual([ids.shared]);
+  });
+
+  /**
+   * Test categories, like "Damekostumer" and "Halloween": all three products are in "women"; onlyB is in
+   * "halloween" and shared in its subcategory "witches". Shared and onlyA have the tag "costume".
+   */
+  async function withCategories(run: (c: { women: number; halloween: number; witches: number; costume: number }) => Promise<void>) {
+    const suffix = Date.now().toString(36);
+    const women = await createCategory(`IT Damekostumer ${suffix}`);
+    const halloween = await createCategory(`IT Halloween ${suffix}`);
+    const witches = await createCategory(`IT Hekse ${suffix}`, halloween.id);
+    const costume = await createTag(`it-kostume-${suffix}`);
+    const original = await Promise.all([ids.shared, ids.onlyA, ids.onlyB].map((id) => getProduct(id)));
+    try {
+      await updateProduct(ids.shared, { categories: [{ id: women.id }, { id: witches.id }], tags: [{ id: costume.id }] });
+      await updateProduct(ids.onlyA, { categories: [{ id: women.id }], tags: [{ id: costume.id }] });
+      await updateProduct(ids.onlyB, { categories: [{ id: women.id }, { id: halloween.id }] });
+      await run({ women: women.id, halloween: halloween.id, witches: witches.id, costume: costume.id });
+    } finally {
+      for (const product of original) {
+        await updateProduct(product.id, { categories: (product.categories ?? []).map((c) => ({ id: c.id })), tags: (product.tags ?? []).map((t) => ({ id: t.id })) });
+      }
+      for (const category of [witches, halloween, women]) await deleteCategory(category.id);
+      await deleteTag(costume.id);
+    }
+  }
+
+  const sorted = (values: number[]) => [...values].sort((a, b) => a - b);
+  const productIds = async (query: Record<string, string>) => sorted((await listProducts(query)).map((p) => p.id));
+
+  it("lists products in a category that are also in each category of wchc_in_category", async () => {
+    // WooCommerce's own `category` matches any of its categories.
+    await withCategories(async ({ women, halloween, witches }) => {
+      const list = (query: Record<string, string>) => productIds({ category: String(women), ...query });
+
+      expect(await list({})).toEqual(sorted([ids.shared, ids.onlyA, ids.onlyB]));
+      expect(await list({ wchc_in_category: String(halloween) })).toEqual(sorted([ids.shared, ids.onlyB])); // shared via the subcategory
+      expect(await list({ wchc_in_category: `${halloween},${witches}` })).toEqual([ids.shared]);
+
+      // Together with the webshop: A sells the shared product and onlyA, B the shared product and onlyB.
+      expect(await list({ wchc_in_category: String(halloween), wchc_shop: A })).toEqual([ids.shared]);
+      expect(await list({ wchc_in_category: String(halloween), wchc_shop: B })).toEqual(sorted([ids.shared, ids.onlyB]));
+
+      // Non-numeric and unknown IDs are ignored.
+      expect(await list({ wchc_in_category: `abc,999999,${halloween}` })).toEqual(sorted([ids.shared, ids.onlyB]));
+      expect(await list({ wchc_in_category: "abc,999999" })).toEqual(sorted([ids.shared, ids.onlyA, ids.onlyB]));
+    });
+  });
+
+  it("leaves out products in any category of wchc_not_in_category, also with category, tag, wchc_in_category and webshop", async () => {
+    await withCategories(async ({ women, halloween, witches, costume }) => {
+      const list = (query: Record<string, string>) => productIds({ category: String(women), ...query });
+
+      // shared (Hekse is a subcategory of Halloween) and onlyB are left out.
+      expect(await list({ wchc_not_in_category: String(halloween) })).toEqual([ids.onlyA]);
+      expect(await list({ wchc_not_in_category: String(witches) })).toEqual(sorted([ids.onlyA, ids.onlyB]));
+      expect(await list({ wchc_not_in_category: `abc,${witches}` })).toEqual(sorted([ids.onlyA, ids.onlyB])); // non-numeric ignored
+      expect(await list({ wchc_not_in_category: "abc" })).toEqual(sorted([ids.shared, ids.onlyA, ids.onlyB]));
+
+      expect(await list({ wchc_in_category: String(halloween), wchc_not_in_category: String(witches) })).toEqual([ids.onlyB]);
+      expect(await list({ wchc_not_in_category: String(witches), wchc_shop: B })).toEqual([ids.onlyB]);
+      expect(await productIds({ tag: String(costume), wchc_not_in_category: String(halloween) })).toEqual([ids.onlyA]);
+    });
+  });
+
+  it("lists products in any category of wchc_in_any_category: the rest after wchc_not_in_category", async () => {
+    await withCategories(async ({ women, halloween, witches }) => {
+      const list = (query: Record<string, string>) => productIds({ category: String(women), ...query });
+
+      expect(await list({ wchc_in_any_category: String(witches) })).toEqual([ids.shared]);
+      expect(await list({ wchc_in_any_category: String(halloween) })).toEqual(sorted([ids.shared, ids.onlyB])); // with the subcategory
+      expect(await list({ wchc_in_any_category: `${witches},abc` })).toEqual([ids.shared]); // non-numeric ignored
+      // A category page's own season first, then the rest: together they are the whole category, once.
+      const first = await list({ wchc_not_in_category: String(halloween) });
+      const rest = await list({ wchc_in_any_category: String(halloween) });
+      expect(sorted([...first, ...rest])).toEqual(sorted([ids.shared, ids.onlyA, ids.onlyB]));
+      expect(await list({ wchc_in_any_category: String(halloween), wchc_not_in_category: String(witches), wchc_shop: B })).toEqual([ids.onlyB]);
+    });
   });
 
   it("a store ID that is not a webshop sees every product, as before", async () => {

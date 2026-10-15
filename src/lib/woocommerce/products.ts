@@ -1,13 +1,15 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { z } from "zod";
-import { ACCESSORY_CATEGORY_SLUGS, RELATED_LIMIT } from "@/config/catalog";
+import { ACCESSORY_CATEGORY_SLUGS, ADULT_CATEGORY_SLUGS, RELATED_LIMIT } from "@/config/catalog";
+import { merchandising, type Collection } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { describeError } from "@/lib/log";
+import { versionAtLeast } from "@/lib/version";
 import type { Loadable, Product, ProductCategory, ProductList, ProductSummary } from "@/types/commerce";
 import { wooRequest } from "./client";
 import { categoryPath, primaryCategory } from "./category-tree";
-import { mapCategory, mapProduct, mapProductSummary } from "./mappers";
+import { decodeEntities, mapCategory, mapProduct, mapProductSummary } from "./mappers";
 import { rankAccessories, rankSimilar } from "./related";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
@@ -55,34 +57,81 @@ const RELATED_FIELDS = `${SUMMARY_FIELDS},tags`;
  */
 const CATEGORY_LIFE = { stale: 300, revalidate: 900, expire: 86400 };
 
-/** Newest first. A category includes its subcategories' products. */
-export async function getProducts(
-  options: { categoryId?: number; page?: number; perPage?: number; search?: string } = {},
-): Promise<Loadable<ProductList>> {
+/** How a listing is sorted (the `sorter` URL parameter); the first is the default. */
+export const SORTS = {
+  // The season's products first (see getSeasonalProducts), then newest first.
+  anbefalet: { label: "Anbefalet", orderby: "date", order: "desc" },
+  nyeste: { label: "Nyeste", orderby: "date", order: "desc" },
+  populaere: { label: "Mest populære", orderby: "popularity", order: "desc" },
+  "pris-lav": { label: "Pris: lav til høj", orderby: "price", order: "asc" },
+  "pris-hoej": { label: "Pris: høj til lav", orderby: "price", order: "desc" },
+} as const;
+
+export type SortKey = keyof typeof SORTS;
+
+export function parseSort(value: string | string[] | undefined): SortKey {
+  const key = Array.isArray(value) ? value[0] : value;
+  return key && key in SORTS ? (key as SortKey) : "anbefalet";
+}
+
+export type ProductQuery = {
+  /** Products in any of these categories (a category includes its subcategories' products). */
+  categoryIds?: number[];
+  /** … that are also in every one of these (plugin 1.4+, see getPluginFeatures). */
+  alsoInCategoryIds?: number[];
+  /** … that are in none of these (plugin 1.4+; with an older plugin they are filtered out of each page). */
+  notInCategoryIds?: number[];
+  /** … that are in one of these (plugin 1.4+). */
+  inAnyCategoryIds?: number[];
+  /** … with any of these themes (tag IDs). */
+  tagIds?: number[];
+  search?: string;
+  /** Only these products (in this order). */
+  include?: number[];
+  /** Leave out adult-only (18+) products. Listings do; their own category and search don't. */
+  hideAdult?: boolean;
+  sort?: SortKey;
+  page?: number;
+  perPage?: number;
+  /** Skip this many products (instead of whole pages). */
+  offset?: number;
+};
+
+/** A page of this shop's published products. */
+export async function getProducts(options: ProductQuery = {}): Promise<Loadable<ProductList>> {
   "use cache";
   cacheTag(CATALOG_TAG);
 
   const page = options.page ?? 1;
+  const sort = SORTS[options.sort ?? "anbefalet"];
+  const list = (ids: number[] | undefined) => (ids && ids.length > 0 ? ids.join(",") : undefined);
   try {
+    const adult = options.hideAdult ? await getAdultProductIds() : [];
     const { data, headers } = await wooRequest("wc/v3/products", {
       query: {
         ...SHOP,
         status: "publish",
         per_page: options.perPage ?? PAGE_SIZE,
         page,
-        orderby: "date",
-        order: "desc",
-        category: options.categoryId,
+        offset: options.offset,
+        ...(options.include ? { include: list(options.include), orderby: "include" } : { orderby: sort.orderby, order: sort.order }),
+        category: list(options.categoryIds),
+        wchc_in_category: list(options.alsoInCategoryIds),
+        wchc_not_in_category: list(options.notInCategoryIds),
+        wchc_in_any_category: list(options.inAnyCategoryIds),
+        tag: list(options.tagIds),
+        exclude: list(adult),
         search: options.search || undefined,
         _fields: SUMMARY_FIELDS,
       },
       schema: z.array(wcProductSchema),
     });
+    const hidden = new Set(options.notInCategoryIds);
     cacheLife("minutes");
     return {
       ok: true,
       data: {
-        products: data.map(mapProductSummary),
+        products: data.map(mapProductSummary).filter((p) => !p.categories.some((c) => hidden.has(c.id))),
         total: Number(headers.get("x-wp-total") ?? data.length),
         totalPages: Number(headers.get("x-wp-totalpages") ?? 1),
         page,
@@ -93,6 +142,114 @@ export async function getProducts(
     cacheLife(FAILURE_LIFE);
     return { ok: false, error: UNAVAILABLE };
   }
+}
+
+/** IDs of this shop's adult-only (18+) products, to leave them out of general listings. */
+async function getAdultProductIds(): Promise<number[]> {
+  "use cache";
+  cacheTag(CATALOG_TAG);
+  const categories = await getCategories();
+  if (!categories.ok) throw new Error(categories.error);
+  const adult = categories.data.filter((c) => ADULT_CATEGORY_SLUGS.includes(c.slug)).map((c) => c.id);
+  if (adult.length === 0) {
+    cacheLife("hours");
+    return [];
+  }
+  const { data } = await wooRequest("wc/v3/products", {
+    query: { ...SHOP, status: "publish", category: adult.join(","), per_page: 100, _fields: "id" },
+    schema: z.array(z.object({ id: z.number() })),
+  });
+  cacheLife("hours");
+  return data.map((p) => p.id);
+}
+
+/** This shop's themes (WooCommerce product tags), name -> ID. */
+export async function getThemeIds(): Promise<Map<string, number>> {
+  "use cache";
+  cacheTag(CATALOG_TAG);
+  const tags = new Map<string, number>();
+  for (let page = 1; page <= 10; page++) {
+    const { data, headers } = await wooRequest("wc/v3/products/tags", {
+      query: { per_page: 100, page, hide_empty: true, _fields: "id,name" },
+      schema: z.array(z.object({ id: z.number(), name: z.string() })),
+    });
+    for (const tag of data) tags.set(decodeEntities(tag.name), tag.id);
+    if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+  }
+  cacheLife(CATEGORY_LIFE);
+  return tags;
+}
+
+/** What the WooCommerce plugin can do (Headless Checkout Bridge, from its status endpoint): 1.4 filters by more categories. */
+export async function getPluginFeatures(): Promise<{ alsoInCategory: boolean }> {
+  "use cache";
+  try {
+    const { data } = await wooRequest("wc-headless/v1/status", { schema: z.object({ version: z.string() }).loose() });
+    cacheLife("hours");
+    return { alsoInCategory: versionAtLeast(data.version, "1.4.0") };
+  } catch (error) {
+    logCatalogError("getPluginFeatures", error);
+    cacheLife(FAILURE_LIFE);
+    return { alsoInCategory: false };
+  }
+}
+
+/**
+ * The query for a theme page (src/config/merchandising.ts), or null when none of its
+ * categories or themes exist in this shop.
+ */
+export async function collectionQuery(collection: Collection): Promise<ProductQuery | null> {
+  const [categories, themes, plugin] = await Promise.all([getCategories(), getThemeIds(), getPluginFeatures()]);
+  if (!categories.ok) return null;
+  const idsOf = (slugs: string[] | undefined) =>
+    (slugs ?? []).map((slug) => categories.data.find((c) => c.slug === slug)?.id).filter((id): id is number => id !== undefined);
+  const themeIds = (names: string[] | undefined) => (names ?? []).map((n) => themes.get(n)).filter((id): id is number => id !== undefined);
+
+  const categoryIds = idsOf(collection.categories);
+  if (collection.categories?.length && categoryIds.length === 0) return null;
+  let tagIds = themeIds(collection.themes);
+  if (collection.themes?.length && tagIds.length === 0) return null;
+  let alsoInCategoryIds: number[] = [];
+  if (collection.alsoIn?.length) {
+    if (plugin.alsoInCategory) alsoInCategoryIds = idsOf(collection.alsoIn);
+    // An older plugin ignores "also in": narrow by the fallback themes instead (unless the page has themes).
+    else if (tagIds.length === 0) tagIds = themeIds(collection.alsoInFallbackThemes);
+  }
+  // The shop's hidden categories (e.g. Halloween in the Fastelavn shop), unless the theme is about them.
+  const wanted = new Set([...(collection.categories ?? []), ...(collection.alsoIn ?? [])]);
+  const notInCategoryIds = idsOf(merchandising.hidden.filter((slug) => !wanted.has(slug)));
+  return { categoryIds, alsoInCategoryIds, notInCategoryIds, tagIds, hideAdult: true };
+}
+
+/** Slugs of all this shop's published products (for the sitemap); refreshed a few times a day. */
+export async function getAllProductSlugs(): Promise<string[]> {
+  "use cache";
+  cacheTag(CATALOG_TAG);
+  try {
+    const slugs: string[] = [];
+    for (let page = 1; page <= 200; page++) {
+      const { data, headers } = await wooRequest("wc/v3/products", {
+        query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug" },
+        schema: z.array(z.object({ slug: z.string() })),
+        timeoutMs: 30_000,
+      });
+      slugs.push(...data.map((p) => p.slug));
+      if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
+    }
+    cacheLife("hours");
+    return slugs;
+  } catch (error) {
+    logCatalogError("getAllProductSlugs", error);
+    cacheLife(FAILURE_LIFE);
+    return [];
+  }
+}
+
+/** Product cards for these IDs (e.g. the favourites), in that order; unknown IDs are left out. */
+export async function getProductsByIds(ids: number[]): Promise<Loadable<ProductSummary[]>> {
+  if (ids.length === 0) return { ok: true, data: [] };
+  const result = await getProducts({ include: ids.slice(0, 100), perPage: 100 });
+  return result.ok ? { ok: true, data: result.data.products } : result;
 }
 
 export async function getProductBySlug(slug: string): Promise<Loadable<Product | null>> {
@@ -203,7 +360,7 @@ async function relatedQuery(query: Record<string, string | number>, excludeId: n
     query: { ...SHOP, status: "publish", orderby: "popularity", exclude: excludeId, _fields: RELATED_FIELDS, ...query },
     schema: z.array(wcProductSchema),
   });
-  return data.map(mapProductSummary);
+  return data.map(mapProductSummary).filter((p) => !p.adult);
 }
 
 /** This shop's categories (with products), each with the shop's own product count. */

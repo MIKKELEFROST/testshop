@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Headless Checkout Bridge
  * Description:       Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe). Uses WooCommerce's own cart, tax, shipping, order and stock-reservation logic.
- * Version:           1.3.1
+ * Version:           1.4.0
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WCHC_VERSION', '1.3.1' );
+define( 'WCHC_VERSION', '1.4.0' );
 define( 'WCHC_PATH', plugin_dir_path( __FILE__ ) );
 
 /*
@@ -30,6 +30,7 @@ if ( ! defined( 'WCHC_MIN_RESERVE_MINUTES' ) ) {
 define( 'WCHC_META_CHECKOUT_ID', '_wchc_checkout_id' );
 define( 'WCHC_META_FINGERPRINT', '_wchc_fingerprint' );
 define( 'WCHC_META_STORE_ID', '_wchc_store_id' );
+define( 'WCHC_META_STORE_BRANDING', '_wchc_store_branding' );
 define( 'WCHC_META_PAYMENT_INTENT', '_wchc_payment_intent_id' );
 define( 'WCHC_META_PAYMENT_INTENT_HISTORY', '_wchc_payment_intent_history' );
 define( 'WCHC_META_REFUND_REQUIRED', '_wchc_refund_required' );
@@ -64,11 +65,15 @@ add_action(
 		require_once WCHC_PATH . 'includes/class-wchc-product-fields.php';
 		require_once WCHC_PATH . 'includes/class-wchc-shops.php';
 		require_once WCHC_PATH . 'includes/class-wchc-shipping.php';
+		require_once WCHC_PATH . 'includes/class-wchc-category-filter.php';
+		require_once WCHC_PATH . 'includes/class-wchc-emails.php';
 
 		add_action( 'rest_api_init', array( new WCHC_REST_Controller(), 'register_routes' ) );
 		WCHC_Product_Fields::init();
 		WCHC_Shops::init();
 		WCHC_Shipping::init();
+		WCHC_Category_Filter::init();
+		WCHC_Emails::init();
 		WCHC_Orders::init_hooks();
 	}
 );

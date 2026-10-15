@@ -6,6 +6,8 @@
  */
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Headings and the logo; each brand picks its own (see `heading` below). */
+  --font-display: var(--font-sans);
 
   --color-paper: #faf8f5;
   --color-surface: #ffffff;
@@ -16,9 +18,25 @@
   --color-line-strong: #d4cdc4;
   --color-accent: #3f5b4b;
   --color-accent-soft: #e7eee9;
-  /* Primary buttons. */
+  /* Primary buttons, and the text on them. */
   --color-action: #1d1b19;
   --color-action-hover: #3d3935;
+  --color-on-action: #ffffff;
+  /* The bar of promises above the header. */
+  --color-bar: #1d1b19;
+  --color-on-bar: #ffffff;
+  /* Header and footer ("chrome"): a brand can make them dark while the pages stay light. */
+  --color-chrome: #ffffff;
+  --color-chrome-ink: #1d1b19;
+  --color-chrome-muted: #75706a;
+  --color-chrome-line: #e8e3dc;
+  /* The footer. */
+  --color-footer: #1d1b19;
+  --color-footer-ink: #ffffff;
+  --color-footer-muted: #b8b2ab;
+  --color-footer-line: #3a3632;
+  /* Small marks that carry the brand (theme chips, the countdown). */
+  --color-highlight: #3f5b4b;
   /* Image placeholders and the front page hero. */
   --color-tint: #efe9e1;
   --color-tint-strong: #e2dad0;
@@ -72,6 +90,15 @@
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
+}
+
+/* Brand headings: font, weight, letter spacing and case come from the brand (src/config/store.ts). */
+@utility heading {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight, 700);
+  letter-spacing: var(--display-tracking, -0.01em);
+  text-transform: var(--display-case, none);
+  line-height: 1.1;
 }
 
 @utility container-shop {

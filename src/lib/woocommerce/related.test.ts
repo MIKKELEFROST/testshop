@@ -22,6 +22,7 @@ function item(id: number, tags: number[], audience: string[] = [], kind = "x", s
     variantSummary: null,
     discountPercent: null,
     hasVideo: false,
+    adult: false,
   };
 }
 

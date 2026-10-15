@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeStripe } from "../../../tests/support/fake-stripe";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
+import { storeBranding } from "./branding";
 import type { CommerceBackend } from "./service";
 import { finalizePayment, paymentEventFor, startCheckout, toCreateOrderInput } from "./service";
 import type { PluginResult } from "@/lib/woocommerce/checkout-api";
@@ -93,6 +94,10 @@ describe("startCheckout", () => {
     const input = toCreateOrderInput(request, ctx);
     expect(input.items).toEqual([{ product_id: 10, variation_id: 0, quantity: 2 }]);
     expect(input.billing).toMatchObject({ email: "kunde@example.com", postcode: "8000" });
+  });
+
+  it("sends the webshop's brand with the order, for WooCommerce's order e-mails", () => {
+    expect(toCreateOrderInput(request, ctx).store).toEqual(storeBranding());
   });
 
   it("reuses the order's PaymentIntent on repeated clicks (no double payment)", async () => {

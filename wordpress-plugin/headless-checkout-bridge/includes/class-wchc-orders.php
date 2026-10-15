@@ -340,20 +340,20 @@ final class WCHC_Orders {
 
 		$applied_coupons = array_map( 'wc_strtolower', WC()->cart->get_applied_coupons() );
 		sort( $applied_coupons );
-		$fingerprint = hash(
-			'sha256',
-			(string) wp_json_encode(
-				array(
-					$quote['cart_hash'],
-					$input['billing'],
-					$input['shipping'],
-					$input['shipping_rate_id'],
-					$input['store_id'],
-					$input['customer_note'],
-					$applied_coupons,
-				)
-			)
+		$fingerprint_data = array(
+			$quote['cart_hash'],
+			$input['billing'],
+			$input['shipping'],
+			$input['shipping_rate_id'],
+			$input['store_id'],
+			$input['customer_note'],
+			$applied_coupons,
 		);
+		if ( $input['store'] ) {
+			// Only when sent, so orders from storefronts without it keep their fingerprint.
+			$fingerprint_data[] = $input['store'];
+		}
+		$fingerprint = hash( 'sha256', (string) wp_json_encode( $fingerprint_data ) );
 
 		// Exact replay (double click, network retry): extend the stock hold and return the same order.
 		if ( $resumable && hash_equals( (string) $existing->get_meta( WCHC_META_FINGERPRINT ), $fingerprint ) ) {
@@ -403,6 +403,11 @@ final class WCHC_Orders {
 			$order->update_meta_data( WCHC_META_CHECKOUT_ID, $input['checkout_id'] );
 			$order->update_meta_data( WCHC_META_FINGERPRINT, $fingerprint );
 			$order->update_meta_data( WCHC_META_STORE_ID, $input['store_id'] );
+			if ( $input['store'] ) {
+				$order->update_meta_data( WCHC_META_STORE_BRANDING, $input['store'] );
+			} else {
+				$order->delete_meta_data( WCHC_META_STORE_BRANDING );
+			}
 			$order->set_payment_method_title( $input['payment_method_title'] );
 			if ( ! empty( $input['customer_ip'] ) ) {
 				$order->set_customer_ip_address( $input['customer_ip'] );

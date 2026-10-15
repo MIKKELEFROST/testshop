@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Import Guirca's product sheet into WooCommerce. See docs/IMPORT-GUIRCA.md.
 
+    python3 scripts/guirca/import_guirca.py images <sheet.xlsx> --out images.tsv  # which photos exist at Guirca
     python3 scripts/guirca/import_guirca.py report <sheet.xlsx>           # what would be imported (no WooCommerce)
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx> --dry-run # plan against WooCommerce, no writes
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx> --sample 100
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx>           # everything
 
+Pass --image-status images.tsv to report and import to use the photos the check found.
 WooCommerce credentials come from WOOCOMMERCE_URL, WOOCOMMERCE_CONSUMER_KEY and
 WOOCOMMERCE_CONSUMER_SECRET (e.g. `set -a; . ./.env.local; set +a`).
 
@@ -28,6 +30,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import requests
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import catalog  # noqa: E402
@@ -37,6 +41,8 @@ from woo import Woo, WooError  # noqa: E402
 HERE = Path(__file__).resolve().parent
 IMPORTER_VERSION = "1"
 DEFAULT_WEBSHOPS = "halloween-kostumer-dk,piece-dk"
+# 18+ products are only sold in these webshops (of those the import assigns).
+ADULT_WEBSHOPS = ("halloween-kostumer-dk",)
 BRAND = "Guirca"
 SIZE, GROUP, COLOUR = "Størrelse", "Målgruppe", "Farve"
 SHOP_OWNED = ("texts", "categories", "tags", "status", "webshops", "stock")
@@ -46,15 +52,12 @@ SHOP_OWNED = ("texts", "categories", "tags", "status", "webshops", "stock")
 
 
 def load_specs(args) -> tuple[list[catalog.ProductSpec], list[catalog.Skipped]]:
-    broken: set[str] = set()
+    images = rules.ImageStatus()
     if args.image_status:
-        for line in Path(args.image_status).read_text().splitlines():
-            url, status, *_ = line.split("\t") + [""]
-            if status and not status.startswith("2"):
-                broken.add(url)
+        images = rules.ImageStatus.parse(Path(args.image_status).read_text().splitlines())
     rows = catalog.read_sheet(Path(args.sheet))
     translations = catalog.Translations.load(HERE / "translations")
-    return catalog.build(rows, translations, broken)
+    return catalog.build(rows, translations, images)
 
 
 def select(specs: list[catalog.ProductSpec], args) -> list[catalog.ProductSpec]:
@@ -78,6 +81,54 @@ def select(specs: list[catalog.ProductSpec], args) -> list[catalog.ProductSpec]:
     return specs
 
 
+# ---------------------------------------------------------------- image check
+
+
+def check_images(args) -> int:
+    """Ask Guirca's image server about every photo the sheet lists and every photo the server
+    can have for its articles (the sheet often lists only some of them).
+
+    Answers are appended to --out as they come, and links already answered there are not asked
+    again, so an interrupted check is simply started again. Use a new file to ask about all.
+    """
+    rows = catalog.read_sheet(Path(args.sheet))
+    urls = list(dict.fromkeys(url for row in rows for url in rules.image_candidates(row)))
+    out = Path(args.out)
+    known = rules.ImageStatus.parse(out.read_text().splitlines()) if out.exists() else rules.ImageStatus()
+    todo = [url for url in urls if url not in known.found and url not in known.dead]
+    print(f"{len(urls)} billedlinks, {len(urls) - len(todo)} allerede besvaret, {len(todo)} at tjekke", flush=True)
+    local = threading.local()
+
+    def ask(url: str) -> str:
+        if not hasattr(local, "session"):
+            local.session = requests.Session()
+        answer = "000\t"  # no answer: asked again next time
+        for attempt in range(3):
+            try:
+                response = local.session.head(url, timeout=30, allow_redirects=False)
+                answer = f"{response.status_code}\t{response.headers.get('content-type', '')}"
+                if response.status_code < 500 and response.status_code != 429:
+                    break
+            except requests.RequestException:
+                pass
+            time.sleep(2**attempt)
+        return f"{url}\t{answer}"
+
+    counts = collections.Counter()
+    with out.open("a") as f, ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for done, line in enumerate(pool.map(ask, todo), 1):
+            f.write(line + "\n")
+            counts[line.split("\t")[1][:1]] += 1
+            if done % 2000 == 0 or done == len(todo):
+                f.flush()
+                print(f"{done}/{len(todo)} · findes {counts['2']}, findes ikke {counts['4']}, uden svar {counts['0'] + counts['5']}", flush=True)
+    status = rules.ImageStatus.parse(out.read_text().splitlines())
+    unanswered = sum(url not in status.found and url not in status.dead for url in urls)
+    print(f"Billeder, der findes: {len(status.found & set(urls))}. Uden svar: {unanswered} (kør igen for at spørge om dem).")
+    print(f"Brug svarene med: --image-status {out}")
+    return 0
+
+
 # ---------------------------------------------------------------- report
 
 
@@ -93,8 +144,9 @@ def report(args) -> int:
     for reason, count in collections.Counter(s.reason for s in skipped).most_common():
         print(f"  {count:5}  {reason}")
     print(f"Kladder (skal tjekkes): {sum(s.status == 'draft' for s in specs)}")
-    print(f"Kun 18+ (ingen webshop): {sum(s.adult_only for s in specs)}")
+    print(f"Kun 18+ (kun i {', '.join(ADULT_WEBSHOPS)}): {sum(s.adult_only for s in specs)}")
     print(f"Uden billeder: {sum(not s.images for s in specs)}")
+    print(f"Billeder: {sum(len(s.images) for s in specs)} ({sum(len(s.images) == 1 for s in specs)} produkter har kun ét)")
     print("Kategorier:")
     counts = collections.Counter(c for s in specs for c in s.categories)
     for path in rules.CATEGORY_ORDER:
@@ -253,6 +305,11 @@ def setup(woo: Woo, specs: list[catalog.ProductSpec], webshops: list[str]) -> Id
 # ---------------------------------------------------------------- payloads
 
 
+def shops_for(spec: catalog.ProductSpec, webshops: list[str]) -> list[str]:
+    """The webshops a product is sold in: 18+ products only in ADULT_WEBSHOPS."""
+    return [w for w in webshops if w in ADULT_WEBSHOPS] if spec.adult_only else list(webshops)
+
+
 def fingerprint(spec: catalog.ProductSpec, webshops: list[str]) -> str:
     return f"{IMPORTER_VERSION}:{','.join(webshops) or '-'}:{spec.fingerprint()}"
 
@@ -297,7 +354,7 @@ def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], websh
     if "status" in fields:
         payload["status"] = spec.status
     if "webshops" in fields:
-        payload["webshops"] = [] if spec.adult_only else list(webshops)
+        payload["webshops"] = shops_for(spec, webshops)
     if "stock" in fields:
         payload.update(manage_stock=False, stock_status="instock")
     return payload
@@ -515,10 +572,14 @@ def run_import(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Importér Guircas produktark i WooCommerce.")
     sub = parser.add_subparsers(dest="command", required=True)
+    p = sub.add_parser("images", help="Tjek, hvilke af Guircas fotos der findes")
+    p.add_argument("sheet", help="Guircas Excel-ark (PRODUCTS_INFORMATIONS.xlsx)")
+    p.add_argument("--out", required=True, help="TSV med svarene (url, HTTP-status, indholdstype); fortsætter en tidligere kørsel")
+    p.add_argument("--workers", type=int, default=16, help="Samtidige forespørgsler (standard 16)")
     for name in ("report", "import"):
         p = sub.add_parser(name)
         p.add_argument("sheet", help="Guircas Excel-ark (PRODUCTS_INFORMATIONS.xlsx)")
-        p.add_argument("--image-status", help="TSV med url og HTTP-status fra et billedtjek; døde links udelades")
+        p.add_argument("--image-status", help="TSV fra et billedtjek (kommandoen images): døde links udelades, og fotos på Guircas server, som arket ikke nævner, kommer med")
     sub.choices["report"].add_argument("--out", default=".", help="Mappe til oversigten (CSV)")
     p = sub.choices["import"]
     p.add_argument("--dry-run", action="store_true", help="Vis planen uden at skrive til WooCommerce")
@@ -534,7 +595,8 @@ def main(argv=None) -> int:
     p.add_argument("--log", help="JSONL-log over hvert produkt")
     p.add_argument("--settle", type=int, default=60, help="Sekunder at vente efter en afbrudt forespørgsel, før der tjekkes, hvad der blev gemt")
     args = parser.parse_args(argv)
-    return report(args) if args.command == "report" else run_import(args)
+    commands = {"images": check_images, "report": report, "import": run_import}
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":

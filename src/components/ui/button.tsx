@@ -9,7 +9,7 @@ export function buttonClasses(variant: Variant = "primary", size: Size = "md", f
   const base =
     "inline-flex items-center justify-center gap-2 rounded-[var(--radius-control)] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50 select-none";
   const variants: Record<Variant, string> = {
-    primary: "bg-action text-white hover:bg-action-hover active:bg-action-hover",
+    primary: "bg-action text-on-action hover:bg-action-hover active:bg-action-hover",
     secondary: "border border-line-strong bg-surface text-ink hover:border-ink",
     ghost: "text-ink hover:bg-black/5",
   };

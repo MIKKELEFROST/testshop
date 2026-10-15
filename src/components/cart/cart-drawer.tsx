@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type PointerEvent } from "react";
+import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import type { CartLine } from "@/lib/cart/cart";
@@ -132,7 +133,8 @@ export function CartDrawer() {
                     <Alert tone="error">{error}</Alert>
                   </div>
                 )}
-                <div className="mt-4 grid gap-2">
+                <DispatchCountdown className="mt-4 text-sm" />
+                <div className="mt-3 grid gap-2">
                   <CheckoutButton canCheckout={canCheckout} loading={loading} onNavigate={closeCart}>
                     Til kassen
                   </CheckoutButton>

@@ -97,13 +97,13 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 ## Caching
 
 - Katalogdata hentes med `'use cache'` + `cacheLife('minutes')` + tags. WooCommerce-produktwebhooks (`/api/revalidate`) og betalte ordrer invaliderer cachen.
-- Produktlister, kategorier og søgning hentes 30 varer ad gangen (`?side=2`), så rækkerne går op med 5, 3 og 2 kort. Kategoriernes antal tælles pr. webshop med én lille forespørgsel pr. kategori og caches i et kvarter.
+- Produktlister, kategorier og søgning hentes 30 varer ad gangen (`?side=2`), så rækkerne går op med 5, 3 og 2 kort. Sorteringen vælges med `?sorter=` (Anbefalet, Nyeste, Mest populære, Pris). "Anbefalet" viser shoppens sæson først (`getSeasonalProducts`: to forespørgsler med plugin 1.4's kategorifiltre, sat sammen med `offset`, så hver vare kommer én gang). Kategoriernes antal tælles pr. webshop med én lille forespørgsel pr. kategori og caches i et kvarter.
 - Produktbilleder: WooCommerces egne billeder, ellers leverandørens fotos, som en import har linket til (meta `_wchc_external_images`, kun fra værterne i `src/config/images.ts`). Alle billeder går gennem Next.js' billedoptimering og caches i 31 dage. Fejler et billede, vises en pladsholder.
 - Lager og priser på produktsider er informative. Kurv og checkout henter altid friske tal fra WooCommerce.
 
 ## Produktkort og produktside
 
-- **Produktkort** (`components/products/product-card.tsx`): hvide kort på en lys baggrund (`bg-canvas`), billedet vist helt, rabatmærke (`-20 %`, kendes kun for simple produkter), videomærke, antal størrelser, stor pris i farven `price` og lagerstatus. 5 pr. række på computer, 3 på tablet og 2 på mobil.
+- **Produktkort** (`components/products/product-card.tsx`): hvide kort på en lys baggrund (`bg-canvas`), billedet vist helt, rabatmærke (`-20 %`, kendes kun for simple produkter), videomærke, 18+-mærke, favorit-hjerte, antal størrelser, stor pris i farven `price` og lagerstatus. 5 pr. række på computer, 3 på tablet og 2 på mobil.
 - **Produktside** (`app/(shop)/produkter/[slug]`):
   - Galleri med video. YouTube-videoer (`_wchc_videos`) indlæses først, når kunden trykker afspil, og i YouTubes privatlivstilstand (youtube-nocookie.com).
   - Pris med "Spar X kr." og lagerstatus. Størrelsesknapperne viser kropshøjden, når beskrivelsen har den ("Størrelser: 3-4 år (109 cm) …", se `lib/product-text.ts`).
@@ -116,11 +116,20 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
   - Begge foretrækker produktets målgruppe. Børnevarer til voksenkostumer og omvendt kommer sidst.
 - **Løfter (USP'er)** står i `config/usps.ts` og er fælles for webshops: baren øverst, rækken over footeren og 2 × 2-boksen på produktsiden. Beløbet for fri fragt (`{fri_fragt}`) læses fra WooCommerce ("Fri fragt fra" på fragtmetoderne, `lib/woocommerce/shipping.ts`). Løfter om fri fragt udelades, hvis ingen metode har det. Kurven viser, hvor meget der mangler til fri fragt.
 
+## Forside, menu, søgning og favoritter
+
+- **Merchandising** (`config/merchandising.ts`) er webshoppens egen opbygning: menu med dropdowns (`components/layout/nav-menu.tsx`, på mobil en skuffe), forsidens hero med nedtælling til sæsonens dag (`lib/seasons.ts`: påske, fastelavn, halloween og danske helligdage), målgruppe-fliser, temafliser og produktrækker uden gentagelser, og temasiderne `/tema/<slug>` (`lib/woocommerce/collections.ts`).
+- **Søgeforslag** (`components/layout/search-box.tsx` → `GET /api/search?q=`): kategorier, temaer og produkter med foto og pris, mens kunden skriver. Piletaster og Enter virker; uden JavaScript er det en almindelig formular til `/soeg`.
+- **Favoritter** (`lib/favorites`): produkt-ID'er i kundens browser (localStorage, pr. webshop). Hjertet på kort og produktside, ikonet i headeren og `/favoritter`, der henter friske priser via `GET /api/products?ids=`.
+- **Afsendelsesnedtælling** (`components/marketing/dispatch-countdown.tsx`, `lib/delivery.ts`): "Bestil inden 3 t 12 min – så sender vi i dag" på hverdage før kl. 19 (dansk tid, ikke helligdage), ellers kun løftet. Der loves ingen leveringsdato. Vises på produktsiden, i kurven og kurvskuffen.
+- **Informationssider** (`content/info-pages.ts`, vist af `components/content/info-page.tsx`): handelsbetingelser, returret, fragt, privatliv, cookies, prismatch, kontakt, FAQ, størrelsesguide og "Om os" (pr. webshop). Tekstens `{tokens}` fyldes ud fra `config/company.ts` og webshoppen. Pladsholdere i [klammer] fremhæves med gult, indtil ejeren har udfyldt dem.
+- **SEO:** kanoniske adresser, `sitemap.xml` (forside, temaer, kategorier, alle produkter, informationssider), `robots.txt`, JSON-LD for produkter (pris, lager), brødkrummer, butikken med søgning og FAQ. Favicon, hjemmeskærmsikon, delingsbillede og e-mail-logo (`/email-logo.png`) tegnes af koden ud fra brandet (`lib/brand-images.tsx`, skrifterne ligger i `assets/fonts`).
+
 ## Flere webshops
 
 Se [MULTISHOP.md](MULTISHOP.md).
 
-- Én kodebase, ét Vercel-projekt pr. webshop. `NEXT_PUBLIC_STORE_ID` vælger brand (navn, tekster, farver i `src/config/store.ts`, sat som designtokens fra `globals.css`) og webshop i WooCommerce.
+- Én kodebase, ét Vercel-projekt pr. webshop. `NEXT_PUBLIC_STORE_ID` vælger brand (navn, logo, farver, skrift og sæson i `src/config/store.ts`, sat som designtokens fra `globals.css`), merchandising og webshop i WooCommerce.
 - Produktfordelingen ligger i WooCommerce (taksonomien "Webshops" fra pluginet). Kataloget hentes med `wchc_shop`, og `/quote` og `/orders` afviser produkter, webshoppen ikke sælger. Reglen håndhæves altså i backenden, ikke kun i frontenden.
 - Hver ordre får `_wchc_store_id`, og hver PaymentIntent får `metadata.store_id`. Webhooks for andre webshops' betalinger ignoreres, så alle webshops kan dele én Stripe-konto og én WooCommerce.
 - Data- og checkoutlaget (`lib/woocommerce`, `lib/checkout`) er uafhængigt af UI'et.

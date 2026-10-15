@@ -9,8 +9,11 @@ Kræver Python 3.11+ og `pip install -r scripts/guirca/requirements.txt` (pandas
 ```bash
 set -a; . ./.env.local; set +a
 
+# 0. Billedtjek (ca. 30 minutter første gang): hvilke af Guircas fotos findes, også dem arket ikke nævner
+python3 scripts/guirca/import_guirca.py images PRODUCTS_INFORMATIONS.xlsx --out images.tsv
+
 # 1. Oversigt uden at røre WooCommerce: tal i terminalen + guirca-preview.csv (åbner i Excel)
-python3 scripts/guirca/import_guirca.py report PRODUCTS_INFORMATIONS.xlsx --out /tmp/guirca
+python3 scripts/guirca/import_guirca.py report PRODUCTS_INFORMATIONS.xlsx --out /tmp/guirca --image-status images.tsv
 
 # 2. Plan mod WooCommerce (læser kun): hvor mange oprettes, opdateres og er uændrede
 python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --dry-run
@@ -19,10 +22,10 @@ python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --dry-
 python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --sample 100 --no-webshop
 
 # 4. Det hele (ca. 15 minutter på test.piece.dk); --log skriver én linje pr. vare
-python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --log import.jsonl
+python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --image-status images.tsv --log import.jsonl
 ```
 
-Andre valg: `--codes 78224,19000` (kun bestemte Guirca-numre), `--webshop SLUG,SLUG` (webshops til nye varer, standard `halloween-kostumer-dk,piece-dk`), `--workers` og `--batch` (samtidige forespørgsler og varer pr. forespørgsel), `--image-status FIL` (udelad døde billedlinks fundet ved et billedtjek).
+Andre valg: `--codes 78224,19000` (kun bestemte Guirca-numre), `--webshop SLUG,SLUG` (webshops til nye varer, standard `halloween-kostumer-dk,piece-dk`), `--workers` og `--batch` (samtidige forespørgsler og varer pr. forespørgsel), `--image-status FIL` (svarene fra billedtjekket: døde links udelades, og fotos på Guircas server, som arket ikke nævner, kommer med).
 
 Arket skal ikke i Git. Det er Guircas forhandlerdata.
 
@@ -40,10 +43,10 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 | Egenskaber | Størrelse (bruges til varianter), Målgruppe og Farve (til filtre senere). |
 | Beskrivelse | Bygget af arkets fakta: indhold, størrelser med højde, materiale, farve, mål, lys/lyd/bevægelse, batterier, brandhæmmende/CE og anbefalet alder. |
 | Producent (GPSR) | Alle varer har Guircas navn og adresse fra deres sikkerhedsmærkat. Produktsiden linker til mærkaten med advarsler (også på dansk). |
-| Billeder | Guircas fotos hentes ikke ind i WordPress. Links gemmes på varen (`_wchc_external_images`), og shoppen viser dem via Vercels billedoptimering. Døde links udelades. Se nedenfor. |
+| Billeder | Guircas fotos hentes ikke ind i WordPress. Links gemmes på varen (`_wchc_external_images`), og shoppen viser dem via Vercels billedoptimering. Alle fotos kommer med, også dem arket ikke nævner (se "Billedtjek"), i arkets rækkefølge: hovedfoto, katalogfoto, uden emballage, bagfra, detaljer og emballage. Døde links udelades. For varer med størrelser bruges størrelsen med flest fotos. |
 | Lager | Lagerstyring slået fra og "på lager", fordi arket ikke har lagertal. Kommer der en lagerfil fra Guirca, kan importen opdatere lageret. |
 | Kladder | Varer uden brugbar pris (mangler eller f.eks. 1.455.985 EUR i arket) bliver kladder med forklaringen i `_wchc_import_issue`. Størrelser uden pris bliver private. |
-| Webshop | Alle varer tildeles begge webshops, Maskerade (`halloween-kostumer-dk`) og Hverdag (`piece-dk`). Erotiske varer (Guirca-kategorien EROTIC) kommer i "Polterabend (18+)" uden webshop. |
+| Webshop | Alle varer tildeles begge webshops, Halloweenkostumer.dk (`halloween-kostumer-dk`) og Fastelavnskostumer.dk (`piece-dk`). Erotiske varer (Guirca-kategorien EROTIC) kommer i "Polterabend (18+)" og sælges kun i Halloweenkostumer.dk (`ADULT_WEBSHOPS`). |
 | Springes over | Butiksdisplays (f.eks. "CHRISTMAS DISPLAY 187 x 30 x 61 CM") og rækker uden navn. |
 
 ## Når importen køres igen
@@ -58,6 +61,14 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 
 `translations/families.json` (kostume- og tøjfamilier uden målgruppe), `names.json` (øvrige varer) og `vocabulary.json` (indhold, materialer, farver, temaer). Nøglen er Guircas engelske tekst. Ret en oversættelse i filen, og kør importen med `--overwrite texts --force` for de berørte varer (f.eks. med `--codes`). Nye varer i et senere ark mangler oversættelse og bliver kladder med "Mangler dansk navn", indtil de er oversat.
 
+## Billedtjek
+
+Guirca har op til 21 fotos pr. vare på `marketing.guirca.com/<nr>/<nr><ending>.jpg` (hovedfotoet `<nr>.jpg`, og `_01` … `_20` for katalog, bagfra, detaljer, emballage osv., se `IMAGE_COLUMNS` i `rules.py`). Arket nævner ofte kun nogle af dem. Kommandoen `images` spørger Guircas server (HEAD) om alle arkets links og alle 21 navne for hver vare og skriver svarene i en TSV-fil (url, HTTP-status, indholdstype):
+
+- En afbrudt kørsel fortsætter, hvor den slap: links, der allerede har et svar i filen, spørges ikke igen. Brug en ny fil for at spørge om alt igen (f.eks. når Guirca har lagt nye fotos op).
+- 404 tæller som død. Timeouts og serverfejl tæller som "intet svar" og spørges igen næste gang. Arkets egne links uden svar beholdes.
+- Første kørsel (15-10-2026): 265.073 links, 63.049 fotos fandtes, heraf 5.544 som arket ikke nævnte. 2.402 varer fik flere fotos (i alt 3.910), og kun 49 varer har stadig ét foto, fordi Guirca kun har ét.
+
 ## Billeder og Vercel
 
 Guircas fotos er 2.500 px og op til 1 MB. Shoppen viser dem kun gennem Next.js' billedoptimering, så kunderne får små WebP-filer, og optimerede billeder gemmes i 31 dage. På Vercels Hobby-plan er der 5.000 billedtransformationer om måneden. Når de er brugt, viser shoppen en neutral pladsholder i stedet for nye billeder til næste måned. En rigtig shop skal alligevel på Pro (Hobby er kun til ikke-kommercielt brug), og dér koster det ca. 0,05 USD pr. 1.000 billeder.
@@ -66,4 +77,4 @@ I WooCommerce-admin har varerne ingen udvalgt billede, fordi billederne ligger h
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/guirca` (kører også i CI) tester størrelser, priser, navne, kategorier, beskrivelser og samling af størrelser.
+`python3 -m unittest discover -s scripts/guirca` (kører også i CI) tester størrelser, priser, navne, kategorier, beskrivelser, samling af størrelser og billedtjekkets regler (fotos, arket ikke nævner, koder med mellemrum, svar uden status).

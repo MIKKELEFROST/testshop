@@ -10,11 +10,11 @@ import html
 import math
 import re
 import unicodedata
+from dataclasses import dataclass
 
 EUR_TO_DKK = 7.46
 # Prices in the sheet above this are errors (e.g. 1,455,985.44 EUR for a toy gun).
 MAX_PLAUSIBLE_EUR = 5000.0
-MAX_IMAGES = 8
 
 MANUFACTURER = (
     "Producent: Fiestas Guirca, S.L., Pol. Ind. Can Cuyas, C/ Agudes 14, 08110 Montcada i Reixac, "
@@ -604,27 +604,80 @@ def describe(
 
 # ---------------------------------------------------------------- images
 
-IMAGE_COLUMNS = [
-    "LINK",
-    "Link_CostumeCat", "Link_AccesoriesCatalogue", "Link_DecoCatalogue",
-    "Link_AccesoriesW/OPackaging", "Link_DecoW/Opackaging",
-    "Link_CostumeBack", "Link_AccesoriesView1", "Link_AccesoriesView2", "Link_AccesoriesView3",
-    "Link_DecoSide", "Link_DecoBack",
-    "Link_CostumeDetail1", "Link_CostumeDetail2", "Link_CostumeDetail3", "Link_DecoDetail",
-    "Link_CostumeUnisex",
-    "Link_CostumePackaging", "Link_AccesoriesW/Packaging", "Link_DecoW/Packaging", "Link_DecoBatteries",
-]
+IMAGE_HOST = "https://marketing.guirca.com"
+
+# The sheet's photo columns, best first, and the ending Guirca gives that photo's file on its
+# image server: {IMAGE_HOST}/{code}/{code}{ending}.jpg (LINK, the main photo, is {code}.jpg).
+IMAGE_COLUMNS = {
+    "LINK": "",
+    "Link_CostumeCat": "_01", "Link_AccesoriesCatalogue": "_07", "Link_DecoCatalogue": "_14",
+    "Link_AccesoriesW/OPackaging": "_08", "Link_DecoW/Opackaging": "_15",
+    "Link_CostumeBack": "_02", "Link_AccesoriesView1": "_10", "Link_AccesoriesView2": "_11", "Link_AccesoriesView3": "_12",
+    "Link_DecoSide": "_17", "Link_DecoBack": "_18",
+    "Link_CostumeDetail1": "_05", "Link_CostumeDetail2": "_06", "Link_CostumeDetail3": "_13", "Link_DecoDetail": "_19",
+    "Link_CostumeUnisex": "_03",
+    "Link_CostumePackaging": "_04", "Link_AccesoriesW/Packaging": "_09", "Link_DecoW/Packaging": "_16", "Link_DecoBatteries": "_20",
+}
 
 
-def image_urls(row: dict, broken: set[str] | frozenset = frozenset()) -> list[str]:
-    """The row's photos over https, best first, without known broken links."""
-    urls = []
-    for column in IMAGE_COLUMNS:
+@dataclass(frozen=True)
+class ImageStatus:
+    """What an image check (import_guirca.py images) answered: photos that exist, links that don't.
+
+    Links it has no answer for (not checked, timeouts, server errors) are in neither set.
+    """
+    found: frozenset[str] = frozenset()
+    dead: frozenset[str] = frozenset()
+
+    @classmethod
+    def parse(cls, lines) -> ImageStatus:
+        """From lines of 'url<TAB>HTTP status<TAB>content type'; a later answer for a URL wins."""
+        found: set[str] = set()
+        dead: set[str] = set()
+        for line in lines:
+            url, status, content_type = (line.rstrip("\n").split("\t") + ["", ""])[:3]
+            if status.startswith("2") and content_type.startswith("image/"):
+                found.add(url)
+                dead.discard(url)
+            elif status in ("404", "410") or status.startswith("2"):
+                dead.add(url)
+                found.discard(url)
+        return cls(frozenset(found), frozenset(dead))
+
+
+def sheet_images(row: dict) -> list[tuple[int, str]]:
+    """(rank, https link) for each photo the sheet lists for the row, rank 0 best."""
+    links = []
+    for rank, column in enumerate(IMAGE_COLUMNS):
         for part in clean(row.get(column)).split(","):
             url = https(part)
-            if url.startswith("https://") and url not in broken:
-                urls.append(url)
-    return list(dict.fromkeys(urls))[:MAX_IMAGES]
+            if url.startswith("https://"):
+                links.append((rank, url))
+    return links
+
+
+def server_images(code: str) -> list[str]:
+    """Every photo Guirca's image server can have for an article, best first.
+
+    The sheet often lists only some of them, and a few rows have a space in the code of their
+    links (13101 /13101 _07.jpg); these names use the code itself.
+    """
+    code = re.sub(r"\s+", "", clean(code))
+    return [f"{IMAGE_HOST}/{code}/{code}{ending}.jpg" for ending in IMAGE_COLUMNS.values()] if code else []
+
+
+def image_candidates(row: dict) -> list[str]:
+    """The links an image check should answer for the row."""
+    return list(dict.fromkeys([url for _, url in sheet_images(row)] + server_images(row.get("ARTICLE CODE", ""))))
+
+
+def image_urls(row: dict, status: ImageStatus = ImageStatus()) -> list[str]:
+    """The row's photos over https, best first: the sheet's links that are not dead, and the
+    photos the image check found on Guirca's server that the sheet does not list."""
+    ranked = [(rank, url) for rank, url in sheet_images(row) if url not in status.dead]
+    ranked += [(rank, url) for rank, url in enumerate(server_images(row.get("ARTICLE CODE", ""))) if url in status.found]
+    ranked.sort(key=lambda item: item[0])  # stable: the sheet's own link first within a rank
+    return list(dict.fromkeys(url for _, url in ranked))
 
 
 def video_urls(row: dict) -> list[str]:

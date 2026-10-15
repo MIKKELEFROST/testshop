@@ -7,7 +7,7 @@ Proof of concept for en headless webshop:
 - **Stripe** (Payment Intents + Payment Element + webhooks) står for betalingen.
 - Et lille **WordPress-plugin** ([`wordpress-plugin/headless-checkout-bridge`](wordpress-plugin/headless-checkout-bridge)) giver sikre server-til-server-endpoints. Det bruger WooCommerces egen kurv, moms, fragt, ordreoprettelse og lagerreservation.
 
-Der kører to testwebshops på samme WooCommerce: **"Hverdag"** (`piece-dk`) og **"Maskerade"** (`halloween-kostumer-dk`). De har hvert sit design og deler nogle produkter, mens andre kun findes i den ene. Se [docs/MULTISHOP.md](docs/MULTISHOP.md).
+Der kører to webshops på samme WooCommerce: **Fastelavnskostumer.dk** (`piece-dk`) og **Halloweenkostumer.dk** (`halloween-kostumer-dk`). De sælger begge hele Guircas sortiment, men har hver sit DNA: logo, farver, skrift, menu, forside, temaer og den sæson, de viser først. Se [docs/MULTISHOP.md](docs/MULTISHOP.md).
 
 ## Hurtig start (lokalt)
 

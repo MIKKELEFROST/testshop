@@ -39,6 +39,8 @@ type Product = {
   stock_quantity: number | null;
   stock_status: string;
   webshops?: string[];
+  categories?: { id: number }[];
+  tags?: { id: number }[];
 };
 type Order = {
   id: number;
@@ -98,6 +100,22 @@ export async function getCoupon(id: number): Promise<Coupon> {
 
 export async function deleteCoupon(id: number) {
   await admin(`coupons/${id}?force=true`, { method: "DELETE" });
+}
+
+export async function createCategory(name: string, parent = 0): Promise<{ id: number }> {
+  return admin<{ id: number }>("products/categories", { method: "POST", body: { name, parent } });
+}
+
+export async function deleteCategory(id: number) {
+  await admin(`products/categories/${id}?force=true`, { method: "DELETE" });
+}
+
+export async function createTag(name: string): Promise<{ id: number }> {
+  return admin<{ id: number }>("products/tags", { method: "POST", body: { name } });
+}
+
+export async function deleteTag(id: number) {
+  await admin(`products/tags/${id}?force=true`, { method: "DELETE" });
 }
 
 type ShippingMethod = { instance_id: number; settings: Record<string, { label: string; type: string; value: string }> };

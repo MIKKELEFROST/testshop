@@ -1,22 +1,21 @@
 import { CircleCheck, Film } from "lucide-react";
 import Link from "next/link";
+import { FavoriteButton } from "@/components/favorites/favorite-button";
 import { formatAmount } from "@/lib/money";
 import type { ProductSummary } from "@/types/commerce";
 import { ProductImage } from "./product-image";
 import { stockLabel } from "./stock-badge";
 
 /**
- * Product card: white card with the photo shown whole, discount and video marks, the name,
- * the number of sizes, a large price and the stock status, all centred.
+ * Product card: white card with the photo shown whole, discount, video and 18+ marks, a heart
+ * for the favourites, the name, the number of sizes, a large price and the stock status, all
+ * centred. The whole card is a link (the name's link covers it); the heart sits above it.
  */
 export function ProductCard({ product, priority = false }: { product: ProductSummary; priority?: boolean }) {
   const stock = stockLabel(product.stockStatus, product.stockQuantity);
   const soldOut = stock.tone === "out";
   return (
-    <Link
-      href={`/produkter/${product.slug}`}
-      className="group flex h-full flex-col rounded-lg bg-surface p-3 pb-4 shadow-[0_1px_2px_rgb(0_0_0/0.05)] ring-1 ring-black/[0.04] transition-shadow hover:shadow-[0_8px_24px_rgb(0_0_0/0.09)] sm:p-4 sm:pb-5"
-    >
+    <div className="group relative flex h-full flex-col rounded-lg bg-surface p-3 pb-4 shadow-[0_1px_2px_rgb(0_0_0/0.05)] ring-1 ring-black/[0.04] transition-shadow hover:shadow-[0_8px_24px_rgb(0_0_0/0.09)] sm:p-4 sm:pb-5">
       <div className="relative aspect-square overflow-hidden">
         <ProductImage
           image={product.image}
@@ -36,10 +35,15 @@ export function ProductCard({ product, priority = false }: { product: ProductSum
             <span className="sr-only">Med video</span>
           </span>
         )}
+        {product.adult && <AdultMark className="absolute right-0 bottom-0" />}
       </div>
 
       <div className="mt-3 flex flex-1 flex-col items-center text-center">
-        <h3 className="line-clamp-2 text-[15px] leading-snug font-bold text-ink-soft group-hover:text-ink sm:text-base">{product.name}</h3>
+        <h3 className="line-clamp-2 text-[15px] leading-snug font-bold text-ink-soft group-hover:text-ink sm:text-base">
+          <Link href={`/produkter/${product.slug}`} className="after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-accent">
+            {product.name}
+          </Link>
+        </h3>
         {product.variantSummary && <p className="mt-1 text-[13px] text-muted sm:text-sm">{product.variantSummary}</p>}
         <div className="mt-auto pt-2">
           <CardPrice product={product} />
@@ -53,7 +57,21 @@ export function ProductCard({ product, priority = false }: { product: ProductSum
           {stock.text}
         </p>
       </div>
-    </Link>
+
+      <div className="absolute top-2 right-2 z-10 sm:top-3 sm:right-3">
+        <FavoriteButton productId={product.id} name={product.name} />
+      </div>
+    </div>
+  );
+}
+
+/** "18+" on products for adults only. */
+export function AdultMark({ className = "" }: { className?: string }) {
+  return (
+    <span className={`rounded-md bg-ink px-1.5 py-1 text-xs leading-none font-extrabold text-white ${className}`} title="Kun for voksne over 18 år">
+      18+
+      <span className="sr-only"> – kun for voksne</span>
+    </span>
   );
 }
 

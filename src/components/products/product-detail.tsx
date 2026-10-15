@@ -3,6 +3,8 @@
 import { CircleCheck, Ruler, ShoppingBag } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
+import { FavoriteButton } from "@/components/favorites/favorite-button";
+import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { Button } from "@/components/ui/button";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { formatAmount, fromMinorUnits, toMinorUnits } from "@/lib/money";
@@ -118,6 +120,12 @@ export function ProductDetail({
         </div>
 
         <StockLine status={stockStatus} quantity={stockQuantity} />
+        {product.adult && (
+          <p className="mt-3 inline-flex items-center gap-2 rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-white">
+            <span className="rounded bg-white px-1.5 text-xs font-extrabold text-ink">18+</span>
+            Kun for voksne. Ved køb bekræfter du, at du er fyldt 18 år.
+          </p>
+        )}
 
         {product.shortDescription.length > 0 && (
           <div className="mt-5 space-y-2 text-[15px] leading-relaxed text-ink-soft">
@@ -188,8 +196,10 @@ export function ProductDetail({
             {buttonEnabled && !missing && <ShoppingBag className="size-5" aria-hidden="true" />}
             {buttonLabel}
           </Button>
+          <FavoriteButton productId={product.id} name={product.name} variant="page" />
         </div>
         {inCart > 0 && <p className="mt-3 text-sm text-muted">Du har {inCart} i kurven.</p>}
+        {!soldOut && <DispatchCountdown className="mt-4" />}
 
         {promises && <div className="mt-7">{promises}</div>}
         {details && <div className="mt-2">{details}</div>}

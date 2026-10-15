@@ -1,9 +1,9 @@
 /**
  * Store (brand) configuration.
  *
- * Several storefronts share one WooCommerce backend (piece.dk, halloween-kostumer.dk, …).
+ * Several storefronts share one WooCommerce backend (Fastelavnskostumer.dk, Halloweenkostumer.dk, …).
  * Each one is its own deployment of this code with its own NEXT_PUBLIC_STORE_ID, which
- * - picks the brand below (texts and colours),
+ * - picks the brand below (name, logo, texts, colours, heading font and the season it is built around),
  * - is the webshop in WooCommerce (Products → Webshops) whose products this storefront sells,
  * - is written to every WooCommerce order and Stripe payment from this storefront.
  */
@@ -12,10 +12,25 @@
 export type StoreTheme = Partial<
   Record<
     | "paper"
+    | "ink"
+    | "ink-soft"
+    | "muted"
     | "accent"
     | "accent-soft"
     | "action"
     | "action-hover"
+    | "on-action"
+    | "bar"
+    | "on-bar"
+    | "chrome"
+    | "chrome-ink"
+    | "chrome-muted"
+    | "chrome-line"
+    | "footer"
+    | "footer-ink"
+    | "footer-muted"
+    | "footer-line"
+    | "highlight"
     | "line"
     | "line-strong"
     | "tint"
@@ -24,17 +39,29 @@ export type StoreTheme = Partial<
     | "hero-blob"
     | "sale"
     | "price"
-    | "canvas",
+    | "canvas"
+    | "video",
     string
   >
 >;
 
+/** The holiday a shop is built around: its front page counts down to it all year. */
+export type Season = "fastelavn" | "halloween";
+
+/** Heading font: family, weight, letter spacing and case (see the `heading` utility). */
+export type DisplayFont = { family: string; weight: number; tracking: string; uppercase: boolean };
+
 export type StoreBrand = {
+  /** The shop's name as customers see it, e.g. "Halloweenkostumer.dk". */
   name: string;
+  /** Customer service email (NEXT_PUBLIC_SUPPORT_EMAIL overrides it). */
+  email: string;
+  /** The logo: a drawn mark and the name in two lines ("Halloween" over "kostumer.dk"). */
+  logo: { mark: "barrel-cat" | "pumpkin"; word: string; suffix: string };
   tagline: string;
   description: string;
-  /** Small line above the headline on the front page. */
-  heroEyebrow: string;
+  season: Season;
+  font: DisplayFont;
   theme: StoreTheme;
 };
 
@@ -56,35 +83,92 @@ export type StoreConfig = StoreBrand & {
 
 export const DEFAULT_STORE_ID = "piece-dk";
 
-/** Brands by store ID. A new storefront adds its brand here. */
+/** Brands by store ID. A new storefront adds its brand here (and its front page in src/config/merchandising.ts). */
 export const brands: Record<string, StoreBrand> = {
+  // Fastelavn all year: colourful, playful and for the whole family.
   "piece-dk": {
-    name: "Hverdag",
-    tagline: "Gode ting til hverdagen",
-    description: "Tidløst tøj, accessories og ting til hjemmet – udvalgt med omtanke og lavet til at holde.",
-    heroEyebrow: "Ny kollektion",
-    theme: {},
-  },
-  "halloween-kostumer-dk": {
-    name: "Maskerade",
-    tagline: "Kostumer til fest, fastelavn og halloween",
-    description: "Udklædning og tilbehør til børn og voksne – klar til næste fest, uanset om den er sjov eller uhyggelig.",
-    heroEyebrow: "Sæsonens kostumer",
+    name: "Fastelavnskostumer.dk",
+    email: "kundeservice@fastelavnskostumer.dk",
+    logo: { mark: "barrel-cat", word: "Fastelavns", suffix: "kostumer.dk" },
+    tagline: "Kostumer til fastelavn – til hele familien",
+    description:
+      "Fastelavnskostumer til børn og voksne: prinsesser, superhelte, dyr og alt det sjove tilbehør. Hurtig levering fra dansk webshop.",
+    season: "fastelavn",
+    font: { family: '"Fredoka Variable"', weight: 650, tracking: "-0.01em", uppercase: false },
     theme: {
-      paper: "#fbf8fc",
-      accent: "#5b2b82",
-      "accent-soft": "#efe6f6",
-      action: "#5b2b82",
-      "action-hover": "#47206a",
-      line: "#ebe3ef",
-      "line-strong": "#d6c9de",
-      tint: "#f1e9f5",
-      "tint-strong": "#e3d4ec",
-      hero: "#2a1838",
-      "hero-blob": "#7a3fa8",
+      paper: "#fffaf2",
+      ink: "#1d2246",
+      "ink-soft": "#3b405f",
+      muted: "#686c86",
+      accent: "#2446c8",
+      "accent-soft": "#e5eaff",
+      action: "#2446c8",
+      "action-hover": "#1b379f",
+      "on-action": "#ffffff",
+      bar: "#1d2246",
+      "on-bar": "#ffffff",
+      chrome: "#ffffff",
+      "chrome-ink": "#1d2246",
+      "chrome-muted": "#5a5f7d",
+      "chrome-line": "#f0e7d9",
+      footer: "#1d2246",
+      "footer-ink": "#ffffff",
+      "footer-muted": "#b9bdd8",
+      "footer-line": "#2f3566",
+      highlight: "#e8336f",
+      line: "#efe6d8",
+      "line-strong": "#ded2bf",
+      tint: "#fff1d6",
+      "tint-strong": "#ffe3a6",
+      hero: "#ffd84d",
+      "hero-blob": "#ff9ec2",
+      sale: "#e11d48",
+      price: "#d9480f",
+      canvas: "#fcf3e4",
+      video: "#2446c8",
+    },
+  },
+  // Halloween all year: dark header and footer, light pages, so photos, prices and the checkout stay clear.
+  "halloween-kostumer-dk": {
+    name: "Halloweenkostumer.dk",
+    email: "kundeservice@halloweenkostumer.dk",
+    logo: { mark: "pumpkin", word: "Halloween", suffix: "kostumer.dk" },
+    tagline: "Halloweenkostumer, masker og alt det uhyggelige",
+    description:
+      "Halloweenkostumer til voksne og børn, masker, blod og effekter, make-up og pynt til huset. Hurtig levering fra dansk webshop.",
+    season: "halloween",
+    font: { family: '"Bebas Neue"', weight: 400, tracking: "0.02em", uppercase: true },
+    theme: {
+      paper: "#f8f6f3",
+      ink: "#17131c",
+      "ink-soft": "#3a3340",
+      muted: "#6c6573",
+      accent: "#6d28d9",
+      "accent-soft": "#efe7ff",
+      action: "#f2690d",
+      "action-hover": "#db5b05",
+      "on-action": "#1a0f05",
+      bar: "#f2690d",
+      "on-bar": "#1a0f05",
+      chrome: "#130f19",
+      "chrome-ink": "#f5f0fa",
+      "chrome-muted": "#b9b0c6",
+      "chrome-line": "#2b2335",
+      footer: "#130f19",
+      "footer-ink": "#f5f0fa",
+      "footer-muted": "#b9b0c6",
+      "footer-line": "#2b2335",
+      highlight: "#6d28d9",
+      line: "#e7e1e8",
+      "line-strong": "#d4cbd7",
+      tint: "#f1edf3",
+      "tint-strong": "#e3dbe8",
+      hero: "#140f1d",
+      "hero-blob": "#f2690d",
       sale: "#d6233c",
-      price: "#e2620a",
-      canvas: "#f3eff5",
+      price: "#c2410c",
+      canvas: "#f1ede8",
+      video: "#6d28d9",
     },
   },
 };
@@ -107,7 +191,7 @@ export function resolveStoreConfig(env: StoreEnv): StoreConfig {
     countries: [{ code: "DK", name: "Danmark" }],
     defaultCountry: "DK",
     paymentMethodTitle: "Stripe",
-    supportEmail: env.supportEmail?.trim() || "kundeservice@example.com",
+    supportEmail: env.supportEmail?.trim() || brand.email,
   };
 }
 
@@ -121,6 +205,18 @@ export const storeConfig: StoreConfig = resolveStoreConfig({
 /** The brand's colours as CSS custom properties, for the root element. */
 export function themeStyle(theme: StoreTheme): Record<string, string> {
   return Object.fromEntries(Object.entries(theme).map(([token, value]) => [`--color-${token}`, value]));
+}
+
+/** Colours and heading font of a brand as CSS custom properties, for the root element. */
+export function brandStyle(brand: Pick<StoreBrand, "theme" | "font">): Record<string, string> {
+  const { font } = brand;
+  return {
+    ...themeStyle(brand.theme),
+    "--font-display": `${font.family}, var(--font-sans)`,
+    "--display-weight": String(font.weight),
+    "--display-tracking": font.tracking,
+    "--display-case": font.uppercase ? "uppercase" : "none",
+  };
 }
 
 /** Whether a dark hero needs light text. */

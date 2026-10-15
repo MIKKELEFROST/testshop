@@ -644,7 +644,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               type="submit"
               disabled={payDisabled}
               aria-describedby="betal-total"
-              className="flex h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-action text-base font-semibold text-white transition-colors hover:bg-action-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-action text-base font-semibold text-on-action transition-colors hover:bg-action-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? (
                 <>

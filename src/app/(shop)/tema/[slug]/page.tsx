@@ -1,0 +1,91 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { ProductListing } from "@/components/products/listing";
+import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
+import { Alert } from "@/components/ui/alert";
+import { findCollection, merchandising } from "@/config/merchandising";
+import { parsePage } from "@/lib/pagination";
+import { getCollectionProducts } from "@/lib/woocommerce/collections";
+import { parseSort } from "@/lib/woocommerce/products";
+
+/** A theme page (src/config/merchandising.ts): e.g. "Prinsesser og prinser" or "Halloweenkostumer til damer". */
+
+export function generateStaticParams() {
+  return merchandising.collections.map((c) => ({ slug: c.slug }));
+}
+
+export async function generateMetadata(props: PageProps<"/tema/[slug]">) {
+  const { slug } = await props.params;
+  const collection = findCollection(slug);
+  if (!collection) return { title: "Tema" };
+  return { title: collection.title, description: collection.intro, alternates: { canonical: `/tema/${collection.slug}` } };
+}
+
+export default function ThemePage(props: PageProps<"/tema/[slug]">) {
+  return (
+    <CardBand>
+      <div className="container-shop pt-8 sm:pt-10">
+        <Suspense
+          fallback={
+            <>
+              <div className="h-10 w-64 animate-pulse rounded bg-black/5" />
+              <div className="mt-10">
+                <ProductGridSkeleton />
+              </div>
+            </>
+          }
+        >
+          <ThemeContent params={props.params} searchParams={props.searchParams} />
+        </Suspense>
+      </div>
+    </CardBand>
+  );
+}
+
+async function ThemeContent({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
+  const collection = findCollection(slug);
+  if (!collection) notFound();
+  const page = parsePage(query.side);
+  const sort = parseSort(query.sorter);
+  const result = await getCollectionProducts(slug, { page, sort });
+  if (result === null) notFound();
+  if (result.ok && result.data.products.length === 0 && page > 1) notFound();
+
+  // Other themes to explore: the front page's, then the rest.
+  const others = [...new Set([...merchandising.home.themes.collections, ...merchandising.collections.map((c) => c.slug)])]
+    .filter((s) => s !== slug)
+    .map((s) => findCollection(s)!)
+    .filter((c) => c.themes?.length)
+    .slice(0, 10);
+
+  return (
+    <>
+      <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: collection.title }]} />
+      <h1 className="heading mt-2 text-[34px] text-ink sm:text-5xl">{collection.title}</h1>
+      <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-ink-soft">{collection.intro}</p>
+      {others.length > 0 && (
+        <nav aria-label="Andre temaer" className="mt-6">
+          <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
+            {others.map((c) => (
+              <li key={c.slug} className="shrink-0">
+                <Link href={`/tema/${c.slug}`} className="inline-flex h-9 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink">
+                  {c.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
+      {result.ok ? <ProductListing list={result.data} sort={sort} path={`/tema/${slug}`} /> : <div className="mt-8"><Alert tone="warning">{result.error}</Alert></div>}
+    </>
+  );
+}

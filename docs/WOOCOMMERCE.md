@@ -57,13 +57,19 @@ Alle routes ligger under `/wp-json/wc-headless/v1` og kræver API-nøglen. De ka
 | --- | --- |
 | `GET /status` | Sundhedstjek, inkl. oprydning af ubetalte ordrer |
 | `POST /quote` | Kurv → priser, lager (inkl. andres reservationer), rabatkoder, moms, fragtmetoder, total. Opretter intet. |
-| `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager og rabatkoder. Afviser, hvis totalen afviger fra den, kunden så, eller hvis en rabatkode ikke længere kan bruges. |
+| `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager og rabatkoder. Afviser, hvis totalen afviger fra den, kunden så, eller hvis en rabatkode ikke længere kan bruges. Gemmer webshoppens brand til ordremailene (afsnit 11). |
 | `POST /orders/{id}/payment-intent` | Tilknyt Stripe PaymentIntent (compare-and-set) |
 | `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) og den betalingsmetode, kunden brugte |
 | `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden |
 | `GET /shops` · `PUT /shops/{butiks-id}` | Webshops: list, opret eller omdøb |
 
 Produkt-svar i REST API v3 får desuden feltet `headless_prices` med priser beregnet efter butikkens momsvisning og feltet `webshops` med de webshops, der sælger produktet. `webshops` kan også sættes via API'et, og `GET /wc/v3/products?wchc_shop=<butiks-id>` viser kun webshoppens produkter.
+
+`GET /wc/v3/products?category=<id>&wchc_in_category=<id>[,<id>…]` (plugin 1.4) viser kun de produkter i `category`, der også ligger i hver af kategorierne i `wchc_in_category` eller deres underkategorier. Damekostumer og Halloween giver f.eks. halloweenkostumerne til kvinder. WooCommerces eget `category` giver produkter i blot én af sine kategorier. Ikke-numeriske og ukendte ID'er ignoreres, og filteret virker også sammen med `wchc_shop`.
+
+`wchc_not_in_category=<id>[,<id>…]` (plugin 1.4) udelader produkter, der ligger i en af kategorierne eller deres underkategorier. Fastelavnsshoppen holder f.eks. halloween- og juleprodukter væk fra sine temasider. Filteret kan kombineres med `category`, `tag`, `wchc_in_category` og `wchc_shop` (produkterne skal opfylde dem alle), og ikke-numeriske ID'er ignoreres.
+
+`wchc_in_any_category=<id>[,<id>…]` (plugin 1.4) viser kun produkter, der ligger i mindst én af kategorierne (eller deres underkategorier). Sammen med `wchc_not_in_category` bruger kategorisiderne det til at vise shoppens egen sæson først og resten bagefter (se ARKITEKTUR.md).
 
 ## 6. Rabatkoder
 
@@ -106,6 +112,30 @@ Fragtmetoderne oprettes under **WooCommerce → Indstillinger → Forsendelse** 
 - **Fri fragt fra** (plugin 1.3): feltet på en Fast sats-metode. Når varerne koster mindst beløbet (inkl. moms og efter rabat, som i kurven), viser kassen metoden som "Gratis", og ordren får 0 kr. i fragt. Kunden vælger stadig selv fragtfirma. Lad feltet stå tomt på metoder, der altid koster det samme, f.eks. levering til døren.
 - Shoppen læser det laveste "Fri fragt fra"-beløb og viser det i sine løfter ("Fri fragt v/ 599 kr.") og i kurven ("Køb for 120 kr. mere …"). Teksterne følger derfor med, når beløbet ændres i WooCommerce (inden for en time).
 - WooCommerces egen metode **Gratis forsendelse** virker også, men den vises som et ekstra valg ved siden af de betalte metoder. Den skal bruges, hvis en rabatkode skal give fri fragt (kuponens afkrydsning for gratis forsendelse). "Fri fragt fra" reagerer ikke på sådanne rabatkoder.
+
+## 11. Ordremails i webshoppens navn
+
+Fra plugin 1.4 viser WooCommerces ordremails den webshop, kunden har købt i, i stedet for WordPress-sidens navn. Shoppen sender sit brand med ordren (`store` i `POST /orders`, bygget i `src/lib/checkout/branding.ts`), og pluginet gemmer de gyldige felter på ordren som meta `_wchc_store_branding`:
+
+| Felt | Fra shoppen | Krav (ellers gemmes feltet ikke) |
+| --- | --- | --- |
+| `name` | `storeConfig.name` | Ren tekst, højst 100 tegn |
+| `url` | `NEXT_PUBLIC_SITE_URL` | http- eller https-adresse |
+| `email` | `storeConfig.supportEmail` (`NEXT_PUBLIC_SUPPORT_EMAIL`) | Gyldig e-mailadresse |
+| `color` | Brandets farve `action`, ellers `#1d1b19` | `#rrggbb` |
+| `logo` | `NEXT_PUBLIC_SITE_URL` + `/email-logo.png` (`public/email-logo.png` i shoppen) | https-adresse |
+
+Mails om en ordre med brandet (kundens mails, f.eks. *Behandler*, *Gennemført*, *Afventer*, *Refunderet*, faktura og kundenote, og *Ny ordre* til butikken) ændres sådan:
+
+- **Afsendernavn:** webshoppens navn. Afsenderadressen er stadig WooCommerces (**WooCommerce → Indstillinger → E-mails**).
+- **Svar til (Reply-To):** webshoppens e-mail i kundens mails. *Ny ordre* og de andre mails til butikken har stadig kunden som Svar til, som i WooCommerce.
+- **Pladsholdere** i emne, overskrift, ekstra indhold og sidefodstekst: `{site_title}` bliver webshoppens navn, `{site_url}` webshoppens domæne og `{store_url}` dens fulde adresse.
+- **Logo og farve:** headerbilledet er webshoppens logo og linker til webshoppen. Grundfarven er webshoppens farve.
+- **Ny ordre:** emnet nævner webshoppen, også hvis det ikke indeholder `{site_title}`, f.eks. "[Maskerade] Ny ordre #123".
+
+Et felt, der mangler eller er ugyldigt, bruger WooCommerces egen indstilling. Ordrer uden brand (fra en shop før plugin 1.4 eller oprettet i WordPress) får WooCommerces mails som før. WooCommerces blokbaserede e-mail-editor (slået fra som standard) får afsendernavn, Svar til og tekster. Dér kommer logo eller sidetitel og farver fra editorens skabelon.
+
+Sæt `NEXT_PUBLIC_SUPPORT_EMAIL` i hver webshops Vercel-projekt. Uden den bliver Svar til `kundeservice@example.com`.
 
 ## Kendte begrænsninger
 

@@ -260,6 +260,8 @@ final class WCHC_REST_Controller {
 			'customer_ip'          => isset( $body['customer_ip'] ) && filter_var( $body['customer_ip'], FILTER_VALIDATE_IP ) ? (string) $body['customer_ip'] : '',
 			'customer_user_agent'  => isset( $body['customer_user_agent'] ) ? sanitize_text_field( substr( (string) $body['customer_user_agent'], 0, 500 ) ) : '',
 			'coupons'              => $this->parse_coupons( $body['coupons'] ?? array() ),
+			// The webshop's brand for the order e-mails; invalid fields are dropped (since 1.4).
+			'store'                => WCHC_Emails::sanitize_store( $body['store'] ?? null ),
 		);
 
 		if ( ! WCHC_Lock::acquire( 'checkout:' . $input['checkout_id'], 15 ) ) {
