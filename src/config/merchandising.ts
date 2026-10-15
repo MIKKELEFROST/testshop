@@ -396,9 +396,9 @@ const halloween: Merchandising = {
         { label: "Damer", href: "/tema/halloweenkostumer-til-damer" },
         { label: "Herrer", href: "/tema/halloweenkostumer-til-herrer" },
         { label: "Børn", href: "/tema/halloweenkostumer-til-boern" },
-        { label: "Masker", href: "/tema/halloweenmasker" },
-        { label: "Blod og effekter", href: "/kategori/blod-og-effekter" },
-        { label: "Pynt", href: "/kategori/halloweenpynt" },
+        { label: "Masker", href: "/tema/halloweenmasker", product: "pestlaegemaske-pvc" },
+        { label: "Blod og effekter", href: "/kategori/blod-og-effekter", product: "vampyrgebis-i-hoej-kvalitet-med-termoplastisk-harpiks-roed-og-groen" },
+        { label: "Pynt", href: "/kategori/halloweenpynt", product: "assorteret-skelet-kandelaber-med-lys-pvc-35-cm" },
       ],
     },
     themes: {
