@@ -16,8 +16,12 @@
  * - Cancelled, refunded or failed before that: the storefront cancels the PaymentIntent (event
  *   `canceled`): the reservation is released. Core restores the stock as usual.
  * - Expired in Stripe (event `canceled` while the order waits to be sent): note and e-mail.
+ * - Collected another way (the reservation expired, was released or keeps being declined): the
+ *   order action "Betalingen er klaret uden om webshoppen" (capture status manual) lets the shop
+ *   keep the order completed.
  * - Safety net: the storefront's daily job calls POST /payments/sweep, which lists the orders
- *   still to capture or release and warns about reservations older than five days.
+ *   still to capture or release and warns about reservations older than five days and sent
+ *   orders still not captured a day later.
  *
  * The storefront never trusts a callback: it is only a hint to look at the order. Orders without
  * WCHC_META_CAPTURE_STATUS (paid at once, before 1.5) are never touched.
@@ -37,6 +41,12 @@ final class WCHC_Capture {
 
 	/** Capture statuses where Stripe may still hold the customer's money for the order. */
 	const HELD = array( 'authorized', 'failed' );
+
+	/** Capture statuses where the payment is done: captured, or collected by the shop another way (manual). */
+	const SETTLED = array( 'captured', 'manual' );
+
+	/** Capture statuses after which the shop may collect the payment another way. */
+	const NOT_CAPTURED = array( 'failed', 'expired', 'released' );
 
 	/**
 	 * Orders whose storefront is told at the end of this request.
@@ -59,6 +69,7 @@ final class WCHC_Capture {
 		add_action( 'woocommerce_order_status_changed', array( __CLASS__, 'status_changed' ), 20, 4 );
 		add_filter( 'woocommerce_order_actions', array( __CLASS__, 'order_actions' ), 10, 2 );
 		add_action( 'woocommerce_order_action_wchc_settle_payment', array( __CLASS__, 'queue' ) );
+		add_action( 'woocommerce_order_action_wchc_payment_handled', array( __CLASS__, 'payment_handled' ) );
 
 		// Before WooCommerce's order table (10), in the customer's and the shop's e-mails.
 		add_action( 'woocommerce_email_order_details', array( __CLASS__, 'payment_notice' ), 5, 4 );
@@ -67,8 +78,8 @@ final class WCHC_Capture {
 	}
 
 	/**
-	 * The order's capture status: authorized, captured, failed, expired, released, or '' (an order
-	 * paid at once, before 1.5).
+	 * The order's capture status: authorized, captured, failed, expired, released, manual (collected
+	 * another way), or '' (an order paid at once, before 1.5).
 	 *
 	 * @param WC_Order $order Order.
 	 */
@@ -268,11 +279,10 @@ final class WCHC_Capture {
 			$order->save();
 			$order->payment_complete( $intent_id );
 		} else {
-			// Sent (completed), or being packed (processing): core's payment_complete() would not record it.
+			// Sent (completed), or being packed (processing): core's payment_complete() would not record
+			// it. Paid now, not when core set the date at an earlier completion.
 			$order->set_transaction_id( $intent_id );
-			if ( ! $order->get_date_paid( 'edit' ) ) {
-				$order->set_date_paid( time() );
-			}
+			$order->set_date_paid( time() );
 			$order->save();
 		}
 		$order->add_order_note( $note );
@@ -293,15 +303,16 @@ final class WCHC_Capture {
 		$reason = '' !== $input['message'] ? $input['message'] : 'ukendt årsag';
 
 		if ( 'capture_failed' === $input['event'] ) {
-			if ( 'captured' === $status || ! $order->has_status( 'completed' ) ) {
-				// Already back on-hold (reported by the webhook and the storefront), or not sent.
+			if ( in_array( $status, self::SETTLED, true ) || ! $order->has_status( 'completed' ) ) {
+				// Already back on-hold (reported by the webhook and the storefront), not sent, or paid.
 				return WCHC_Orders::result( 'ignored', $order );
 			}
 			return self::fail_capture( $order, $reason, 'failed' );
 		}
 
-		if ( 'canceled' !== $input['event'] || 'captured' === $status ) {
-			// "processing" and "failed" do not happen to an authorized payment.
+		if ( 'canceled' !== $input['event'] || in_array( $status, self::SETTLED, true ) ) {
+			// "processing" and "failed" do not happen to an authorized payment; a reservation left
+			// after the shop collected the payment another way may expire.
 			return WCHC_Orders::result( 'ignored', $order );
 		}
 
@@ -344,7 +355,12 @@ final class WCHC_Capture {
 			$order->update_meta_data( WCHC_META_CAPTURE_STATUS, $status );
 		}
 		$order->update_meta_data( WCHC_META_CAPTURE_ATTEMPT, (int) $order->get_meta( WCHC_META_CAPTURE_ATTEMPT ) + 1 );
-		$message = sprintf( 'Betalingen kunne ikke trækkes: %s. Ordren er sat tilbage til Afventer. Kontakt kunden om betalingen.', $reason );
+		// Core set the date paid when the order was completed: nothing is paid.
+		$order->set_date_paid( null );
+		$next    = 'failed' === self::status( $order )
+			? 'Markér ordren Gennemført igen for et nyt forsøg. Har kunden betalt på anden vis, så vælg "Betalingen er klaret uden om webshoppen" under Ordrehandlinger.'
+			: 'Reservationen kan ikke trækkes. Når kunden har betalt på anden vis, så vælg "Betalingen er klaret uden om webshoppen" under Ordrehandlinger, og markér derefter ordren Gennemført.';
+		$message = sprintf( 'Betalingen kunne ikke trækkes: %s. Ordren er sat tilbage til Afventer. Kontakt kunden om betalingen. %s', $reason, $next );
 		$order->update_status( 'on-hold', $message );
 		self::mail_admin( $order, sprintf( 'Betalingen for ordre #%s kunne ikke trækkes', $order->get_order_number() ), array( $message ) );
 		return WCHC_Orders::result( 'capture_failed', $order );
@@ -358,8 +374,8 @@ final class WCHC_Capture {
 	 */
 	public static function settle_action( WC_Order $order ): ?string {
 		$status = self::status( $order );
-		if ( $order->has_status( 'completed' ) && '' !== $status && 'captured' !== $status ) {
-			// Also when nothing is held any more: the storefront reports why it cannot capture.
+		if ( $order->has_status( 'completed' ) && '' !== $status && ! in_array( $status, self::SETTLED, true ) ) {
+			// Also when nothing is held any more: the order goes back on-hold, as it is not paid.
 			return 'capture';
 		}
 		if ( $order->has_status( self::RELEASE_STATUSES ) && in_array( $status, self::HELD, true ) ) {
@@ -377,7 +393,15 @@ final class WCHC_Capture {
 	 * @param WC_Order $order    Order.
 	 */
 	public static function status_changed( $order_id, $from, $to, $order ): void {
-		if ( $order instanceof WC_Order && self::settle_action( $order ) ) {
+		if ( ! $order instanceof WC_Order ) {
+			return;
+		}
+		if ( in_array( $to, array( 'processing', 'completed' ), true ) && in_array( self::status( $order ), self::HELD, true ) && $order->get_date_paid( 'edit' ) ) {
+			// Core sets the date paid on Processing and Completed; it is paid when the capture is recorded.
+			$order->set_date_paid( null );
+			$order->save();
+		}
+		if ( self::settle_action( $order ) ) {
 			self::queue( $order );
 		}
 	}
@@ -448,6 +472,13 @@ final class WCHC_Capture {
 	private static function fail_unheld( int $order_id ): void {
 		$lock = 'order:' . $order_id;
 		if ( ! WCHC_Lock::acquire( $lock, 5 ) ) {
+			// Busy (e.g. a payment event): the order is not moved, but the shop is told (a note needs no lock).
+			$order = WCHC_Orders::load_fresh( $order_id );
+			if ( $order && 'capture' === self::settle_action( $order ) && ! in_array( self::status( $order ), self::HELD, true ) ) {
+				$message = 'Betalingen kan ikke trækkes: reservationen er udløbet eller frigivet. Ordren er ikke betalt, kontakt kunden. Når kunden har betalt på anden vis, så vælg "Betalingen er klaret uden om webshoppen" under Ordrehandlinger.';
+				$order->add_order_note( $message );
+				self::mail_admin( $order, sprintf( 'Betalingen for ordre #%s kunne ikke trækkes', $order->get_order_number() ), array( $message ) );
+			}
 			return;
 		}
 		try {
@@ -471,7 +502,9 @@ final class WCHC_Capture {
 			$url,
 			array(
 				'timeout'     => 10,
-				'redirection' => 0,
+				// E.g. the apex domain redirecting to www: 301/307/308 keep the POST and its body
+				// (a 302 becomes a GET, which the storefront refuses); every hop is validated.
+				'redirection' => 2,
 				'user-agent'  => 'Headless Checkout Bridge/' . WCHC_VERSION,
 				'headers'     => array( 'Content-Type' => 'application/json' ),
 				'body'        => (string) wp_json_encode( array( 'orders' => wp_list_pluck( $items, 'body' ) ) ),
@@ -489,22 +522,61 @@ final class WCHC_Capture {
 	}
 
 	/**
-	 * "Træk eller frigiv betalingen nu" under the order actions, when there is something to do.
+	 * Order actions: "Træk eller frigiv betalingen nu" when there is something to do, and
+	 * "Betalingen er klaret uden om webshoppen" when the reservation can no longer be captured.
 	 *
 	 * @param array<string,string> $actions Actions.
 	 * @param mixed                $order   Order.
 	 * @return array<string,string>
 	 */
 	public static function order_actions( $actions, $order = null ) {
-		if ( is_array( $actions ) && $order instanceof WC_Order && self::settle_action( $order ) ) {
+		if ( ! is_array( $actions ) || ! $order instanceof WC_Order ) {
+			return $actions;
+		}
+		if ( self::settle_action( $order ) ) {
 			$actions['wchc_settle_payment'] = 'Træk eller frigiv betalingen nu';
+		}
+		if ( in_array( self::status( $order ), self::NOT_CAPTURED, true ) ) {
+			$actions['wchc_payment_handled'] = 'Betalingen er klaret uden om webshoppen';
 		}
 		return $actions;
 	}
 
 	/**
+	 * The shop collected the payment another way (the reservation expired, was released or keeps
+	 * being declined): capture status manual, so completing the order no longer sends it back
+	 * on-hold. A reservation Stripe may still hold expires by itself.
+	 *
+	 * @param mixed $order Order.
+	 */
+	public static function payment_handled( $order ): void {
+		if ( ! $order instanceof WC_Order ) {
+			return;
+		}
+		$lock = 'order:' . $order->get_id();
+		if ( ! WCHC_Lock::acquire( $lock, 15 ) ) {
+			$order->add_order_note( 'Betalingen kunne ikke markeres som klaret, fordi ordren var optaget. Prøv igen.' );
+			return;
+		}
+		try {
+			$fresh = WCHC_Orders::load_fresh( $order->get_id() );
+			if ( ! $fresh || ! in_array( self::status( $fresh ), self::NOT_CAPTURED, true ) ) {
+				return;
+			}
+			$fresh->update_meta_data( WCHC_META_CAPTURE_STATUS, 'manual' );
+			$fresh->save();
+			$user = wp_get_current_user();
+			$fresh->add_order_note( sprintf( 'Betalingen er markeret som klaret uden om webshoppen (af %s). Ordren kan nu markeres Gennemført.', $user->exists() ? $user->display_name : 'ukendt bruger' ) );
+		} finally {
+			WCHC_Lock::release( $lock );
+		}
+	}
+
+	/**
 	 * The storefront's daily job: the orders of a webshop to capture or release, and a warning
-	 * (note and one e-mail) about reservations that will soon expire before the order is sent.
+	 * (note and one e-mail) about reservations that will soon expire before the order is sent, and
+	 * about sent orders whose payment is still not captured a day later (e.g. the storefront's
+	 * capture keeps failing): the shop should not first hear of them when the reservation expires.
 	 *
 	 * @param string $store_id Store ID.
 	 * @param int    $limit    Most orders listed.
@@ -515,6 +587,7 @@ final class WCHC_Capture {
 		$before = time() - $days * DAY_IN_SECONDS;
 		$settle = array();
 		$warned = array();
+		$late   = array();
 		foreach ( self::held_order_ids( $store_id, 500 ) as $order_id ) {
 			$order = wc_get_order( $order_id );
 			if ( ! $order instanceof WC_Order ) {
@@ -529,6 +602,9 @@ final class WCHC_Capture {
 						'action'    => $action,
 					);
 				}
+				if ( self::capture_late( $order ) && self::warn_late( $order_id ) ) {
+					$late[] = $order->get_id();
+				}
 				continue;
 			}
 			$authorized = (int) $order->get_meta( WCHC_META_AUTHORIZED_AT );
@@ -536,21 +612,71 @@ final class WCHC_Capture {
 				$warned[] = $order->get_id();
 			}
 		}
-		if ( $warned ) {
-			$orders = array_map( 'wc_get_order', $warned );
-			$lines  = array( sprintf( 'Disse ordrer har ventet mere end %d dage på at blive sendt. Betalingen er kun reserveret, og reservationen udløber normalt efter 7 dage. Send dem, og markér dem som Gennemført – ellers kan beløbet ikke trækkes:', $days ) );
-			foreach ( $orders as $order ) {
-				$lines[] = sprintf( 'Ordre #%s (%s), reserveret %s', $order->get_order_number(), self::money( $order, (float) $order->get_total() ), wp_date( 'j. F Y', (int) $order->get_meta( WCHC_META_AUTHORIZED_AT ) ) );
+		if ( $warned || $late ) {
+			$lines = array();
+			if ( $late ) {
+				$lines[] = 'Disse ordrer er sendt for mere end et døgn siden, men betalingen er endnu ikke trukket. Den daglige kørsel prøver igen; vælg "Træk eller frigiv betalingen nu" under Ordrehandlinger på ordren, eller kontakt udvikleren:';
+				foreach ( array_map( 'wc_get_order', $late ) as $order ) {
+					$lines[] = sprintf( 'Ordre #%s (%s), sendt %s', $order->get_order_number(), self::money( $order, self::capture_amount( $order ) ), wp_date( 'j. F Y', $order->get_date_completed()->getTimestamp() ) );
+				}
 			}
-			$subject = count( $orders ) > 1
-				? sprintf( '%d reservationer udløber snart', count( $orders ) )
-				: sprintf( 'Reservationen for ordre #%s udløber snart', $orders[0]->get_order_number() );
+			if ( $warned ) {
+				$lines[] = sprintf( 'Disse ordrer har ventet mere end %d dage på at blive sendt. Betalingen er kun reserveret, og reservationen udløber normalt efter 7 dage. Send dem, og markér dem som Gennemført – ellers kan beløbet ikke trækkes:', $days );
+				foreach ( array_map( 'wc_get_order', $warned ) as $order ) {
+					$lines[] = sprintf( 'Ordre #%s (%s), reserveret %s', $order->get_order_number(), self::money( $order, (float) $order->get_total() ), wp_date( 'j. F Y', (int) $order->get_meta( WCHC_META_AUTHORIZED_AT ) ) );
+				}
+			}
+			$orders = array_map( 'wc_get_order', array_merge( $late, $warned ) );
+			if ( count( $orders ) > 1 ) {
+				$subject = $late ? sprintf( '%d ordrer venter på betalingen', count( $orders ) ) : sprintf( '%d reservationer udløber snart', count( $orders ) );
+			} else {
+				$subject = $late ? sprintf( 'Betalingen for ordre #%s er ikke trukket', $orders[0]->get_order_number() ) : sprintf( 'Reservationen for ordre #%s udløber snart', $orders[0]->get_order_number() );
+			}
 			self::mail_admin( $orders[0], $subject, $lines );
 		}
 		return array(
 			'settle' => $settle,
-			'warned' => $warned,
+			'warned' => array_merge( $late, $warned ),
 		);
+	}
+
+	/**
+	 * A sent order whose payment is still to be captured more than a day after it was completed,
+	 * not warned about for this attempt yet.
+	 *
+	 * @param WC_Order $order Order.
+	 */
+	private static function capture_late( WC_Order $order ): bool {
+		$completed = $order->get_date_completed();
+		$warned    = $order->get_meta( WCHC_META_CAPTURE_LATE_WARNED );
+		return 'capture' === self::settle_action( $order )
+			&& $completed && $completed->getTimestamp() < time() - DAY_IN_SECONDS
+			&& ( '' === $warned || (int) $warned !== (int) $order->get_meta( WCHC_META_CAPTURE_ATTEMPT ) );
+	}
+
+	/**
+	 * Note on a sent order that its payment is still not captured, once per attempt (under the
+	 * order lock; skipped while busy).
+	 *
+	 * @param int $order_id Order ID.
+	 */
+	private static function warn_late( int $order_id ): bool {
+		$lock = 'order:' . $order_id;
+		if ( ! WCHC_Lock::acquire( $lock, 0 ) ) {
+			return false;
+		}
+		try {
+			$order = WCHC_Orders::load_fresh( $order_id );
+			if ( ! $order || ! self::capture_late( $order ) ) {
+				return false;
+			}
+			$order->update_meta_data( WCHC_META_CAPTURE_LATE_WARNED, (int) $order->get_meta( WCHC_META_CAPTURE_ATTEMPT ) );
+			$order->save();
+			$order->add_order_note( 'Ordren er sendt, men betalingen er endnu ikke trukket. Den daglige kørsel prøver igen; vælg "Træk eller frigiv betalingen nu" under Ordrehandlinger, eller kontakt udvikleren.' );
+			return true;
+		} finally {
+			WCHC_Lock::release( $lock );
+		}
 	}
 
 	/**
@@ -628,7 +754,8 @@ final class WCHC_Capture {
 
 	/**
 	 * The payment in a reserved order's e-mails: the customer's on-hold and completed e-mails say
-	 * that the amount is reserved and charged when the order is sent; "New order" tells the shop.
+	 * that the amount is reserved and charged when the order is sent, the refund e-mails that
+	 * nothing was charged; "New order" tells the shop. Nothing for a payment collected another way.
 	 *
 	 * @param mixed $order         Order.
 	 * @param bool  $sent_to_admin Whether the e-mail goes to the shop.
@@ -648,6 +775,11 @@ final class WCHC_Capture {
 			$text = sprintf( 'Betalingen på %s er reserveret, ikke trukket. Markér ordren som Gennemført, når den er sendt – så trækkes beløbet. Annullér ordren, hvis den ikke skal sendes – så frigives reservationen. Reservationen udløber normalt efter 7 dage.', $amount );
 		} elseif ( in_array( $status, array( 'authorized', 'captured' ), true ) && 'customer_completed_order' === $email->id ) {
 			$text = 'captured' === $status ? sprintf( 'Beløbet på %s er nu trukket.', $amount ) : sprintf( 'Vi trækker nu det reserverede beløb på %s.', $amount );
+		} elseif ( 'authorized' === $status && in_array( $email->id, array( 'customer_refunded_order', 'customer_partially_refunded_order' ), true ) ) {
+			// WooCommerce's refund e-mail says "refunderet", but nothing was charged: the reservation shrinks.
+			$text = self::capture_amount( $order ) > 0
+				? sprintf( 'Beløbet er ikke trukket endnu, så der er intet at betale tilbage: vi trækker kun %s, når vi sender din ordre, og resten af reservationen frigives.', $amount )
+				: 'Beløbet er ikke trukket, så reservationen frigives, og du betaler ingenting.';
 		}
 		if ( '' === $text ) {
 			return;

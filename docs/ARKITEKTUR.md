@@ -80,7 +80,9 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
        Gennemført → capture(ordrens beløb − refunderinger), idempotency key pr. forsøg
                     → succeeded → transaktions-ID, betalingsdato, "Betalingen er trukket"
                     → afvist/udløbet → capture_failed/canceled → "on-hold", note, mail til butikken
+                      (betalt på anden vis: ordrehandling → "manual", ordren kan forblive Gennemført)
        Annulleret → PaymentIntent annulleres → canceled → "Reservationen er frigivet"
+   • dagligt job: advarer også om sendte ordrer, der et døgn senere ikke er trukket
 ```
 
 \* Bruger WooCommerces indstilling "Hold lager (minutter)". Er den tom, reserverer pluginet i 15 minutter. Pluginet annullerer selv ubetalte headless-ordrer efter "Hold lager"-tiden (60 minutter, hvis den er tom), og en ordre ældre end det genoptages ikke, men erstattes af en ny.

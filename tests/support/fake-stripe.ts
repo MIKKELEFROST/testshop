@@ -4,7 +4,7 @@ import type { CreatePaymentIntentParams, PaymentGateway, PaymentIntentLike, Paym
 export class FakeStripeError extends Error {
   constructor(
     message: string,
-    public readonly rawType: "card_error" | "invalid_request_error" | "idempotency_error" | "api_connection_error",
+    public readonly rawType: "card_error" | "invalid_request_error" | "idempotency_error" | "api_connection_error" | "api_error",
     public readonly code?: string,
   ) {
     super(message);
@@ -28,9 +28,7 @@ export class FakeStripe implements PaymentGateway {
   private seq = 0;
 
   async retrieve(id: string) {
-    const pi = this.intents.get(id);
-    if (!pi) throw new Error(`No such payment_intent: ${id}`);
-    return structuredClone(pi);
+    return structuredClone(this.require(id));
   }
 
   async create(params: CreatePaymentIntentParams, idempotencyKey: string) {
@@ -165,9 +163,10 @@ export class FakeStripe implements PaymentGateway {
     this.captureFailures.set(id, new FakeStripeError("Your card was declined.", "card_error", code));
   }
 
+  /** Unknown here, like a test-mode PaymentIntent asked for with a live key: Stripe's resource_missing. */
   private require(id: string) {
     const pi = this.intents.get(id);
-    if (!pi) throw new Error(`No such payment_intent: ${id}`);
+    if (!pi) throw new FakeStripeError(`No such payment_intent: '${id}'`, "invalid_request_error", "resource_missing");
     return pi;
   }
 }

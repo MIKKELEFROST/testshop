@@ -186,8 +186,9 @@ export const orderSummarySchema = z.object({
   needs_payment: z.boolean(),
   payment_intent_id: z.string().nullable(),
   /**
-   * Plugin 1.5: the authorized payment (status authorized, captured, failed, expired or released)
-   * and what is captured when the order is sent (its total less refunds). Null: paid at once.
+   * Plugin 1.5: the authorized payment (status authorized, captured, failed, expired, released or
+   * manual: collected by the shop another way) and what is captured when the order is sent (its
+   * total less refunds). Null: paid at once.
    */
   capture: z
     .object({

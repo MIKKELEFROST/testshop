@@ -155,6 +155,17 @@ export async function getShippingMethod(instanceId: number): Promise<ShippingMet
   return admin<ShippingMethod>(`shipping/zones/1/methods/${instanceId}`);
 }
 
+/** The order actions WooCommerce offers on the order page (their IDs). */
+export async function orderActions(id: number): Promise<string[]> {
+  const out = await wpEval(`echo "\n@@" . wp_json_encode( array_keys( (array) apply_filters( 'woocommerce_order_actions', array(), wc_get_order( ${Math.trunc(id)} ) ) ) );`);
+  return JSON.parse(out.slice(out.lastIndexOf("@@") + 2)) as string[];
+}
+
+/** The shop (user 1, admin) picks "Betalingen er klaret uden om webshoppen" under the order actions (plugin 1.5). */
+export async function paymentHandled(id: number) {
+  await wpEval(`wp_set_current_user( 1 ); do_action( 'woocommerce_order_action_wchc_payment_handled', wc_get_order( ${Math.trunc(id)} ) );`);
+}
+
 /** Run PHP inside the local WordPress (WP-CLI `eval`). */
 export async function wpEval(php: string): Promise<string> {
   const { execFileSync } = await import("node:child_process");

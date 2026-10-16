@@ -42,6 +42,7 @@ define( 'WCHC_META_AUTHORIZED_AT', '_wchc_authorized_at' );
 define( 'WCHC_META_SETTLE_CALLBACK', '_wchc_settle_callback' );
 define( 'WCHC_META_RESERVATION_WARNED', '_wchc_reservation_warned' );
 define( 'WCHC_META_CAPTURE_ATTEMPT', '_wchc_capture_attempt' );
+define( 'WCHC_META_CAPTURE_LATE_WARNED', '_wchc_capture_late_warned' );
 define( 'WCHC_PAYMENT_METHOD_ID', 'wchc_stripe' );
 
 /** WP-Cron hook that cancels abandoned unpaid headless orders. */

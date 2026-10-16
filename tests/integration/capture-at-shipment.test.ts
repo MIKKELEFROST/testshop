@@ -11,7 +11,7 @@
  */
 import { createServer, type Server } from "node:http";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eventFor, FakeStripe } from "../support/fake-stripe";
+import { eventFor, FakeStripe, FakeStripeError } from "../support/fake-stripe";
 import {
   cancelOpenOrders,
   clearMails,
@@ -19,7 +19,9 @@ import {
   getOrder,
   getProduct,
   metaValue,
+  orderActions,
   orderNotes,
+  paymentHandled,
   productBySku,
   refundOrder,
   sentMails,
@@ -122,6 +124,11 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(chunk as Buffer);
       const body = Buffer.concat(chunks).toString();
+      if (req.url === "/redirect/api/payments/settle") {
+        // The shop's address redirects (e.g. the apex domain to www).
+        res.writeHead(308, { Location: `http://host.docker.internal:${PORT}/api/payments/settle` }).end();
+        return;
+      }
       if (req.url !== "/api/payments/settle") {
         res.writeHead(404).end();
         return;
@@ -239,9 +246,28 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     const stripe = new FakeStripe();
     const order = await authorizedOrder(depsFor(stripe), ids.tshirt, 2);
     await refundOrder(order.id, "249.00"); // one T-shirt could not be sent
+    // WooCommerce's refund e-mail to the customer says that nothing was charged.
+    const [refundMail] = await mailsFor(order.id, "customer_partially_refunded_order");
+    expect(refundMail!.message).toContain("Beløbet er ikke trukket endnu, så der er intet at betale tilbage: vi trækker kun 298");
+
+    // Being packed (Behandler): not paid yet, although WooCommerce sets a date paid on that status.
+    await shop(order.id, "processing");
+    expect(await getOrder(order.id)).toMatchObject({ status: "processing", date_paid: null, transaction_id: "" });
+
     await shop(order.id, "completed");
     expect(await stripe.retrieve(order.pi)).toMatchObject({ status: "succeeded", amount_received: 29800, amount_capturable: 0 });
-    expect(metaValue(await getOrder(order.id), "_wchc_capture_status")).toBe("captured");
+    const paid = await getOrder(order.id);
+    expect(metaValue(paid, "_wchc_capture_status")).toBe("captured");
+    expect(paid.date_paid).not.toBeNull();
+  });
+
+  it("captures when the shop's address redirects (e.g. the apex domain to www)", async () => {
+    const stripe = new FakeStripe();
+    const order = await authorizedOrder(depsFor(stripe, `http://host.docker.internal:${PORT}/redirect/api/payments/settle`), ids.tshirt, 1);
+    await shop(order.id, "completed");
+    expect(state.callbacks.map((c) => c.status)).toEqual([202]);
+    expect(await getOrder(order.id)).toMatchObject({ status: "completed", transaction_id: order.pi });
+    expect(stripe.calls.capture).toBe(1);
   });
 
   it("refuses callbacks without the order's token", async () => {
@@ -285,6 +311,18 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     expect(await notesWith(order.id, "er frigivet")).toHaveLength(1);
   });
 
+  it("releases the reservation of an order set to Refunded before it is sent, without restocking (WooCommerce's rule)", async () => {
+    const stripe = new FakeStripe();
+    const order = await authorizedOrder(depsFor(stripe), ids.hat, 2);
+    await shop(order.id, "refunded");
+    expect((await stripe.retrieve(order.pi)).status).toBe("canceled");
+    expect(metaValue(await getOrder(order.id), "_wchc_capture_status")).toBe("released");
+    const [refundMail] = await mailsFor(order.id, "customer_refunded_order");
+    expect(refundMail!.message).toContain("Beløbet er ikke trukket, så reservationen frigives, og du betaler ingenting.");
+    // Only Annulleret puts the items back on stock (see WOOCOMMERCE.md).
+    expect((await getProduct(ids.hat)).stock_quantity).toBe(8);
+  });
+
   it("puts the order back on-hold and e-mails the shop when the capture is refused; completing it again retries", async () => {
     const stripe = new FakeStripe();
     const order = await authorizedOrder(depsFor(stripe), ids.tshirt, 1);
@@ -293,6 +331,8 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     await shop(order.id, "completed");
     const failed = await getOrder(order.id);
     expect(failed).toMatchObject({ status: "on-hold", transaction_id: "" });
+    // WooCommerce set a date paid when the order was completed: nothing is paid.
+    expect(failed.date_paid).toBeNull();
     expect(metaValue(failed, "_wchc_capture_status")).toBe("failed");
     expect(await notesWith(order.id, "Betalingen kunne ikke trækkes: Stripe afviste at trække beløbet (card_declined)")).toHaveLength(1);
     const alerts = await adminMails(`Betalingen for ordre #${order.id} kunne ikke trækkes`);
@@ -301,7 +341,9 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     expect((await getProduct(ids.tshirt)).stock_quantity).toBe(24);
 
     await shop(order.id, "completed");
-    expect(await getOrder(order.id)).toMatchObject({ status: "completed", transaction_id: order.pi });
+    const paid = await getOrder(order.id);
+    expect(paid).toMatchObject({ status: "completed", transaction_id: order.pi });
+    expect(paid.date_paid).not.toBeNull();
     expect(stripe.calls.capture).toBe(1);
     expect((await getProduct(ids.tshirt)).stock_quantity).toBe(24);
   });
@@ -325,6 +367,70 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     expect((await getOrder(order.id)).status).toBe("on-hold");
     expect(await notesWith(order.id, "Betalingen kunne ikke trækkes: reservationen er udløbet")).toHaveLength(1);
     expect(stripe.calls.capture).toBe(0);
+
+    // The customer pays another way: the shop says so (order action), and the order stays sent.
+    expect(await orderActions(order.id)).toContain("wchc_payment_handled");
+    await clearMails();
+    await paymentHandled(order.id);
+    expect(await notesWith(order.id, "Betalingen er markeret som klaret uden om webshoppen (af admin)")).toHaveLength(1);
+    await shop(order.id, "completed");
+    const sent = await getOrder(order.id);
+    expect(sent.status).toBe("completed");
+    expect(metaValue(sent, "_wchc_capture_status")).toBe("manual");
+    expect(await adminMails("kunne ikke trækkes")).toHaveLength(0);
+    expect(await orderActions(order.id)).not.toContain("wchc_payment_handled");
+    expect(stripe.calls.capture).toBe(0);
+    expect((await sweepPayments(storeId)).settle.map((o) => o.id)).not.toContain(order.id);
+  });
+
+  it("tells the shop when a sent order's reservation is gone, also while another request holds the order", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const order = await authorizedOrder(deps, ids.tshirt, 1);
+    // The shop cancelled it (released), then reopens it and sends it while a payment event holds the order lock.
+    await shop(order.id, "cancelled");
+    await shop(order.id, "on-hold");
+    const { spawn } = await import("node:child_process");
+    const holder = spawn("docker", ["exec", "wcwp", "wp", "--allow-root", "--path=/var/www/html", "eval", `WCHC_Lock::acquire( 'order:${order.id}', 0 ); echo "locked\n"; sleep( 9 );`]);
+    await new Promise<void>((resolve) => holder.stdout.on("data", (chunk: Buffer) => chunk.toString().includes("locked") && resolve()));
+    await shop(order.id, "completed");
+    await new Promise((resolve) => holder.on("close", resolve));
+
+    const sent = await getOrder(order.id);
+    expect(sent.status).toBe("completed");
+    expect(await notesWith(order.id, "Betalingen kan ikke trækkes: reservationen er udløbet eller frigivet")).toHaveLength(1);
+    expect(await adminMails(`Betalingen for ordre #${order.id} kunne ikke trækkes`)).toHaveLength(1);
+    expect(stripe.calls.capture).toBe(0);
+  });
+
+  it("warns the shop once when a sent order's payment is still not captured a day later", async () => {
+    const stripe = new FakeStripe();
+    const order = await authorizedOrder(depsFor(stripe), ids.tshirt, 1);
+    // Stripe fails (not a refusal) every time: the storefront accepted the callback, but nothing is written.
+    const capture = stripe.capture.bind(stripe);
+    stripe.capture = async () => {
+      throw new FakeStripeError("An error occurred with our API.", "api_error");
+    };
+    await shop(order.id, "completed");
+    expect(state.callbacks.map((c) => c.status)).toEqual([202]);
+    expect(await getOrder(order.id)).toMatchObject({ status: "completed", transaction_id: "" });
+
+    // The next morning nothing is due yet; a day after it was sent, the shop is told.
+    expect((await runSettleSweep(depsFor(stripe))).warned).toBe(0);
+    await wpEval(`$o = wc_get_order(${order.id}); $o->set_date_completed( time() - DAY_IN_SECONDS - HOUR_IN_SECONDS ); $o->save();`);
+    const run = await runSettleSweep(depsFor(stripe));
+    expect(run).toMatchObject({ failed: 1, warned: 1 });
+    expect(await notesWith(order.id, "Ordren er sendt, men betalingen er endnu ikke trukket")).toHaveLength(1);
+    const alerts = await adminMails(`Betalingen for ordre #${order.id} er ikke trukket`);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.message).toContain(`Ordre #${order.id}`);
+
+    // Once per attempt; the next run that reaches Stripe captures it.
+    expect((await runSettleSweep(depsFor(stripe))).warned).toBe(0);
+    expect(await notesWith(order.id, "Ordren er sendt, men betalingen er endnu ikke trukket")).toHaveLength(1);
+    stripe.capture = capture;
+    expect(await runSettleSweep(depsFor(stripe))).toMatchObject({ captured: 1, warned: 0 });
+    expect(await getOrder(order.id)).toMatchObject({ status: "completed", transaction_id: order.pi });
   });
 
   it("the daily job captures and releases what WordPress could not report, and warns about old reservations", async () => {
