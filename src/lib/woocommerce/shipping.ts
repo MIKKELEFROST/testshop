@@ -1,8 +1,8 @@
 import "server-only";
-import { cacheLife, cacheTag } from "next/cache";
+import { cacheTag } from "next/cache";
 import { z } from "zod";
 import { storeConfig } from "@/config/store";
-import { describeError } from "@/lib/log";
+import { HOURS, fetched, orFailure, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { CATALOG_TAG } from "./products";
 import { wcShippingLocationSchema, wcShippingMethodSchema, wcShippingZoneSchema } from "./schemas";
@@ -14,12 +14,17 @@ const FREE_FROM = "wchc_free_from";
  * The lowest "Fri fragt fra" amount (decimal string, e.g. "599.00") of the enabled flat rates
  * that deliver to the shop's country, or null when no method is free from an amount. The
  * selling points ("Fri fragt v/ 599 kr.") and the cart use it, so they always match WooCommerce.
+ * A failed refresh keeps the last amount (see ./cache.ts).
  */
 export async function getFreeShippingFrom(): Promise<string | null> {
+  const result = await readFreeShippingFrom().catch(orFailure);
+  return result.ok ? result.data : null;
+}
+
+async function readFreeShippingFrom(): Promise<Read<string | null>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-
-  try {
+  return fetched("getFreeShippingFrom", HOURS, async () => {
     const { data: zones } = await wooRequest("wc/v3/shipping/zones", { schema: z.array(wcShippingZoneSchema) });
     const amounts: number[] = [];
     for (const zone of zones) {
@@ -35,13 +40,8 @@ export async function getFreeShippingFrom(): Promise<string | null> {
       });
       amounts.push(...freeFromAmounts(methods));
     }
-    cacheLife("hours");
     return amounts.length > 0 ? Math.min(...amounts).toFixed(2) : null;
-  } catch (error) {
-    console.error("[shipping] free shipping amount failed:", describeError(error));
-    cacheLife({ stale: 30, revalidate: 60, expire: 300 });
-    return null;
-  }
+  });
 }
 
 /** "Fri fragt fra" amounts of the enabled flat rates (empty or invalid values are ignored). */

@@ -1,12 +1,12 @@
 import "server-only";
-import { cacheLife, cacheTag } from "next/cache";
+import { cacheTag } from "next/cache";
 import { z } from "zod";
 import { ACCESSORY_CATEGORY_SLUGS, ADULT_CATEGORY_SLUGS, RELATED_LIMIT } from "@/config/catalog";
 import { merchandising, type Collection } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
-import { describeError } from "@/lib/log";
 import { versionAtLeast } from "@/lib/version";
 import type { Loadable, Product, ProductCategory, ProductList, ProductSummary } from "@/types/commerce";
+import { HOURS, MINUTES, fetched, orFailure, type CacheLife, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { categoryPath, primaryCategory } from "./category-tree";
 import { decodeEntities, mapCategory, mapProduct, mapProductSummary } from "./mappers";
@@ -20,7 +20,8 @@ import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas"
  * WooCommerce webhooks (see /api/revalidate). Prices and stock shown here are informational:
  * the checkout always re-validates them against WooCommerce.
  *
- * Failures are cached only briefly, so a WooCommerce outage never sticks.
+ * A failed refresh keeps the last good data (see ./cache.ts); the friendly error state is
+ * only shown when nothing is cached.
  *
  * Only this storefront's products are read: `wchc_shop` limits the results to the products
  * of its webshop in WooCommerce (Headless Checkout Bridge 1.2+). A store ID that is not a
@@ -32,11 +33,10 @@ export const productTag = (id: number) => `wc-product-${id}`;
 
 const UNAVAILABLE = "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt.";
 
-/**
- * Lifetime for a failed read: retried after 30 s. (Kept at the 5-minute "expire" minimum so
- * Next.js can still prerender the friendly error state, e.g. when building without access.)
- */
-const FAILURE_LIFE = { stale: 30, revalidate: 30, expire: 300 };
+/** A read as the pages take it: the friendly error message when it failed. */
+function loadable<T>(result: Read<T>): Loadable<T> {
+  return result.ok ? result : { ok: false, error: UNAVAILABLE };
+}
 
 const SHOP = { wchc_shop: storeConfig.id };
 
@@ -57,7 +57,7 @@ const RELATED_FIELDS = `${SUMMARY_FIELDS},tags`;
  * Category counts are recounted every 15 minutes (one small request per category), not
  * every minute like product lists.
  */
-const CATEGORY_LIFE = { stale: 300, revalidate: 900, expire: 86400 };
+const CATEGORY_LIFE: CacheLife = { stale: 300, revalidate: 900, expire: 86400 };
 
 /** How a listing is sorted (the `sorter` URL parameter); the first is the default. */
 export const SORTS = {
@@ -104,14 +104,18 @@ export type ProductQuery = {
 
 /** A page of this shop's published products. */
 export async function getProducts(options: ProductQuery = {}): Promise<Loadable<ProductList>> {
+  return loadable(await readProducts(options).catch(orFailure));
+}
+
+async function readProducts(options: ProductQuery): Promise<Read<ProductList>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-
-  const page = options.page ?? 1;
-  const sort = SORTS[options.sort ?? "anbefalet"];
-  const list = (ids: number[] | undefined) => (ids && ids.length > 0 ? ids.join(",") : undefined);
-  try {
-    const adult = options.hideAdult ? await getAdultProductIds() : [];
+  return fetched("getProducts", MINUTES, async () => {
+    const page = options.page ?? 1;
+    const sort = SORTS[options.sort ?? "anbefalet"];
+    const list = (ids: number[] | undefined) => (ids && ids.length > 0 ? ids.join(",") : undefined);
+    const adult = options.hideAdult ? await readAdultProductIds() : undefined;
+    if (adult && !adult.ok) throw new Error("The 18+ products could not be read");
     const { data, headers } = await wooRequest("wc/v3/products", {
       query: {
         ...SHOP,
@@ -125,54 +129,48 @@ export async function getProducts(options: ProductQuery = {}): Promise<Loadable<
         wchc_not_in_category: list(options.notInCategoryIds),
         wchc_in_any_category: list(options.inAnyCategoryIds),
         tag: list(options.tagIds),
-        exclude: list(adult),
+        exclude: list(adult?.data),
         search: options.search || undefined,
         _fields: SUMMARY_FIELDS,
       },
       schema: z.array(wcProductSchema),
     });
     const hidden = new Set(options.notInCategoryIds);
-    cacheLife("minutes");
     return {
-      ok: true,
-      data: {
-        products: data.map(mapProductSummary).filter((p) => !p.categories.some((c) => hidden.has(c.id))),
-        total: Number(headers.get("x-wp-total") ?? data.length),
-        totalPages: Number(headers.get("x-wp-totalpages") ?? 1),
-        page,
-      },
+      products: data.map(mapProductSummary).filter((p) => !p.categories.some((c) => hidden.has(c.id))),
+      total: Number(headers.get("x-wp-total") ?? data.length),
+      totalPages: Number(headers.get("x-wp-totalpages") ?? 1),
+      page,
     };
-  } catch (error) {
-    logCatalogError("getProducts", error);
-    cacheLife(FAILURE_LIFE);
-    return { ok: false, error: UNAVAILABLE };
-  }
+  });
 }
 
 /** IDs of this shop's adult-only (18+) products, to leave them out of general listings. */
-async function getAdultProductIds(): Promise<number[]> {
+async function readAdultProductIds(): Promise<Read<number[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  const categories = await getCategories();
-  if (!categories.ok) throw new Error(categories.error);
-  const adult = categories.data.filter((c) => ADULT_CATEGORY_SLUGS.includes(c.slug)).map((c) => c.id);
-  if (adult.length === 0) {
-    cacheLife("hours");
-    return [];
-  }
-  const { data } = await wooRequest("wc/v3/products", {
-    query: { ...SHOP, status: "publish", category: adult.join(","), per_page: 100, _fields: "id" },
-    schema: z.array(z.object({ id: z.number() })),
+  return fetched("getAdultProductIds", HOURS, async () => {
+    const categories = await getCategories();
+    if (!categories.ok) throw new Error(categories.error);
+    const adult = categories.data.filter((c) => ADULT_CATEGORY_SLUGS.includes(c.slug)).map((c) => c.id);
+    if (adult.length === 0) return [];
+    const { data } = await wooRequest("wc/v3/products", {
+      query: { ...SHOP, status: "publish", category: adult.join(","), per_page: 100, _fields: "id" },
+      schema: z.array(z.object({ id: z.number() })),
+    });
+    return data.map((p) => p.id);
   });
-  cacheLife("hours");
-  return data.map((p) => p.id);
 }
 
 /** This shop's themes (WooCommerce product tags), name -> ID. */
 export async function getThemeIds(): Promise<Loadable<Map<string, number>>> {
+  return loadable(await readThemeIds().catch(orFailure));
+}
+
+async function readThemeIds(): Promise<Read<Map<string, number>>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  try {
+  return fetched("getThemeIds", CATEGORY_LIFE, async () => {
     const tags = new Map<string, number>();
     for (let page = 1; page <= 10; page++) {
       const { data, headers } = await wooRequest("wc/v3/products/tags", {
@@ -182,13 +180,8 @@ export async function getThemeIds(): Promise<Loadable<Map<string, number>>> {
       for (const tag of data) tags.set(decodeEntities(tag.name), tag.id);
       if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
     }
-    cacheLife(CATEGORY_LIFE);
-    return { ok: true, data: tags };
-  } catch (error) {
-    logCatalogError("getThemeIds", error);
-    cacheLife(FAILURE_LIFE);
-    return { ok: false, error: UNAVAILABLE };
-  }
+    return tags;
+  });
 }
 
 /**
@@ -196,16 +189,17 @@ export async function getThemeIds(): Promise<Loadable<Map<string, number>>> {
  * 1.4 filters products by more categories and counts a shop's products per category in one request.
  */
 export async function getPluginFeatures(): Promise<{ categoryFilters: boolean }> {
+  const result = await readPluginFeatures().catch(orFailure);
+  // Unknown (nothing cached and no answer): the code paths that work with every version.
+  return result.ok ? result.data : { categoryFilters: false };
+}
+
+async function readPluginFeatures(): Promise<Read<{ categoryFilters: boolean }>> {
   "use cache: remote";
-  try {
+  return fetched("getPluginFeatures", HOURS, async () => {
     const { data } = await wooRequest("wc-headless/v1/status", { schema: z.object({ version: z.string() }).loose() });
-    cacheLife("hours");
     return { categoryFilters: versionAtLeast(data.version, "1.4.0") };
-  } catch (error) {
-    logCatalogError("getPluginFeatures", error);
-    cacheLife(FAILURE_LIFE);
-    return { categoryFilters: false };
-  }
+  });
 }
 
 /**
@@ -236,28 +230,28 @@ export async function collectionQuery(collection: Collection): Promise<Loadable<
   return { ok: true, data: { categoryIds, alsoInCategoryIds, notInCategoryIds, tagIds, hideAdult: true } };
 }
 
-/** Slugs of all this shop's published products (for the sitemap); refreshed a few times a day. */
-export async function getAllProductSlugs(): Promise<string[]> {
+/** Slugs of all this shop's published products (for the sitemap); refreshed every hour. */
+export async function getAllProductSlugs(): Promise<Loadable<string[]>> {
+  return loadable(await readAllProductSlugs().catch(orFailure));
+}
+
+async function readAllProductSlugs(): Promise<Read<string[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  try {
-    const slugs: string[] = [];
-    for (let page = 1; page <= 200; page++) {
-      const { data, headers } = await wooRequest("wc/v3/products", {
+  return fetched("getAllProductSlugs", HOURS, async () => {
+    const read = (page: number) =>
+      wooRequest("wc/v3/products", {
         query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug" },
         schema: z.array(z.object({ slug: z.string() })),
         timeoutMs: 30_000,
       });
-      slugs.push(...data.map((p) => p.slug));
-      if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
-    }
-    cacheLife("hours");
-    return slugs;
-  } catch (error) {
-    logCatalogError("getAllProductSlugs", error);
-    cacheLife(FAILURE_LIFE);
-    return [];
-  }
+    // Page 1 tells how many pages there are (about 90); the others are read a few at a time,
+    // so the sitemap is ready in seconds instead of a minute and a half.
+    const first = await read(1);
+    const pages = Math.min(Number(first.headers.get("x-wp-totalpages") ?? 1), 200);
+    const rest = await mapWithLimit(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => i + 2), 3, read);
+    return [first, ...rest].flatMap((response) => response.data.map((p) => p.slug));
+  });
 }
 
 /** Product cards for these IDs (e.g. the favourites), in that order; unknown IDs are left out. */
@@ -268,19 +262,19 @@ export async function getProductsByIds(ids: number[]): Promise<Loadable<ProductS
 }
 
 export async function getProductBySlug(slug: string): Promise<Loadable<Product | null>> {
+  return loadable(await readProductBySlug(slug).catch(orFailure));
+}
+
+async function readProductBySlug(slug: string): Promise<Read<Product | null>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-
-  try {
+  return fetched("getProductBySlug", MINUTES, async () => {
     const { data } = await wooRequest("wc/v3/products", {
       query: { ...SHOP, slug, status: "publish" },
       schema: z.array(wcProductSchema),
     });
     const product = data[0];
-    if (!product) {
-      cacheLife("minutes");
-      return { ok: true, data: null };
-    }
+    if (!product) return null;
     cacheTag(productTag(product.id));
 
     const variations =
@@ -292,14 +286,8 @@ export async function getProductBySlug(slug: string): Promise<Loadable<Product |
             })
           ).data
         : [];
-
-    cacheLife("minutes");
-    return { ok: true, data: mapProduct(product, variations) };
-  } catch (error) {
-    logCatalogError("getProductBySlug", error);
-    cacheLife(FAILURE_LIFE);
-    return { ok: false, error: UNAVAILABLE };
-  }
+    return mapProduct(product, variations);
+  });
 }
 
 export type RelatedProducts = { accessories: ProductSummary[]; similar: ProductSummary[] };
@@ -315,10 +303,14 @@ export type RelatedProducts = { accessories: ProductSummary[]; similar: ProductS
  * Both prefer the product's target group. A failure only hides the rows.
  */
 export async function getRelatedProducts(product: Pick<Product, "id" | "tags" | "audience" | "categories">): Promise<RelatedProducts> {
+  const result = await readRelatedProducts(product).catch(orFailure);
+  return result.ok ? result.data : { accessories: [], similar: [] };
+}
+
+async function readRelatedProducts(product: Pick<Product, "id" | "tags" | "audience" | "categories">): Promise<Read<RelatedProducts>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG, productTag(product.id));
-
-  try {
+  return fetched("getRelatedProducts", HOURS, async () => {
     const categories = await getCategories();
     if (!categories.ok) throw new Error(categories.error);
     const tree = categories.data;
@@ -360,13 +352,8 @@ export async function getRelatedProducts(product: Pick<Product, "id" | "tags" | 
       }
     }
 
-    cacheLife("hours");
     return { accessories, similar };
-  } catch (error) {
-    logCatalogError("getRelatedProducts", error);
-    cacheLife(FAILURE_LIFE);
-    return { accessories: [], similar: [] };
-  }
+  });
 }
 
 /** This shop's published products for a related row, best sellers first. */
@@ -380,10 +367,13 @@ async function relatedQuery(query: Record<string, string | number>, excludeId: n
 
 /** This shop's categories (with products), each with the shop's own product count. */
 export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
+  return loadable(await readCategories().catch(orFailure));
+}
+
+async function readCategories(): Promise<Read<ProductCategory[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-
-  try {
+  return fetched("getCategories", CATEGORY_LIFE, async () => {
     const categories: z.infer<typeof wcCategorySchema>[] = [];
     for (let page = 1; page <= 10; page++) {
       const { data, headers } = await wooRequest("wc/v3/products/categories", {
@@ -395,31 +385,36 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
     }
     // WooCommerce counts every webshop's products; count (and show) only this shop's: in one
     // request with plugin 1.4, else one small request per category.
-    const counts = await shopCategoryCounts(categories.map((c) => c.id));
-    cacheLife(CATEGORY_LIFE);
-    return {
-      ok: true,
-      data: categories
-        .map((c, i) => ({ ...mapCategory(c), count: counts[i] ?? 0 }))
-        .filter((c) => c.slug !== "uncategorized" && c.count > 0),
-    };
-  } catch (error) {
-    logCatalogError("getCategories", error);
-    cacheLife(FAILURE_LIFE);
-    return { ok: false, error: UNAVAILABLE };
-  }
+    const counts = await shopCategoryCounts(categories);
+    return categories
+      .map((c, i) => ({ ...mapCategory(c), count: counts[i] ?? 0 }))
+      .filter((c) => c.slug !== "uncategorized" && c.count > 0);
+  });
 }
 
 /** This shop's number of published products per category (subcategories included), in the order given. */
-async function shopCategoryCounts(categoryIds: number[]): Promise<number[]> {
-  const plugin = await getPluginFeatures();
-  if (plugin.categoryFilters) {
+async function shopCategoryCounts(categories: { id: number; count: number }[]): Promise<number[]> {
+  // Not knowing the plugin's version fails the refresh (keeping the last menu) rather than
+  // falling back to one request per category.
+  const plugin = await readPluginFeatures();
+  if (!plugin.ok) throw new Error("The plugin's version could not be read");
+  if (plugin.data.categoryFilters) {
     const { data } = await wooRequest(`wc-headless/v1/shops/${encodeURIComponent(storeConfig.id)}/category-counts`, {
       schema: z.record(z.string(), z.number()),
     });
-    return categoryIds.map((id) => data[String(id)] ?? 0);
+    return categories.map((c) => data[String(c.id)] ?? 0);
   }
-  return mapWithLimit(categoryIds, 3, (id) => countProducts(id));
+  // A count that can't be read uses WooCommerce's own (all webshops'; nearly every product is
+  // in both shops, so it is close) instead of failing the whole menu.
+  let failed = 0;
+  const counts = await mapWithLimit(categories, 3, (c) =>
+    countProducts(c.id).catch(() => {
+      failed++;
+      return c.count;
+    }),
+  );
+  if (failed > 0) console.error(`[catalog] ${failed} of ${categories.length} category counts failed; used WooCommerce's own counts for them`);
+  return counts;
 }
 
 /** Number of this shop's published products in a category (subcategories included). */
@@ -431,21 +426,25 @@ async function countProducts(categoryId: number): Promise<number> {
   return Number(headers.get("x-wp-total") ?? 0);
 }
 
-/** Like Promise.all(items.map(fn)), but at most `limit` requests at a time. */
+/**
+ * Like Promise.all(items.map(fn)), but at most `limit` requests at a time. After a failure no
+ * further items are started (the result is a failure anyway).
+ */
 async function mapWithLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
+  let failed = false;
   async function worker() {
-    while (next < items.length) {
+    while (!failed && next < items.length) {
       const index = next++;
-      results[index] = await fn(items[index]!);
+      try {
+        results[index] = await fn(items[index]!);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
-}
-
-function logCatalogError(operation: string, error: unknown) {
-  // Messages from our client never contain credentials or customer data.
-  console.error(`[catalog] ${operation} failed:`, describeError(error));
 }
