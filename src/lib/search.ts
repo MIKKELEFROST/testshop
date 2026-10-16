@@ -111,6 +111,13 @@ const SYNONYMS: Record<Season | "both", Record<string, string>> = {
 /** Words that say nothing about the product ("heks til piger"). */
 const STOPWORDS = new Set(["og", "i", "til", "med", "af", "på", "for", "fra", "en", "et", "str"]);
 
+/**
+ * The shop's own holiday as a search word, or the start of one ("halloweenmaske"). Nearly every
+ * product in the shop is for it, but few names say so, and WooCommerce only finds products with
+ * every word.
+ */
+const SEASON_WORDS: Record<Season, string[]> = { fastelavn: ["fastelavns", "fastelavn"], halloween: ["halloween"] };
+
 const CONSONANT_PAIR = /([bcdfghjklmnpqrstvwxz])\1$/;
 const undouble = (stem: string) => (CONSONANT_PAIR.test(stem) ? stem.slice(0, -1) : stem);
 
@@ -170,6 +177,22 @@ function withSynonyms(words: string[], season: Season): string {
 const queryWords = (query: string) => fold(normalizeQuery(query)).split(" ").filter(Boolean);
 
 /**
+ * The words without the shop's own holiday: "halloween paryk" → "paryk" and "halloweenmaske" →
+ * "maske" in the Halloween shop, "fastelavnskostume" → "kostume" in the Fastelavn shop. Kept
+ * when it is all there is ("halloween") or the rest is no catalogue word ("halloweenpynt").
+ */
+function withoutSeason(words: string[], season: Season): string[] {
+  const seasonWords = SEASON_WORDS[season];
+  const others = words.filter((w) => !seasonWords.includes(w) && !STOPWORDS.has(w));
+  return words.flatMap((w) => {
+    if (seasonWords.includes(w)) return others.length > 0 ? [] : [w];
+    const prefix = seasonWords.find((s) => w.startsWith(s));
+    const rest = prefix ? w.slice(prefix.length).replace(/^-/, "") : "";
+    return rest.length >= 3 && (BASE.has(rest) || splitCompound(rest)) ? [rest] : [w];
+  });
+}
+
+/**
  * Other ways to search for the same thing, best first, for when a search finds nothing:
  * the shop's synonyms ("kattekonge" → "konge krone"), compounds split ("zombiemaske" →
  * "zombie maske"), then the words without their endings ("vampyrerne" → "vampyre", "vampyr").
@@ -188,11 +211,12 @@ export function searchVariants(query: string, season: Season = storeConfig.seaso
 }
 
 /**
- * What to search for, in order: the query with known plurals as their base form ("masker"
- * → "maske", which finds every "masker" too), then its variants for when that finds nothing.
+ * What to search for, in order: the query without the shop's own holiday ("halloweenmaske" →
+ * "maske") and with known plurals as their base form ("masker" → "maske", which finds every
+ * "masker" too), then its variants for when that finds nothing.
  */
 export function searchPlan(query: string, season: Season = storeConfig.season): string[] {
-  const primary = queryWords(query).map(baseForm).join(" ");
+  const primary = withoutSeason(queryWords(query), season).map(baseForm).join(" ");
   return [primary, ...searchVariants(primary, season)];
 }
 

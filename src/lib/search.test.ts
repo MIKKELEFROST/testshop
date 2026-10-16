@@ -87,6 +87,26 @@ describe("Danish search words", () => {
     expect(searchPlan("tænder", "halloween")[0]).toBe("tænder");
   });
 
+  it("leaves out the shop's own holiday, which few product names say", () => {
+    expect(searchPlan("halloweenkostume", "halloween")[0]).toBe("kostume");
+    expect(searchPlan("Halloweenkostumer", "halloween")[0]).toBe("kostume");
+    expect(searchPlan("halloweenmaske", "halloween")[0]).toBe("maske");
+    expect(searchPlan("halloween paryk", "halloween")[0]).toBe("paryk");
+    expect(searchPlan("halloween kostume børn", "halloween")[0]).toBe("kostume børn");
+    expect(searchPlan("halloween-kostume", "halloween")[0]).toBe("kostume");
+    expect(searchPlan("halloweenheksekostume", "halloween").slice(0, 2)).toEqual(["heksekostume", "heks kostume"]);
+    expect(searchPlan("fastelavnskostume til piger", "fastelavn")[0]).toBe("kostume til piger");
+    expect(searchPlan("fastelavn kostumer", "fastelavn")[0]).toBe("kostume");
+    // All there is, or no catalogue word after it: kept.
+    expect(searchPlan("halloween", "halloween")[0]).toBe("halloween");
+    expect(searchPlan("halloween til", "halloween")[0]).toBe("halloween til");
+    expect(searchPlan("halloweenpynt", "halloween")[0]).toBe("halloweenpynt");
+    expect(searchPlan("fastelavn", "fastelavn")).toEqual(["fastelavn", "kostume"]);
+    // Only the shop's own holiday: in the Fastelavn shop "halloween" narrows the search.
+    expect(searchPlan("halloweenmaske", "fastelavn")[0]).toBe("halloweenmaske");
+    expect(searchPlan("halloween paryk", "fastelavn")[0]).toBe("halloween paryk");
+  });
+
   it("splits compounds of the catalogue's words", () => {
     expect(searchVariants("zombiemaske", "halloween")).toContain("zombie maske");
     expect(searchVariants("vampyrtænder", "halloween")[0]).toBe("vampyr tænder");
@@ -145,9 +165,18 @@ describe("searching with fallbacks", () => {
 
   it("stops after a few tries and reports the query's own empty result", async () => {
     const searched: string[] = [];
-    const result = await searchProducts("fastelavnskostumer", async (q) => (searched.push(q), list(0)), { tries: 2, season: "fastelavn" });
-    expect(searched).toEqual(["fastelavnskostumer", "kostume"]);
-    expect(result).toMatchObject({ ok: true, data: { searched: "fastelavnskostumer", fallback: false, list: { total: 0 } } });
+    const result = await searchProducts("kattedronning", async (q) => (searched.push(q), list(0)), { tries: 2, season: "fastelavn" });
+    expect(searched).toEqual(["kattedronning", "dronning krone"]);
+    expect(result).toMatchObject({ ok: true, data: { searched: "kattedronning", fallback: false, list: { total: 0 } } });
+  });
+
+  it("searches for the product words when the query names the shop's holiday", async () => {
+    const searched: string[] = [];
+    const result = await searchProducts("halloweenmaske", async (q) => (searched.push(q), list(360, [1])), { season: "halloween" });
+    expect(searched).toEqual(["maske"]);
+    expect(result).toMatchObject({ ok: true, data: { searched: "maske", fallback: false } });
+    // The page then says which words it searched for.
+    expect(searchedOtherWords("halloweenmaske", "maske")).toBe(true);
   });
 
   it("passes on a failed read", async () => {
