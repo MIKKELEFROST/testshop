@@ -1,6 +1,10 @@
 # GitHub og Vercel
 
-Projektet er en standard Next.js-app, så Vercel registrerer den automatisk. Der kræves ingen `vercel.json`.
+Projektet er en standard Next.js-app, så Vercel registrerer den automatisk. `vercel.json` sætter kun funktionernes region (se nedenfor).
+
+### Region: Stockholm (`arn1`)
+
+Serverfunktionerne (sider, der bygges om, `/api/*`) kører i `arn1` (Stockholm), tæt på WordPress. `test.piece.dk` er `93.191.156.40` (`linux186.unoeuro.com`), hos Simply.com (team.blue Denmark, AS48854) i Danmark (DNS-opslag 16-10-2026). Uden `vercel.json` kører funktionerne i Vercels standardregion, Washington (`iad1`): så krydser hver WooCommerce-forespørgsel Atlanten (ca. 100 ms frem og tilbage), og en side med flere læsninger venter på hver af dem. Stockholm og Frankfurt (`fra1`) er de nærmeste Vercel-regioner, begge ca. 600-700 km fra Danmark; Stockholm er valgt. Begge Vercel-projekter bruger samme `vercel.json`. Flyttes WordPress, så ret regionen. Hobby-planen tillader én region, og det er nok her.
 
 ## 1. Importér repoet i Vercel
 
