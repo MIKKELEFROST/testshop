@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { merchandisingByStore } from "@/config/merchandising";
 import type { ProductCategory } from "@/types/commerce";
-import { categoryHomeStore, homeSeasonFor, homeStoreFor, storeUrl } from "./home-store";
+import { categoryHomeStore, homeSeasonFor, homeStoreFor, storeName, storeUrl } from "./home-store";
 import { SITE_URL } from "./seo";
 
 function category(id: number, slug: string, parent = 0): ProductCategory {
@@ -58,6 +58,15 @@ describe("homeSeasonFor", () => {
     expect(shop.homeSeasonFor([polterabend], tree)).toBeNull();
     expect(shop.homeSeasonFor([pigekostumer], tree)).toBeNull();
     vi.unstubAllEnvs();
+  });
+});
+
+describe("storeName", () => {
+  it("is this shop's own name, and the other shops' brand names", () => {
+    // The tests run as the default shop (piece-dk).
+    expect(storeName("piece-dk")).toBe("Fastelavnskostumer.dk");
+    expect(storeName("halloween-kostumer-dk")).toBe("Halloweenkostumer.dk");
+    expect(storeName("ukendt")).toBe("Fastelavnskostumer.dk");
   });
 });
 

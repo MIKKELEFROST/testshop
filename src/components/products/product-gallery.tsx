@@ -259,13 +259,17 @@ function PhotoViewer({
   }
 
   const arrow = "absolute top-1/2 inline-flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-surface/90 text-ink shadow-md ring-1 ring-line hover:bg-surface";
+  // touch-manipulation (pan-x pan-y pinch-zoom): a pinch-zoomed photo can be moved up and down,
+  // not only sideways. Unzoomed there is nothing to scroll up or down (the dialog fills the
+  // screen and the page behind is locked), so a swipe still only moves the strip. Double-tap
+  // zoom stays off, as before.
   return (
     <dialog
       ref={dialogRef}
       aria-label={`Billeder af ${name}`}
       onClose={onClose}
       onKeyDown={handleKeyDown}
-      className="fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none touch-pan-x touch-pinch-zoom bg-surface p-0 text-ink backdrop:bg-ink/60"
+      className="fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none touch-manipulation bg-surface p-0 text-ink backdrop:bg-ink/60"
     >
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between gap-4 py-2 pr-2 pl-5">

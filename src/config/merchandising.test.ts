@@ -53,6 +53,13 @@ describe.each(Object.entries(merchandisingByStore))("merchandising for %s", (sto
     }
   });
 
+  it("leads a front page row of such a theme to the same category page as its tile", () => {
+    for (const row of shop.home.rows) {
+      const collection = shop.collections.find((c) => c.slug === row.collection);
+      if (collection?.canonical) expect(row.href, row.title).toBe(collection.canonical);
+    }
+  });
+
   it("has a menu item per page, and a link to every theme from the themes overview", () => {
     expect(new Set(shop.nav.map((item) => item.href)).size).toBe(shop.nav.length);
     expect(navLinks).toContain("/tema");

@@ -12,10 +12,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { storeConfig } from "@/config/store";
 import type { CartLine } from "@/lib/cart/cart";
-import { expressCheckoutRequest, quoteAmount, walletOpeningQuote, walletPostcode, walletShippingRates } from "@/lib/checkout/express";
+import {
+  estimateSource,
+  expressCheckoutRequest,
+  quoteAmount,
+  WALLET_WAIT_MS,
+  walletPostcode,
+  walletShippingRates,
+  walletTap,
+  type WalletEstimate,
+} from "@/lib/checkout/express";
 import { ESTIMATE_ADDRESS, type ClientQuote } from "@/lib/checkout/quote";
 import { checkoutRequestSchema } from "@/lib/validation/checkout";
 import { TermsNotice } from "./legal-links";
+import { quotePayload, recentQuote, rememberQuote } from "./use-quote";
+
+/** The estimate for one request: how far it has got, and its answer (null when it failed). */
+type Estimate = WalletEstimate & { request: string; answer: Promise<unknown>; controller: AbortController };
+
+/** A tap came before the estimate: not an outage, so gone again when the estimate is here. */
+const ESTIMATE_PENDING = "Henter fragtpriser – prøv igen om et øjeblik.";
 
 type CheckoutResponse =
   | { type: "ready"; clientSecret: string; returnPath: string }
@@ -41,28 +57,47 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
 
   // Before the customer has typed a postcode the form's quote has no shipping rates, but the
   // sheet needs them the moment it opens (within a second): price a sample address in advance,
-  // once a wallet button is shown.
+  // once a wallet button is shown. Usually the cart or the drawer has just done so (the same
+  // request), so that answer is used.
   const estimateRequest =
     available && quote.needsShipping && quote.shippingRates.length === 0
-      ? JSON.stringify({
-          items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity })),
-          address: ESTIMATE_ADDRESS,
-          shippingRateId: null,
-          coupons: quote.coupons.map((c) => c.code),
-        })
+      ? quotePayload(lines, ESTIMATE_ADDRESS, null, { codes: quote.coupons.map((c) => c.code) })
       : null;
-  const [estimate, setEstimate] = useState<{ request: string; quote: ClientQuote } | null>(null);
+  const estimate = useRef<Estimate | null>(null);
+  // Raised by a tap after the estimate failed or could not open the sheet: ask for it again.
   const [estimateAttempt, setEstimateAttempt] = useState(0);
   useEffect(() => {
     if (!estimateRequest) return;
+    const current = estimate.current;
+    const source = estimateSource(current, estimateRequest, recentQuote(estimateRequest));
+    // Here, or on its way: never started again (a tap waits for it instead).
+    if (source.from === "keep") return;
+    // Another cart or coupon, or it failed: the old estimate is of no use.
+    current?.controller.abort();
     const controller = new AbortController();
-    fetch("/api/checkout/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: estimateRequest, signal: controller.signal })
-      .then(async (response) => {
-        if (response.ok) setEstimate({ request: estimateRequest, quote: (await response.json()) as ClientQuote });
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
+    const seeded = source.from === "recent" ? source.quote : null;
+    const next: Estimate = { request: estimateRequest, status: seeded ? "ok" : "loading", quote: seeded, controller, answer: Promise.resolve() };
+    estimate.current = next;
+    if (seeded) return;
+    next.answer = fetch("/api/checkout/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: estimateRequest,
+      signal: controller.signal,
+    })
+      .then(async (response) => (response.ok ? ((await response.json()) as ClientQuote) : null))
+      .catch(() => null)
+      .then((answer) => {
+        if (answer) rememberQuote(estimateRequest, answer);
+        next.status = answer ? "ok" : "failed";
+        next.quote = answer;
+        if (answer) setError((shown) => (shown === ESTIMATE_PENDING ? null : shown));
+      });
   }, [estimateRequest, estimateAttempt]);
+  useEffect(() => {
+    const ref = estimate;
+    return () => ref.current?.controller.abort();
+  }, []);
 
   const options = useMemo<StripeExpressCheckoutElementOptions>(
     () => ({
@@ -224,16 +259,29 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
         <ExpressCheckoutElement
           options={options}
           onReady={({ availablePaymentMethods }) => setAvailable(Boolean(availablePaymentMethods))}
-          onClick={(event) => {
-            // Must answer within a second: use a quote that is already here.
+          onClick={async (event) => {
+            // Must answer within a second: use a quote that is already here, or wait briefly for the estimate.
             setError(null);
             sheetAddress.current = {};
-            const opening = walletOpeningQuote(quote, estimate?.request === estimateRequest ? estimate.quote : null);
-            if (!opening) {
+            const current = () => (estimate.current?.request === estimateRequest ? estimate.current : null);
+            let tap = walletTap(quote, current());
+            if (tap.action === "wait") {
+              await Promise.race([current()?.answer, new Promise((resolve) => window.setTimeout(resolve, WALLET_WAIT_MS))]);
+              tap = walletTap(quote, current());
+            }
+            if (tap.action === "wait") {
+              setError(ESTIMATE_PENDING);
+              return event.reject();
+            }
+            if (tap.action === "retry") {
               setError("Vi kan ikke beregne fragt lige nu. Prøv igen om lidt, eller udfyld formularen nedenfor.");
+              // Asked for anew (see estimateSource), also when it is here but cannot open the sheet (a cart problem, no rates).
+              const unusable = current();
+              if (unusable) unusable.status = "failed";
               setEstimateAttempt((n) => n + 1);
               return event.reject();
             }
+            const opening = tap.quote;
             sheetQuote.current = opening;
             if (opening !== quote) elements?.update({ amount: quoteAmount(opening) });
             if (!opening.needsShipping) return event.resolve({});
@@ -247,7 +295,7 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
       </div>
       {error && (
         <div className="mt-3">
-          <Alert tone="error">{error}</Alert>
+          <Alert tone={error === ESTIMATE_PENDING ? "info" : "error"}>{error}</Alert>
         </div>
       )}
       {/* A wallet payment binds the customer without the form's pay button, so the terms are linked here too. */}

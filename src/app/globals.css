@@ -124,6 +124,11 @@
   header dialog {
     --color-focus: var(--color-accent);
   }
+
+  /* The search field's own ring lies outside the field, on the header: the header's colour. */
+  header [role="search"] input {
+    --color-focus: var(--color-chrome-ink);
+  }
 }
 
 /* Brand headings: font, weight, letter spacing and case come from the brand (src/config/store.ts). */

@@ -109,7 +109,7 @@ export const brands: Record<string, StoreBrand> = {
   "piece-dk": {
     name: "Fastelavnskostumer.dk",
     siteUrl: "https://fastelavnskostumer.dk",
-    email: "kundeservice@fastelavnskostumer.dk",
+    email: "hej@fastelavnskostumer.dk",
     logo: { mark: "barrel-cat", word: "Fastelavns", suffix: "kostumer.dk" },
     tagline: "Kostumer til fastelavn – til hele familien",
     description:
@@ -158,7 +158,7 @@ export const brands: Record<string, StoreBrand> = {
     siteUrl: "https://halloweenkostumer.dk",
     // Halloween, and the adult-only (18+) products that only this shop sells.
     homeCategories: ["halloween", "polterabend-18"],
-    email: "kundeservice@halloweenkostumer.dk",
+    email: "hej@halloweenkostumer.dk",
     logo: { mark: "pumpkin", word: "Halloween", suffix: "kostumer.dk" },
     tagline: "Halloweenkostumer, masker og alt det uhyggelige",
     description:

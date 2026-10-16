@@ -335,12 +335,17 @@ const fastelavn: Merchandising = {
       intro: "Parykker, hatte, masker og alt det, der gør kostumet færdigt.",
       categories: ["tilbehoer"],
       canonical: "/kategori/tilbehoer",
+      // A child's set (headband, wand and tutu): the first accessory is an adult's rubber mask.
+      tileProduct: "enhjoerningesaet-til-boern",
     },
     {
+      // Like "Tilbehør": the front page row and the /tema tile both lead to the category page,
+      // which lists the same face paint (the season's first).
       slug: "ansigtsmaling",
       title: "Ansigtsmaling",
       intro: "Ansigtsmaling, sminke og glimmer til kattemasker, tigerstriber og superheltemasker.",
-      categories: ["sminke-og-ansigtsmaling", "glimmer-og-ansigtssmykker"],
+      categories: ["sminke-og-ansigtsmaling"],
+      canonical: "/kategori/sminke-og-ansigtsmaling",
     },
   ],
   categoryIntros: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkoutRequestSchema, quoteRequestSchema } from "@/lib/validation/checkout";
-import { expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates } from "./express";
+import { estimateSource, expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates, walletTap } from "./express";
 import { ESTIMATE_ADDRESS, type ClientQuote } from "./quote";
 
 const quote: ClientQuote = {
@@ -38,10 +38,19 @@ describe("express checkout helpers", () => {
   });
 
   it("offers WooCommerce's rates in the wallet, its current choice first, in øre", () => {
-    expect(walletShippingRates(quote)).toEqual([
-      { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900, deliveryEstimate: "Levering normalt næste hverdag" },
-      { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375, deliveryEstimate: "Levering normalt næste hverdag" },
+    const thursdayMorning = new Date("2026-10-15T08:00:00Z");
+    expect(walletShippingRates(quote, thursdayMorning)).toEqual([
+      { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900, deliveryEstimate: "Sendes i dag – levering normalt næste hverdag" },
+      { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375, deliveryEstimate: "Sendes i dag – levering normalt næste hverdag" },
     ]);
+  });
+
+  it("says in the wallet that an evening or weekend order is sent the next working day", () => {
+    for (const when of ["2026-10-15T18:30:00Z", "2026-10-18T10:00:00Z"]) {
+      for (const rate of walletShippingRates(quote, new Date(when))) {
+        expect(rate.deliveryEstimate).toBe("Sendes næste hverdag – levering normalt hverdagen efter");
+      }
+    }
   });
 
   it("opens the wallet with rates before the customer has typed an address", () => {
@@ -104,5 +113,39 @@ describe("express checkout helpers", () => {
       shippingAddress: { name: "Ola Nordmann", address: { ...appleAddress, country: "NO", postal_code: "0150" } },
     });
     expect(checkoutRequestSchema.safeParse(request).success).toBe(false);
+  });
+});
+
+describe("a tap on a wallet button", () => {
+  const noAddress: ClientQuote = { ...quote, shippingRates: [], shippingRateId: null };
+  const soldOut: ClientQuote = { ...quote, errors: [{ code: "out_of_stock", message: "", productId: 18, variationId: 0, available: 0 }] };
+
+  it("opens the sheet with the form's quote, or with the estimate once it is here", () => {
+    expect(walletTap(quote, null)).toEqual({ action: "open", quote });
+    expect(walletTap(noAddress, { status: "ok", quote })).toEqual({ action: "open", quote });
+  });
+
+  it("waits for an estimate still on its way instead of asking for it again", () => {
+    expect(walletTap(noAddress, { status: "loading", quote: null })).toEqual({ action: "wait" });
+  });
+
+  it("asks for the estimate again only after it failed, or when it cannot open the sheet", () => {
+    expect(walletTap(noAddress, { status: "failed", quote: null })).toEqual({ action: "retry" });
+    expect(walletTap(noAddress, null)).toEqual({ action: "retry" });
+    // An estimate with a cart problem does not open the sheet either.
+    expect(walletTap(noAddress, { status: "ok", quote: soldOut }).action).toBe("retry");
+  });
+
+  it("asks WooCommerce for it then, not the cart's recent quote, which may be the stale answer itself", () => {
+    const request = "the cart for ESTIMATE_ADDRESS";
+    // The first estimate for a request can be the cart's quote; another cart's estimate is of no use.
+    expect(estimateSource(null, request, soldOut)).toEqual({ from: "recent", quote: soldOut });
+    expect(estimateSource(null, request, null)).toEqual({ from: "ask" });
+    expect(estimateSource({ request: "another cart", status: "ok" }, request, null)).toEqual({ from: "ask" });
+    // Here or on its way: kept, a tap waits for it.
+    expect(estimateSource({ request, status: "loading" }, request, null)).toEqual({ from: "keep" });
+    expect(estimateSource({ request, status: "ok" }, request, soldOut)).toEqual({ from: "keep" });
+    // Failed, or marked failed by a tap because it could not open the sheet: asked for anew.
+    expect(estimateSource({ request, status: "failed" }, request, soldOut)).toEqual({ from: "ask" });
   });
 });

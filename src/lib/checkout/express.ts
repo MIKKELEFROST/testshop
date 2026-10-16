@@ -1,5 +1,5 @@
 import type { CartLine } from "@/lib/cart/cart";
-import { DELIVERY_ESTIMATE } from "@/lib/delivery";
+import { deliveryEstimate } from "@/lib/delivery";
 import { stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import type { ClientQuote } from "./quote";
 
@@ -52,14 +52,18 @@ function isComplete(address: ReturnType<typeof toFormAddress>): boolean {
   return Boolean(address.firstName && address.address1 && address.postcode && address.city && address.country);
 }
 
-/** The quote's shipping rates for the wallet sheet, WooCommerce's current choice first. */
-export function walletShippingRates(quote: ClientQuote): WalletShippingRate[] {
+/**
+ * The quote's shipping rates for the wallet sheet, WooCommerce's current choice first. Made when
+ * the sheet opens or the address changes, so the delivery text fits the time (`now`).
+ */
+export function walletShippingRates(quote: ClientQuote, now: Date = new Date()): WalletShippingRate[] {
   const exponent = stripeCurrencyExponent(quote.currency);
+  const estimate = deliveryEstimate(now);
   const rates = quote.shippingRates.map((rate) => ({
     id: rate.id,
     displayName: rate.label,
     amount: toMinorUnits(rate.price, exponent),
-    deliveryEstimate: DELIVERY_ESTIMATE,
+    deliveryEstimate: estimate,
   }));
   return [...rates.filter((r) => r.id === quote.shippingRateId), ...rates.filter((r) => r.id !== quote.shippingRateId)];
 }
@@ -73,6 +77,42 @@ export function walletOpeningQuote(formQuote: ClientQuote, estimate: ClientQuote
   if (!formQuote.needsShipping || formQuote.shippingRates.length > 0) return formQuote;
   if (estimate && estimate.errors.length === 0 && estimate.shippingRates.length > 0) return estimate;
   return null;
+}
+
+/** The estimate for ESTIMATE_ADDRESS the checkout asks for in advance, and how far it has got. */
+export type WalletEstimate = { status: "loading" | "ok" | "failed"; quote: ClientQuote | null };
+
+/** How long a tap waits for an estimate still on its way; the sheet must open within a second. */
+export const WALLET_WAIT_MS = 800;
+
+/**
+ * What a tap on a wallet button does: open the sheet with a quote, wait a moment for the
+ * estimate still on its way ("wait"), or not open and ask for the estimate again ("retry", once
+ * it has failed or cannot open the sheet, e.g. sold out since: a tap never restarts an estimate
+ * under way).
+ */
+export function walletTap(
+  formQuote: ClientQuote,
+  estimate: WalletEstimate | null,
+): { action: "open"; quote: ClientQuote } | { action: "wait" } | { action: "retry" } {
+  const opening = walletOpeningQuote(formQuote, estimate?.status === "ok" ? estimate.quote : null);
+  if (opening) return { action: "open", quote: opening };
+  return estimate?.status === "loading" ? { action: "wait" } : { action: "retry" };
+}
+
+/**
+ * Where the estimate for `request` comes from: the one here or on its way ("keep"), a quote this
+ * tab got moments ago for the same request (`recent`, e.g. the cart's), or WooCommerce ("ask").
+ * One that failed, or that a tap marked failed because it could not open the sheet, is asked
+ * for anew: `recent` may be that very answer.
+ */
+export function estimateSource(
+  current: { request: string; status: WalletEstimate["status"] } | null,
+  request: string,
+  recent: ClientQuote | null,
+): { from: "keep" } | { from: "recent"; quote: ClientQuote } | { from: "ask" } {
+  if (current?.request === request) return current.status === "failed" ? { from: "ask" } : { from: "keep" };
+  return recent ? { from: "recent", quote: recent } : { from: "ask" };
 }
 
 export function quoteAmount(quote: ClientQuote): number {
