@@ -3,7 +3,7 @@ import { company } from "@/config/company";
 import { storeConfig } from "@/config/store";
 import { DEFAULT_EMAIL_COLOR, RETURN_DAYS, storeBranding } from "./branding";
 
-const maskerade = { name: "Halloweenkostumer.dk", supportEmail: "kundeservice@halloweenkostumer.dk", theme: { action: "#5b2b82" } };
+const maskerade = { name: "Halloweenkostumer.dk", supportEmail: "hej@halloweenkostumer.dk", theme: { action: "#5b2b82" } };
 const seller = {
   name: "Kostumer ApS",
   address: "Testvej 1, 8000 Aarhus C",
@@ -25,7 +25,7 @@ describe("storeBranding", () => {
     expect(storeBranding(maskerade, "https://halloweenkostumer.dk", seller)).toEqual({
       name: "Halloweenkostumer.dk",
       url: "https://halloweenkostumer.dk",
-      email: "kundeservice@halloweenkostumer.dk",
+      email: "hej@halloweenkostumer.dk",
       color: "#5b2b82",
       logo: "https://halloweenkostumer.dk/email-logo.png",
       ...sellerFields,
@@ -60,7 +60,7 @@ describe("storeBranding", () => {
   it("leaves out the address and logo without a usable site URL", () => {
     for (const siteUrl of [undefined, "", "piece.dk", "ftp://piece.dk", "https://"]) {
       const branding = storeBranding(maskerade, siteUrl, seller);
-      expect(branding).toEqual({ name: "Halloweenkostumer.dk", email: "kundeservice@halloweenkostumer.dk", color: "#5b2b82", ...sellerFields });
+      expect(branding).toEqual({ name: "Halloweenkostumer.dk", email: "hej@halloweenkostumer.dk", color: "#5b2b82", ...sellerFields });
     }
   });
 

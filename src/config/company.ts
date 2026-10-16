@@ -7,12 +7,12 @@
  * address in src/config/store.ts).
  */
 export const company = {
-  name: "[Firmanavn ApS]",
-  cvr: "[CVR-nr.]",
-  address: "[Vejnavn 1, 1234 By]",
-  phone: "[Telefonnummer]",
+  name: "Frost Digital ApS",
+  cvr: "45737632",
+  address: "Arnold Nielsens Boulevard 62 B, 2650 Hvidovre",
+  phone: "41 82 67 99",
   openingHours: "[Hverdage kl. 9–16]",
-  returnAddress: "[Returadresse]",
+  returnAddress: "Frost Digital ApS, Arnold Nielsens Boulevard 62 B, 2650 Hvidovre",
 
   // Decisions for the terms (shown in the texts as written here).
   /** Who pays the return shipping. */

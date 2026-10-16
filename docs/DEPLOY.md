@@ -23,7 +23,7 @@ Serverfunktionerne (sider, der bygges om, `/api/*`) kører i `arn1` (Stockholm),
 | `NEXT_PUBLIC_SITE_URL` | `https://<projekt>.vercel.app`. Uden den bruger sitemap, kanoniske adresser og strukturerede data brandets domæne (`siteUrl` i `src/config/store.ts`), aldrig `localhost`. |
 | `NEXT_PUBLIC_STORE_ID` | `piece-dk` (webshoppens butiks-ID, se [MULTISHOP.md](MULTISHOP.md)) |
 | `WOOCOMMERCE_WEBHOOK_SECRET` | (valgfri) tilfældig lang streng |
-| `NEXT_PUBLIC_SUPPORT_EMAIL` | (valgfri) kundeservice-e-mail. Uden den bruges brandets, f.eks. `kundeservice@halloweenkostumer.dk` (`src/config/store.ts`). Den står i footer, på informationssiderne og som "Svar til" i ordremails. |
+| `NEXT_PUBLIC_SUPPORT_EMAIL` | (valgfri) kundeservice-e-mail. Uden den bruges brandets, f.eks. `hej@halloweenkostumer.dk` (`src/config/store.ts`). Den står i footer, på informationssiderne og som "Svar til" i ordremails. |
 
 4. **Deploy.**
 
@@ -44,11 +44,11 @@ Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet
 - **Kortbetaling:** I dag trækkes betalingen, når ordren lægges. Efter danske regler må et betalingskort som udgangspunkt først debiteres, når varen sendes. Overvej at reservere ved køb og trække beløbet ved afsendelse (Stripe "manual capture").
 - **Stripe live-nøgler** og et live-webhook i stedet for test.
 - **Domæner** (fastelavnskostumer.dk, halloweenkostumer.dk): tilføj dem i Vercel-projekterne, sæt `NEXT_PUBLIC_SITE_URL` til dem, og registrér dem i Stripe under **Payment method domains** (Apple Pay/Google Pay) og som webhook-endpoints. Kobl begge på samtidig: produktsiderne peger allerede på hinandens domæner (`siteUrl` i `src/config/store.ts`, se [MULTISHOP.md](MULTISHOP.md)). Får en webshop et andet domæne, så ret også `siteUrl`.
-- **Kundeservice-e-mails, for hvert domæne:** brandenes adresser i `src/config/store.ts` (`kundeservice@fastelavnskostumer.dk`, `kundeservice@halloweenkostumer.dk`) er "Svar til" i ordremails og den eneste kanal til fortrydelse og reklamation på informationssiderne. De skal kunne modtage mail, før webshoppen går live:
+- **Kundeservice-e-mails, for hvert domæne:** brandenes adresser i `src/config/store.ts` (`hej@fastelavnskostumer.dk`, `hej@halloweenkostumer.dk`) er "Svar til" i ordremails og den eneste kanal til fortrydelse og reklamation på informationssiderne. De skal kunne modtage mail, før webshoppen går live:
   - Opret postkassen hos mailudbyderen (Simply), og sæt **MX** for domænet (`10 mx.simply.com`).
   - Sæt **SPF** (`v=spf1 include:spf.simply.com -all`, plus de tjenester, der ellers sender fra domænet) og slå **DKIM** til hos udbyderen.
   - Send en testmail til adressen fra en anden udbyder (f.eks. Gmail), og svar på den.
-  - Tjekket 15. oktober 2026: `fastelavnskostumer.dk` har MX og SPF. **`halloweenkostumer.dk` har hverken MX eller SPF**, så mails til `kundeservice@halloweenkostumer.dk` kan ikke leveres endnu.
+  - Tjekket 15. oktober 2026: `fastelavnskostumer.dk` har MX og SPF. **`halloweenkostumer.dk` har hverken MX eller SPF**, så mails til `hej@halloweenkostumer.dk` kan ikke leveres endnu.
   - Lad `NEXT_PUBLIC_SUPPORT_EMAIL` være tom i begge Vercel-projekter, så brandets adresse bruges (eller sæt den til webshoppens egen adresse, aldrig en fælles).
 - **Afsender på ordremails:** **WooCommerce → Indstillinger → E-mails → Fra-adresse** er i dag en personlig postkasse og er afsender på alle mails fra begge webshops. Skift den til en neutral butiksadresse på et domæne med SPF og DKIM (f.eks. `ordre@fastelavnskostumer.dk`), og send mails fra WordPress gennem udbyderens SMTP-server. Se [WOOCOMMERCE.md](WOOCOMMERCE.md#11-ordremails-i-webshoppens-navn).
 - **Stripe live, offentlige oplysninger:** i live-tilstand under **Settings → Business → Public details**: det offentlige firmanavn, support-e-mail og en kort, neutral **Shortened descriptor**, der passer til begge webshops. Hver webshop sender sit eget suffiks til kortudtoget (statement descriptor suffix), så kunden kan genkende betalingen. MobilePay viser kontoens firmanavn. Se [STRIPE.md](STRIPE.md).
