@@ -16,13 +16,13 @@ export const company = {
 
   // Decisions for the terms (shown in the texts as written here).
   /** Who pays the return shipping. */
-  returnShipping: "[Returfragt: du betaler selv returfragten / vi sender dig en gratis returlabel – vælg]",
+  returnShipping: "Det er gratis at returnere: skriv til os, så sender vi dig en gratis returlabel.",
   /** Unclaimed parcels that come back to us. */
   unclaimedParcels: "[Uafhentede pakker: vi trækker returfragten (__ kr.) fra beløbet / du får hele beløbet tilbage – vælg]",
   /** Days after a purchase the price match applies, e.g. "14". */
-  priceMatchDays: "[X]",
+  priceMatchDays: "30",
   /** How fast emails are answered, e.g. "inden for 1 hverdag". */
-  answerTime: "[inden for 1 hverdag]",
+  answerTime: "inden for 24 timer",
 };
 
 /** Whether a value is still a placeholder ("[…]"). */
