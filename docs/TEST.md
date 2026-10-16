@@ -178,13 +178,15 @@ Browsertest (Playwright) mod lokale builds af begge webshops på test.piece.dk (
 
 ### Trustpilot TrustBoxe 16-10-2026
 
-Lokale dev-servere for begge webshops på test.piece.dk med en testopsætning (`NEXT_PUBLIC_TRUSTPILOT_*` på kommandolinjen med en kendt dansk webshops offentlige business unit, ikke committet), Playwright ved 390 og 1440 px:
+Lokale dev-servere for begge webshops på test.piece.dk med en testopsætning (`NEXT_PUBLIC_TRUSTPILOT_*` på kommandolinjen med en kendt dansk webshops offentlige business unit, ikke committet), Playwright ved 360, 390, 640, 768, 1024 og 1440 px. Trustpilots micro-TrustBoxe skjuler deres logo, når de er for smalle (Micro Star under ca. 310 px, Micro TrustScore under ca. 256 px), så hver TrustBox er tjekket for, at logoet står i iframen:
 
 | Tjek | Resultat |
 | --- | --- |
 | Forside | Micro Star under løfterækken (lyst tema) og Micro TrustScore i footerens nederste linje (mørkt tema, læsbart på den mørke footer i begge webshops). Ingen vandret scroll. |
 | Produktside | Micro Star som egen række under løfterne i stedet for "Bedømt som Fremragende"; i en halv kolonne var den for smal ved 1440 px. |
-| Kurv og kasse | Micro Star nederst i kurvens oversigt og under kassens ordreoversigt (også i den foldede oversigt på mobil). |
+| Kurv og kasse | Micro TrustScore nederst i kurvens oversigt og under kassens ordreoversigt (også i den foldede oversigt på mobil), med Trustpilots logo: kurven er 278 px bred ved 360 px, 308 px ved 390 px og 330 px ved 1440 px (en Micro Star mistede logoet her ved 390 px, 16-10-2026). |
+| Footer | Micro TrustScore i footerens nederste linje med logoet ved alle bredder: 288 px under 1024 px (betalingsmærker, TrustBox og teksten under hinanden), 320 px på én linje fra 1024 px. Ingen vandret scroll. |
+| Ordrebekræftelsen | Ingen TrustBox og ingen forespørgsel til widget.trustpilot.com på `/ordre/bekraeftelse`, hverken efter navigation fra kassen med Trustpilot indlæst (som efter kortbetaling) eller indlæst forfra med `payment_intent_client_secret` (som efter MobilePay). En side, der indlæses forfra derfra, har kun shoppens origin som `document.referrer` (`referrer: "strict-origin"`). Ingen af de 139 forespørgsler til Trustpilot pr. webshop havde ordre-ID, ordrenøgle eller client secret. |
 | Navigation i browseren | Forside → produkt → kontakt → tilbage: produktsidens TrustBox indlæses efter navigationen (`loadFromElement`), løfterækkens kun på forsiden, og Trustpilots script hentes én gang. |
 | Uden opsætning | Ingen TrustBoxe, ingen forespørgsler til Trustpilot, produktsiden viser "Bedømt som Fremragende – +30.000 femstjernede anmeldelser" som før, og cookie- og privatlivspolitikken nævner ikke Trustpilot. |
 | Template-ID'er | Micro Star (`5419b732fbfb950b10de65e5`) og Micro TrustScore (`5419b637fa0340045cd0c936`) set i browseren; Micro Combo og Review Collector findes hos Trustpilot (svarer 200), men er ikke prøvet i browseren. |

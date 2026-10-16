@@ -23,6 +23,13 @@ describe("Trustpilot TrustBoxes", () => {
     }
   });
 
+  it("uses Micro TrustScore where a Micro Star would lose Trustpilot's logo (the phone cart, the footer)", () => {
+    for (const shop of Object.values(trustpilotByStore)) {
+      expect(shop.placements.cart).toMatchObject({ templateId: TRUSTBOX_TEMPLATES.microTrustScore.templateId, theme: "light" });
+      expect(shop.placements.footer).toMatchObject({ templateId: TRUSTBOX_TEMPLATES.microTrustScore.templateId, theme: "dark" });
+    }
+  });
+
   it("gives each configured placement its template, theme, the shop's page and Danish", () => {
     const boxes = resolveTrustBoxes(brand);
     expect(boxes.product).toEqual({ templateId: "5419b732fbfb950b10de65e5", height: "24px", theme: "light", businessUnitId: ID, profileUrl: PAGE, locale: "da-DK" });

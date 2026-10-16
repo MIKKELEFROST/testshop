@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Logo } from "@/components/brand/logo";
 import { INFO_LINKS } from "@/components/content/info-page";
-import { TrustBox } from "@/components/marketing/trustbox";
+import { FooterTrustBox } from "@/components/marketing/trustbox";
 import { company } from "@/config/company";
 import { merchandising } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
@@ -37,9 +38,13 @@ export function Footer() {
         <FooterColumn title={`Om ${storeConfig.name}`} links={about} />
       </div>
       <div className="border-t border-footer-line">
-        <div className="container-shop flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
+        {/* One row only from lg: in a row on a tablet, the TrustBox would shrink below the
+            256 px its Trustpilot logo needs. */}
+        <div className="container-shop flex flex-col gap-4 py-6 lg:flex-row lg:items-center lg:justify-between">
           <PaymentMarks />
-          <TrustBox placement="footer" className="w-full max-w-72 sm:w-64 lg:w-80 lg:max-w-80" />
+          <Suspense fallback={null}>
+            <FooterTrustBox className="w-full max-w-72 lg:w-80 lg:max-w-80 lg:shrink-0" />
+          </Suspense>
           <p className="text-xs text-footer-muted">Sikker betaling med Stripe. Alle priser er inkl. moms.</p>
         </div>
       </div>

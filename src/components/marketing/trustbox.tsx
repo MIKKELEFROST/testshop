@@ -59,3 +59,13 @@ export function TrustBox({ placement, className }: { placement: TrustBoxPlacemen
 export function FrontPageTrustBox({ className }: { className?: string }) {
   return usePathname() === "/" ? <TrustBox placement="strip" className={className} /> : null;
 }
+
+/**
+ * The footer's TrustBox, on every page but the order pages. An order page's address holds the
+ * order key (anyone with it can see the order) and, after a redirect payment, Stripe's client
+ * secret, and Trustpilot's statistics get the address of each page that shows a TrustBox.
+ * usePathname needs a Suspense boundary around it.
+ */
+export function FooterTrustBox({ className }: { className?: string }) {
+  return usePathname().startsWith("/ordre/") ? null : <TrustBox placement="footer" className={className} />;
+}

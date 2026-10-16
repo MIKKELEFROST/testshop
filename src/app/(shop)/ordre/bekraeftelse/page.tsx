@@ -13,7 +13,10 @@ import { stripeGateway } from "@/lib/stripe/server";
 import { getOrderDetails } from "@/lib/woocommerce/checkout-api";
 import type { WcOrderDetails } from "@/lib/woocommerce/schemas";
 
-export const metadata: Metadata = { title: "Ordrebekræftelse", robots: { index: false, follow: false } };
+// The address holds the order key (and after a redirect payment Stripe's client secret): a page
+// loaded from here gets only the shop's origin as its referrer, which its TrustBoxes send on to
+// Trustpilot (components/marketing/trustbox.tsx).
+export const metadata: Metadata = { title: "Ordrebekræftelse", robots: { index: false, follow: false }, referrer: "strict-origin" };
 
 export default function ConfirmationPage(props: PageProps<"/ordre/bekraeftelse">) {
   return (

@@ -71,10 +71,10 @@ Webshopperne kan vise Trustpilots egne TrustBoxe med webshoppens rigtige bedømm
 | --- | --- | --- |
 | Løfterækken over footeren, kun på forsiden (`strip`) | Micro Star | lyst |
 | Under løfterne ved "Læg i kurv" (`product`); erstatter teksten "Bedømt som Fremragende" | Micro Star | lyst |
-| Kurven og kassens ordreoversigt (`cart`) | Micro Star | lyst |
-| Footerens nederste linje ved betalingsmærkerne (`footer`) | Micro TrustScore | mørkt (footeren er mørk i begge webshops) |
+| Kurven og kassens ordreoversigt (`cart`) | Micro TrustScore (Micro Star mister Trustpilots logo under ca. 310 px, og kurven er kun 278 px bred på en 360 px telefon) | lyst |
+| Footerens nederste linje ved betalingsmærkerne (`footer`), ikke på ordrebekræftelsen (`/ordre/…`): dens adresse har ordrens nøgle og efter MobilePay Stripes client secret, og Trustpilot får adressen på hver side med en TrustBox | Micro TrustScore | mørkt (footeren er mørk i begge webshops) |
 
-**Sådan slås de til:** udfyld `businessUnitId` og `profileUrl` (og evt. `placements`) for webshoppen i `src/config/trustpilot.ts`, eller sæt `NEXT_PUBLIC_TRUSTPILOT_BUSINESS_UNIT_ID` og `NEXT_PUBLIC_TRUSTPILOT_PROFILE_URL` i webshoppens Vercel-projekt, og redeploy. Er et ID eller en adresse forkert, vises teksten i stedet for en tom boks. En placering, der fjernes fra `placements`, viser ingen TrustBox. Andre `data-*` fra Trustpilots kode (f.eks. `data-token`, `data-stars`) skrives i `data` uden "data-".
+**Sådan slås de til:** udfyld `businessUnitId` og `profileUrl` (og evt. `placements`) for webshoppen i `src/config/trustpilot.ts`, eller sæt `NEXT_PUBLIC_TRUSTPILOT_BUSINESS_UNIT_ID` og `NEXT_PUBLIC_TRUSTPILOT_PROFILE_URL` i webshoppens Vercel-projekt, og redeploy. Har ID'et eller adressen et forkert format, vises teksten i stedet. Et ID i rigtigt format, der er forkert, eller en TrustBox, abonnementet ikke omfatter (Free: kun Review Collector), kan shoppen ikke se: så viser Trustpilot kun sit logo, og produktsiden har mistet teksten "Bedømt som Fremragende". Tjek derfor alle placeringer i en Vercel-preview, før det går i produktion. En placering, der fjernes fra `placements`, viser ingen TrustBox. Andre `data-*` fra Trustpilots kode (f.eks. `data-token`, `data-stars`) skrives i `data` uden "data-".
 
 **Før de slås til:**
 

@@ -60,11 +60,16 @@ export type TrustpilotBrand = {
   placements: Partial<Record<TrustBoxPlacement, TrustBoxSettings>>;
 };
 
-/** The placements both shops start with (the footers are dark in both). Check them against the shop's Trustpilot plan. */
+/**
+ * The placements both shops start with (the footers are dark in both). Check them against the
+ * shop's Trustpilot plan. A micro TrustBox hides Trustpilot's logo when it is too narrow (Micro
+ * Star below about 310 px, Micro TrustScore below about 256 px), and stars without it look like
+ * a rating the shop drew itself: the cart's summary is 278 px wide on a 360 px phone.
+ */
 const PLACEMENTS: TrustpilotBrand["placements"] = {
   strip: { ...TRUSTBOX_TEMPLATES.microStar, theme: "light" },
   product: { ...TRUSTBOX_TEMPLATES.microStar, theme: "light" },
-  cart: { ...TRUSTBOX_TEMPLATES.microStar, theme: "light" },
+  cart: { ...TRUSTBOX_TEMPLATES.microTrustScore, theme: "light" },
   footer: { ...TRUSTBOX_TEMPLATES.microTrustScore, theme: "dark" },
 };
 
@@ -104,7 +109,9 @@ function isSettings(settings: TrustBoxSettings): boolean {
 
 /**
  * The TrustBox at each placement, or null. None at all without a valid business unit ID and
- * profile page, so a typo shows the text-only rating instead of a broken box.
+ * profile page, so a malformed one shows the text-only rating instead of a broken box. A
+ * well-formed but wrong ID, or a TrustBox the plan doesn't include, only Trustpilot can tell:
+ * it then shows just its logo (see docs/DEPLOY.md).
  */
 export function resolveTrustBoxes(
   brand: TrustpilotBrand | undefined,
