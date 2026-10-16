@@ -1,4 +1,5 @@
 import { ADULT_CATEGORY_SLUGS, HYGIENE_CATEGORY_SLUGS } from "@/config/catalog";
+import doublePhotos from "@/config/guirca-double-photos.json";
 import { SUPPLIER_IMAGE_HOSTS } from "@/config/images";
 import { discountPercent } from "@/lib/pricing";
 import type {
@@ -43,24 +44,31 @@ function supplierUrl(value: unknown, hosts: readonly string[] | null = SUPPLIER_
 /** A Guirca photo link: the article code and the photo's ending ("" for the main photo, "_01" …). */
 const GUIRCA_PHOTO = /^https:\/\/marketing\.guirca\.com\/([^/]+)\/\1(_\d\d)?\.jpg$/;
 
+/** Articles whose main photo shows the product twice: found by scripts/guirca/import_guirca.py
+ * doubles, or by looking at the photos it missed. */
+const DOUBLE_PHOTOS: ReadonlySet<string> = new Set([...doublePhotos.codes, ...doublePhotos.by_eye]);
+
 /**
- * Leaves out Guirca's main photo of a costume (`<nr>/<nr>.jpg`) when its catalogue photo
- * (`<nr>/<nr>_01.jpg`) is there too. The main photo is a close crop with the same photo again,
- * small, in the lower left corner; the catalogue photo shows the whole costume on its own.
- * Accessories and decorations have no catalogue photo with that ending and keep their main photo.
+ * Leaves out Guirca's main photo (`<nr>/<nr>.jpg`) when it shows the product twice: a large
+ * crop with the same photo again, smaller, in a corner, or a collage of the product worn and on
+ * its own, its packaging or a display box. A costume's main photo is always like that, so it
+ * goes when the costume's catalogue photo (`<nr>/<nr>_01.jpg`, the whole costume) is there; for
+ * other articles it goes when the article is in `doubles`. A main photo that is the product's
+ * only photo is kept, and so are single photos and scenes.
  */
-function withoutInsetPhoto(urls: string[]): string[] {
+export function withoutDoublePhotos(urls: string[], doubles: ReadonlySet<string> = DOUBLE_PHOTOS): string[] {
   const withCatalogue = new Set(urls.map((src) => GUIRCA_PHOTO.exec(src)).filter((m) => m?.[2] === "_01").map((m) => m![1]));
-  return urls.filter((src) => {
+  const kept = urls.filter((src) => {
     const m = GUIRCA_PHOTO.exec(src);
-    return !(m && m[2] === undefined && withCatalogue.has(m[1]));
+    return !(m && m[2] === undefined && (withCatalogue.has(m[1]) || doubles.has(m[1])));
   });
+  return kept.length > 0 ? kept : urls;
 }
 
 /**
  * The product's photos: its WooCommerce images, or else the supplier photos an import
- * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS, without a
- * costume's inset main photo, see withoutInsetPhoto).
+ * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS, without a main
+ * photo that shows the product twice, see withoutDoublePhotos).
  */
 export function productImages(product: Pick<WcProduct, "name" | "images" | "meta_data">): ProductImage[] {
   const own = product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null);
@@ -69,7 +77,7 @@ export function productImages(product: Pick<WcProduct, "name" | "images" | "meta
   if (!Array.isArray(external)) return [];
   const alt = decodeEntities(product.name);
   const links = external.map((src) => supplierUrl(src)).filter((src): src is string => src !== null);
-  return withoutInsetPhoto(links).map((src) => ({ src, alt, fit: "contain" as const }));
+  return withoutDoublePhotos(links).map((src) => ({ src, alt, fit: "contain" as const }));
 }
 
 function prices(source: WcProduct | WcVariation) {

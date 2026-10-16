@@ -7,11 +7,14 @@ decided here.
 from __future__ import annotations
 
 import collections
+import functools
 import html
+import json
 import math
 import re
 import unicodedata
 from dataclasses import dataclass, fields
+from pathlib import Path
 
 EUR_TO_DKK = 7.46
 # Prices in the sheet above this are errors (e.g. 1,455,985.44 EUR for a toy gun).
@@ -870,27 +873,47 @@ def image_candidates(row: dict) -> list[str]:
     return list(dict.fromkeys([url for _, url in sheet_images(row)] + server_images(row.get("ARTICLE CODE", ""))))
 
 
-def image_urls(row: dict, status: ImageStatus = ImageStatus()) -> list[str]:
+def all_image_urls(row: dict, status: ImageStatus = ImageStatus()) -> list[str]:
     """The row's photos over https, best first: the sheet's links that are not dead, and the
-    photos the image check found on Guirca's server that the sheet does not list. A costume's
-    main photo is left out when its catalogue photo is there (without_inset_photo)."""
+    photos the image check found on Guirca's server that the sheet does not list."""
     ranked = [(rank, url) for rank, url in sheet_images(row) if url not in status.dead]
     ranked += [(rank, url) for rank, url in enumerate(server_images(row.get("ARTICLE CODE", ""))) if url in status.found]
     ranked.sort(key=lambda item: item[0])  # stable: the sheet's own link first within a rank
-    return without_inset_photo(list(dict.fromkeys(url for _, url in ranked)))
+    return list(dict.fromkeys(url for _, url in ranked))
+
+
+def image_urls(row: dict, status: ImageStatus = ImageStatus()) -> list[str]:
+    """The photos the product gets: all_image_urls without a main photo that shows the same
+    photo twice (without_double_photos)."""
+    return without_double_photos(all_image_urls(row, status))
 
 
 GUIRCA_PHOTO = re.compile(rf"^{re.escape(IMAGE_HOST)}/([^/]+)/\1(_\d\d)?\.jpg$")
+DOUBLE_PHOTOS_FILE = Path(__file__).resolve().parents[2] / "src" / "config" / "guirca-double-photos.json"
 
 
-def without_inset_photo(urls: list[str]) -> list[str]:
-    """Leaves out Guirca's main photo of a costume (<nr>/<nr>.jpg) when its catalogue photo
-    (<nr>/<nr>_01.jpg) is in the list. The main photo is a close crop with the same photo again,
-    small, in the lower left corner; the catalogue photo shows the whole costume on its own.
-    Accessories and decorations (catalogue photos _07 and _14) keep their main photo."""
+@functools.cache
+def double_photo_codes() -> frozenset[str]:
+    """Articles whose main photo shows the product twice: found by import_guirca.py doubles
+    ("codes") or by looking at the photos ("by_eye"). The storefront reads the same file."""
+    try:
+        data = json.loads(DOUBLE_PHOTOS_FILE.read_text())
+    except FileNotFoundError:
+        return frozenset()
+    return frozenset(data["codes"]) | frozenset(data.get("by_eye", []))
+
+
+def without_double_photos(urls: list[str], doubles: frozenset[str] | None = None) -> list[str]:
+    """Leaves out Guirca's main photo (<nr>/<nr>.jpg) when it shows the same photo twice: a large
+    crop with the same photo again, smaller, beside it or in a corner. A costume's main photo is
+    always like that, so it goes when the costume's catalogue photo (<nr>/<nr>_01.jpg, the whole
+    costume) is there; for other articles the main photo goes when its article is in `doubles`
+    (double_photo_codes()). A main photo that is the product's only photo is kept."""
+    doubles = double_photo_codes() if doubles is None else doubles
     matches = [(url, GUIRCA_PHOTO.match(url)) for url in urls]
     with_catalogue = {m[1] for _, m in matches if m and m[2] == "_01"}
-    return [url for url, m in matches if not (m and m[2] is None and m[1] in with_catalogue)]
+    kept = [url for url, m in matches if not (m and m[2] is None and (m[1] in with_catalogue or m[1] in doubles))]
+    return kept or urls
 
 
 def video_urls(row: dict) -> list[str]:

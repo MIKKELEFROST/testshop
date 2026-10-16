@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import doublePhotos from "@/config/guirca-double-photos.json";
 import { discountPercent } from "@/lib/pricing";
-import { mapCategory, mapProduct, mapProductSummary, productImages, youtubeIds } from "./mappers";
+import { mapCategory, mapProduct, mapProductSummary, productImages, withoutDoublePhotos, youtubeIds } from "./mappers";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 function product(overrides: Record<string, unknown> = {}) {
@@ -50,17 +51,33 @@ describe("product images", () => {
 
   it("leaves out a costume's main photo with the inset when its catalogue photo is there", () => {
     const photos = (...links: string[]) => product({ meta_data: [{ key: "_wchc_external_images", value: links }] });
-    const g = (path: string) => `https://marketing.guirca.com/${path}`;
     const costume = photos(g("80031/80031.jpg"), g("80031/80031_01.jpg"), g("80031/80031_02.jpg"), g("80031/80031_04.jpg"));
     expect(productImages(costume).map((i) => i.src)).toEqual([g("80031/80031_01.jpg"), g("80031/80031_02.jpg"), g("80031/80031_04.jpg")]);
     expect(mapProductSummary(costume).image?.src).toBe(g("80031/80031_01.jpg"));
-    // An accessory (catalogue photo _07), a main photo on its own, and another article's
-    // catalogue photo keep the main photo.
-    expect(productImages(photos(g("18347/18347.jpg"), g("18347/18347_07.jpg"))).map((i) => i.src)).toEqual([g("18347/18347.jpg"), g("18347/18347_07.jpg")]);
-    expect(productImages(photos(g("27766/27766.jpg"))).map((i) => i.src)).toEqual([g("27766/27766.jpg")]);
-    expect(productImages(photos(g("1/1.jpg"), g("2/2_01.jpg"))).map((i) => i.src)).toEqual([g("1/1.jpg"), g("2/2_01.jpg")]);
+  });
+
+  it("leaves out other main photos that show the product twice, unless they are the only photo", () => {
+    const none = new Set<string>();
+    const wig = [g("4778/4778.jpg"), g("4778/4778_07.jpg"), g("4778/4778_09.jpg")];
+    expect(withoutDoublePhotos(wig, none)).toEqual(wig);
+    expect(withoutDoublePhotos(wig, new Set(["4778"]))).toEqual(wig.slice(1));
+    expect(withoutDoublePhotos([g("4778/4778.jpg")], new Set(["4778"]))).toEqual([g("4778/4778.jpg")]);
+    // Another article's catalogue photo and other hosts don't count.
+    expect(withoutDoublePhotos([g("1/1.jpg"), g("2/2_01.jpg")], none)).toEqual([g("1/1.jpg"), g("2/2_01.jpg")]);
+    expect(withoutDoublePhotos(["https://test.piece.dk/4778/4778.jpg", g("4778/4778_07.jpg")], new Set(["4778"]))).toEqual(["https://test.piece.dk/4778/4778.jpg", g("4778/4778_07.jpg")]);
+  });
+
+  it("reads the list of main photos that show the product twice", () => {
+    const all = [...doublePhotos.codes, ...doublePhotos.by_eye];
+    expect(doublePhotos.codes.length).toBeGreaterThan(0);
+    expect(all.every((code) => /^\d+$/.test(code))).toBe(true);
+    expect(new Set(all).size).toBe(all.length);
   });
 });
+
+function g(path: string) {
+  return `https://marketing.guirca.com/${path}`;
+}
 
 describe("mapProduct", () => {
   it("passes on https links to the size chart and safety label, nothing else", () => {
