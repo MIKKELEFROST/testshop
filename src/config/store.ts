@@ -58,7 +58,7 @@ export type StoreBrand = {
   /**
    * The shop's public address (its domain). The other shops point search engines to it, e.g.
    * for the products it is the home of (see `homeCategories`); its own pages use
-   * NEXT_PUBLIC_SITE_URL when that is set.
+   * NEXT_PUBLIC_SITE_URL when that is set, else this.
    */
   siteUrl: string;
   /**

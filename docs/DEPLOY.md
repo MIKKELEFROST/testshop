@@ -16,7 +16,7 @@ Projektet er en standard Next.js-app, så Vercel registrerer den automatisk. Der
 | `STRIPE_SECRET_KEY` | `sk_test_…` (**test** indtil go-live) |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_test_…` |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` (trin 3) |
-| `NEXT_PUBLIC_SITE_URL` | `https://<projekt>.vercel.app` |
+| `NEXT_PUBLIC_SITE_URL` | `https://<projekt>.vercel.app`. Uden den bruger sitemap, kanoniske adresser og strukturerede data brandets domæne (`siteUrl` i `src/config/store.ts`), aldrig `localhost`. |
 | `NEXT_PUBLIC_STORE_ID` | `piece-dk` (webshoppens butiks-ID, se [MULTISHOP.md](MULTISHOP.md)) |
 | `WOOCOMMERCE_WEBHOOK_SECRET` | (valgfri) tilfældig lang streng |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | (valgfri) kundeservice-e-mail. Uden den bruges brandets, f.eks. `kundeservice@halloweenkostumer.dk` (`src/config/store.ts`). Den står i footer, på informationssiderne og som "Svar til" i ordremails. |

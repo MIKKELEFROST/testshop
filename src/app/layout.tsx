@@ -6,9 +6,10 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { CartProvider } from "@/components/cart/cart-provider";
 import { brandStyle, storeConfig } from "@/config/store";
+import { SITE_URL } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  metadataBase: new URL(SITE_URL),
   title: { default: `${storeConfig.name} – ${storeConfig.tagline}`, template: `%s · ${storeConfig.name}` },
   description: storeConfig.description,
 };

@@ -2,7 +2,8 @@ import { storeConfig } from "@/config/store";
 
 /** Structured data (schema.org JSON-LD) and absolute URLs for search engines. */
 
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
+/** This shop's address: NEXT_PUBLIC_SITE_URL (e.g. a preview's), else the brand's own domain. */
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || storeConfig.siteUrl).replace(/\/+$/, "");
 
 export function absoluteUrl(path: string): string {
   return path.startsWith("http") ? path : `${SITE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
