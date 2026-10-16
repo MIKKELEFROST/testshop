@@ -139,19 +139,26 @@ export function shippingSection({
   return loading || !quote ? "loading" : "undeliverable";
 }
 
-/** The line under "Betal nu": what the customer pays, and whether delivery is included yet. */
+/**
+ * The line under "Betal nu": what the customer pays, and whether delivery is included yet. It
+ * describes the button for screen readers too, so a disabled button says why.
+ */
 export function payTotalLine({
   quote,
   selectedRateId,
   postcodeValid,
   loading,
+  failed = false,
 }: {
   quote: ClientQuote | null;
   selectedRateId: string | null;
   postcodeValid: boolean;
   loading: boolean;
+  /** The quote failed and its error is shown under "Leveringsmetode". */
+  failed?: boolean;
 }): string {
-  if (!quote) return "";
+  // Points to that error and its "Prøv igen", which may be off-screen, without a second alert.
+  if (!quote) return failed ? "Vi kan ikke beregne priser lige nu – prøv igen under Leveringsmetode." : "";
   const total = formatPrice(quote.totals.total);
   if (includesShipping(quote, selectedRateId)) return `Du betaler ${total} inkl. moms og levering.`;
   if (!postcodeValid) return `Du betaler ${total} inkl. moms. Levering beregnes, når du har angivet din adresse.`;

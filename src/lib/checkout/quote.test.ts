@@ -113,4 +113,10 @@ describe("the checkout's delivery methods", () => {
     expect(line(noRates, true, false)).toBe(`Du betaler ${formatPrice("298.00")} inkl. moms.`);
     expect(line(null, true, true)).toBe("");
   });
+
+  it("says by the disabled pay button where the failed quote's error and \"Prøv igen\" are", () => {
+    const line = (failed: boolean) => payTotalLine({ quote: null, selectedRateId: null, postcodeValid: true, loading: false, failed });
+    expect(line(true)).toBe("Vi kan ikke beregne priser lige nu – prøv igen under Leveringsmetode.");
+    expect(line(false)).toBe("");
+  });
 });

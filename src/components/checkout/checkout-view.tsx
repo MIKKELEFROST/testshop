@@ -183,7 +183,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
 
   const quoteErrors = quote?.errors ?? [];
   const shippingState = shippingSection({ postcodeValid, quote, loading: quoteLoading, failed: quoteError !== null });
-  // A failed quote is shown with the delivery methods once there is an address, else by the pay button.
+  // A failed quote is shown with the delivery methods once there is an address (the pay line points there), else by the pay button.
   const quoteErrorInShipping = quote?.needsShipping !== false && shippingState === "error";
   const needsAddressForShipping = quote?.needsShipping && quote.shippingRates.length === 0;
   const payDisabled =
@@ -702,7 +702,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               )}
             </button>
             <p id="betal-total" ref={payLine} className="text-center text-xs leading-relaxed text-muted">
-              {payTotalLine({ quote, selectedRateId, postcodeValid, loading: quoteLoading })}{" "}
+              {payTotalLine({ quote, selectedRateId, postcodeValid, loading: quoteLoading, failed: quoteErrorInShipping })}{" "}
               <TermsNotice action="trykke på Betal nu" />
             </p>
           </div>
