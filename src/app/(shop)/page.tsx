@@ -1,11 +1,11 @@
-import { Lightbulb, Ruler, Sparkles } from "lucide-react";
+import { House, Ruler, Shirt, Sparkles, VenetianMask, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Hero } from "@/components/home/hero";
 import { AudienceTiles, ThemeTiles } from "@/components/home/tiles";
 import { CardBand } from "@/components/products/product-card";
 import { ProductRow, RelatedProductsSkeleton } from "@/components/products/related-products";
-import { merchandising, type HomePage as HomeConfig } from "@/config/merchandising";
+import { merchandising, type GuideIcon, type HomePage as HomeConfig } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { JsonLd, shopData } from "@/lib/seo";
 import { getCollectionProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
@@ -64,8 +64,9 @@ async function HomeRows({ rows }: { rows: HomeConfig["rows"] }) {
   });
 }
 
+const GUIDE_ICONS: Record<GuideIcon, LucideIcon> = { ruler: Ruler, shirt: Shirt, sparkles: Sparkles, mask: VenetianMask, house: House };
+
 function Guide({ guide }: { guide: HomeConfig["guide"] }) {
-  const icons = [Ruler, Sparkles, Lightbulb];
   const halloween = storeConfig.season === "halloween";
   return (
     <section aria-labelledby="guide" className={`rounded-[1.75rem] p-6 sm:p-10 ${halloween ? "bg-hero text-white" : "bg-tint"}`}>
@@ -76,8 +77,8 @@ function Guide({ guide }: { guide: HomeConfig["guide"] }) {
         <p className={`mt-2 ${halloween ? "text-white/75" : "text-ink-soft"}`}>{guide.text}</p>
       </div>
       <ul className="mt-8 grid gap-6 sm:grid-cols-3">
-        {guide.tips.map((tip, i) => {
-          const Icon = icons[i % icons.length]!;
+        {guide.tips.map((tip) => {
+          const Icon = GUIDE_ICONS[tip.icon];
           return (
             <li key={tip.title} className="flex gap-4">
               <span className={`flex size-11 shrink-0 items-center justify-center rounded-full ${halloween ? "bg-action text-on-action" : "bg-surface text-highlight shadow-sm"}`}>

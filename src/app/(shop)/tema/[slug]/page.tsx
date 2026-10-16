@@ -20,7 +20,7 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">) {
   const { slug } = await props.params;
   const collection = findCollection(slug);
   if (!collection) return { title: "Tema" };
-  return { title: collection.title, description: collection.intro, alternates: { canonical: `/tema/${collection.slug}` } };
+  return { title: collection.title, description: collection.intro, alternates: { canonical: collection.canonical ?? `/tema/${collection.slug}` } };
 }
 
 export default function ThemePage(props: PageProps<"/tema/[slug]">) {
@@ -69,7 +69,7 @@ async function ThemeContent({
 
   return (
     <>
-      <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: collection.title }]} />
+      <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: "Temaer", href: "/tema" }, { name: collection.title }]} />
       <h1 className="heading mt-2 text-[34px] text-ink sm:text-5xl">{collection.title}</h1>
       <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-ink-soft">{collection.intro}</p>
       {others.length > 0 && (

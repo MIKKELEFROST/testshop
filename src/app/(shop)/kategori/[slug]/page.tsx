@@ -6,7 +6,7 @@ import { CardBand, ProductGridSkeleton } from "@/components/products/product-car
 import { Alert } from "@/components/ui/alert";
 import { ProductListing } from "@/components/products/listing";
 import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
-import { merchandising } from "@/config/merchandising";
+import { merchandising, shownInNav } from "@/config/merchandising";
 import { parsePage } from "@/lib/pagination";
 import { categoryPath, subcategories } from "@/lib/woocommerce/category-tree";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
@@ -67,7 +67,9 @@ async function CategoryContent({
 
   const path = categoryPath(categories.data, category);
   const parent = path.length > 1 ? path[path.length - 2] : undefined;
-  const children = subcategories(categories.data, category.id);
+  // Chips without the categories the shop keeps out of its menu (e.g. Halloweenpynt for Fastelavn), except this one.
+  const children = subcategories(categories.data, category.id).filter((c) => shownInNav(c.slug));
+  const siblings = parent ? subcategories(categories.data, parent.id).filter((c) => c.id === category.id || shownInNav(c.slug)) : [];
   const intro = merchandising.categoryIntros[category.slug] ?? category.description;
 
   return (
@@ -93,7 +95,7 @@ async function CategoryContent({
       ) : (
         parent && (
           <CategoryChips
-            categories={subcategories(categories.data, parent.id)}
+            categories={siblings}
             current={category.id}
             all={{ name: `Alle i ${parent.name.toLowerCase()}`, href: `/kategori/${parent.slug}` }}
           />

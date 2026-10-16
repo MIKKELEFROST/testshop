@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ProductImage } from "@/components/products/product-image";
 import { COSTUME_CATEGORY_SLUGS } from "@/config/catalog";
-import { findCollection, type Tile } from "@/config/merchandising";
+import { collectionHref, findCollection, type Tile } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { getLinkProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
 
@@ -18,7 +18,7 @@ export async function AudienceTiles({ title, tiles }: { title: string; tiles: Ti
           <li key={tile.href}>
             <Link href={tile.href} className="group flex flex-col items-center text-center">
               <span className="relative block aspect-square w-full max-w-40 overflow-hidden rounded-full bg-white shadow-[0_6px_20px_-8px_rgb(0_0_0/0.25)] ring-4 ring-surface transition-transform group-hover:-translate-y-1 group-hover:ring-action">
-                <ProductImage image={photos[i] ?? null} name={tile.label} sizes="(min-width: 1024px) 160px, 30vw" />
+                <ProductImage image={photos[i] ?? null} name={tile.label} sizes="(min-width: 1024px) 160px, 30vw" decorative />
               </span>
               <span className="mt-3 text-[15px] font-bold text-ink group-hover:text-accent sm:text-base">{tile.label}</span>
             </Link>
@@ -29,27 +29,39 @@ export async function AudienceTiles({ title, tiles }: { title: string; tiles: Ti
   );
 }
 
-/** Theme tiles: a photo with the theme's name on it. */
-export async function ThemeTiles({ title, collections }: { title: string; collections: string[] }) {
+/** Theme tiles: a photo with the theme's name on it (the front page's, and each section of /tema). */
+export async function ThemeTiles({
+  title,
+  collections,
+  id = "temaer",
+  className = "mt-14 sm:mt-20",
+}: {
+  title: string;
+  collections: string[];
+  /** The heading's id (unique on the page). */
+  id?: string;
+  className?: string;
+}) {
   const themes = collections.map((slug) => findCollection(slug)).filter((c) => c !== undefined);
-  const photos = await Promise.all(themes.map((c) => tilePhoto({ label: c.title, href: `/tema/${c.slug}` })));
+  const photos = await Promise.all(themes.map((c) => tilePhoto({ label: c.title, href: collectionHref(c), product: c.tileProduct })));
   const halloween = storeConfig.season === "halloween";
   return (
-    <section className="container-shop mt-14 sm:mt-20" aria-labelledby="temaer">
-      <h2 id="temaer" className="heading text-[26px] text-ink sm:text-3xl">
+    <section className={`container-shop ${className}`} aria-labelledby={id}>
+      <h2 id={id} className="heading text-[26px] text-ink sm:text-3xl">
         {title}
       </h2>
       <ul className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
         {themes.map((theme, i) => (
           <li key={theme.slug}>
             <Link
-              href={`/tema/${theme.slug}`}
+              href={collectionHref(theme)}
               className="group relative block aspect-[4/5] overflow-hidden rounded-2xl bg-white ring-1 ring-black/5"
             >
               <ProductImage
                 image={photos[i] ?? null}
                 name={theme.title}
                 sizes="(min-width: 640px) 24vw, 48vw"
+                decorative
                 className="transition-transform duration-500 group-hover:scale-105"
               />
               <span

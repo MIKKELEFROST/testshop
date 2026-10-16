@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Logo } from "@/components/brand/logo";
 import { UspBar, UspBarItems } from "@/components/marketing/usps";
-import { merchandising, type NavLink } from "@/config/merchandising";
+import { merchandising, shownInNav, type NavLink } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { resolveTexts, USP_BAR } from "@/config/usps";
 import { subcategories } from "@/lib/woocommerce/category-tree";
@@ -63,14 +63,14 @@ async function Menus({ kind }: { kind: "desktop" | "mobile" }) {
   return kind === "desktop" ? <DesktopNav items={items} extra={EXTRA_LINKS} /> : <MobileMenu items={items} extra={EXTRA_LINKS} />;
 }
 
-/** The shop's menu with the subcategories filled in from WooCommerce (only those with products). */
+/** The shop's menu with the subcategories filled in from WooCommerce (only those with products and not kept out of the menu). */
 async function menuItems(): Promise<MenuItem[]> {
   const categories = await getCategories();
   const tree = categories.ok ? categories.data : [];
   return merchandising.nav.map((item) => {
     if (item.groups) return { label: item.label, href: item.href, groups: item.groups };
     const parent = item.subcategoriesOf ? tree.find((c) => c.slug === item.subcategoriesOf) : undefined;
-    const children = parent ? subcategories(tree, parent.id) : [];
+    const children = parent ? subcategories(tree, parent.id).filter((c) => shownInNav(c.slug)) : [];
     return {
       label: item.label,
       href: item.href,

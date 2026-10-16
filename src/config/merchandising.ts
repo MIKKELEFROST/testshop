@@ -26,6 +26,14 @@ export type Collection = {
   alsoIn?: string[];
   alsoInFallbackThemes?: string[];
   themes?: string[];
+  /** The product (slug) whose photo the theme's tile shows; else the first costume on the page. */
+  tileProduct?: string;
+  /**
+   * The page search engines should show instead, when this theme page lists the same products
+   * as a category page and only exists for a front page row (e.g. "/kategori/tilbehoer").
+   * Links to the theme go there too.
+   */
+  canonical?: string;
 };
 
 export type NavLink = { label: string; href: string };
@@ -51,8 +59,11 @@ export type HomePage = {
   audiences: { title: string; tiles: Tile[] };
   themes: { title: string; collections: string[] };
   rows: { title: string; intro?: string; href: string; collection: string }[];
-  guide: { title: string; text: string; tips: { title: string; text: string }[]; link: NavLink };
+  guide: { title: string; text: string; tips: { title: string; text: string; icon: GuideIcon }[]; link: NavLink };
 };
+
+/** The icon next to a tip in the front page guide. */
+export type GuideIcon = "ruler" | "shirt" | "sparkles" | "mask" | "house";
 
 export type Merchandising = {
   /**
@@ -61,6 +72,11 @@ export type Merchandising = {
    */
   hidden: string[];
   /**
+   * Subcategories left out of the menu's dropdowns and the category chips (e.g. Halloweenpynt
+   * in the Fastelavn shop), like the hidden categories. Their pages still work and are in search.
+   */
+  navHidden: string[];
+  /**
    * The order of category pages and "Alle produkter" (with the default sorting): the
    * season's products first, then the rest. "in": products in these categories first;
    * "out": products outside them first. Nothing is left out. Needs plugin 1.4.
@@ -68,6 +84,8 @@ export type Merchandising = {
   seasonFirst: { categories: string[]; prefer: "in" | "out" };
   nav: NavItem[];
   home: HomePage;
+  /** The overview of all theme pages at /tema: the themes, then the other theme pages. */
+  themesPage: { intro: string; themesTitle: string; moreTitle: string };
   collections: Collection[];
   /** The shop's own introduction to a category (slug -> text), above its products. */
   categoryIntros: Record<string, string>;
@@ -92,6 +110,7 @@ const ADULTS = ["damekostumer", "herrekostumer"];
 
 const fastelavn: Merchandising = {
   hidden: ["halloween", "jul-og-nytaar"],
+  navHidden: ["halloweenpynt", "figurer-og-animatronics", "slik-eller-ballade", "julepynt", "blod-og-effekter"],
   seasonFirst: { categories: ["halloween", "jul-og-nytaar"], prefer: "out" },
   nav: [
     {
@@ -146,7 +165,7 @@ const fastelavn: Merchandising = {
     },
     {
       label: "Temaer",
-      href: "/tema/prinsesser",
+      href: "/tema",
       groups: [
         {
           title: "Find et tema",
@@ -205,12 +224,17 @@ const fastelavn: Merchandising = {
       title: "Sådan finder du det rigtige kostume",
       text: "Fastelavn er ofte koldt, og børn vokser hurtigt. Med disse råd sidder kostumet godt hele dagen.",
       tips: [
-        { title: "Vælg efter højde", text: "Børnestørrelser står med alder og højde. Gå efter højden – og vælg den største, hvis barnet er mellem to." },
-        { title: "Plads til lag", text: "Kostumerne er lavet til at have over tøjet. Det er februar, så giv plads til en trøje under." },
-        { title: "Tilbehøret gør det", text: "En paryk, en hat eller lidt ansigtsmaling gør kostumet helt færdigt – og gør det let at genkende." },
+        { title: "Vælg efter højde", text: "Børnestørrelser står med alder og højde. Gå efter højden – og vælg den største, hvis barnet er mellem to.", icon: "ruler" },
+        { title: "Plads til lag", text: "Kostumerne er lavet til at have over tøjet. Det er februar, så giv plads til en trøje under.", icon: "shirt" },
+        { title: "Tilbehøret gør det", text: "En paryk, en hat eller lidt ansigtsmaling gør kostumet helt færdigt – og gør det let at genkende.", icon: "sparkles" },
       ],
       link: { label: "Se størrelsesguiden", href: "/stoerrelsesguide" },
     },
+  },
+  themesPage: {
+    intro: "Find fastelavnskostumet efter tema – prinsesser, superhelte, dyr, pirater og meget mere til både børn og voksne.",
+    themesTitle: "Find et tema",
+    moreTitle: "Kostumer og tilbehør",
   },
   collections: [
     {
@@ -229,7 +253,9 @@ const fastelavn: Merchandising = {
       slug: "prinsesser",
       title: "Prinsesser og prinser",
       intro: "Prinsessekjoler, kroner og kapper til små og store kongelige – klar til at blive kattedronning eller kattekonge.",
-      themes: ["Prinser og prinsesser", "Middelalder og prinsesser"],
+      // Costumes and royal accessories: the tag alone also carries everyday wigs and corsets.
+      categories: [...CHILDREN, ...ADULTS, "hovedpynt", "smykker", "tilbehoerssaet", "kapper", "stave-og-rekvisitter"],
+      themes: ["Prinser og prinsesser"],
     },
     {
       slug: "superhelte",
@@ -241,6 +267,9 @@ const fastelavn: Merchandising = {
       slug: "dyrekostumer",
       title: "Dyrekostumer",
       intro: "Katte, bjørne, enhjørninger, mariehøns og alle de andre dyr. Bløde og varme kostumer, der er dejlige at have på en kold fastelavnsdag.",
+      // "Dyr" carries most animal costumes (lions, dinosaurs, monkeys …), but also bats, spiders
+      // and rats for Halloween: keep costumes, ears, masks and wings, not figures and decorations.
+      categories: [...CHILDREN, ...ADULTS, "hovedpynt", "masker", "tilbehoerssaet", "vinger-og-fjer"],
       themes: ["Dyr", "Katte og flagermus", "Bjørn", "Mus", "Enhjørninger", "Havdyr", "Mariehøne", "Bier", "Flamingo"],
     },
     {
@@ -254,6 +283,8 @@ const fastelavn: Merchandising = {
       title: "Politi og brandmænd",
       intro: "Politibetjente, brandmænd, læger, piloter og kokke – kostumer til dem, der vil være helte i hverdagen.",
       themes: ["Politi", "Brandmænd", "SWAT", "Læger og sygeplejersker", "Piloter", "Kokke"],
+      // A child's costume: the newest is often an adult nurse.
+      tileProduct: "brandmand-kostume-til-drenge-2",
     },
     {
       slug: "eventyr",
@@ -266,6 +297,7 @@ const fastelavn: Merchandising = {
       title: "Klovne og cirkus",
       intro: "Klovnekostumer, store sko, røde næser og farvestrålende parykker. Sjovt for både børn og voksne.",
       themes: ["Klovne"],
+      tileProduct: "lille-klovn-kostume-til-piger-hvid-og-flerfarvet",
     },
     {
       slug: "cowboys-og-indianere",
@@ -285,8 +317,15 @@ const fastelavn: Merchandising = {
       intro: "Kostumer, der får hele festen til at grine – dyr, klovne, filmfigurer og skøre ideer til damer og herrer.",
       categories: ADULTS,
       themes: ["Spøg og skæmt", "Klovne", "Dyr", "Mr. Smile", "Film", "Superhelte og tegnefilm", "Øl og drinks"],
+      tileProduct: "baaret-af-prinsesse-kostume-til-herrer",
     },
-    { slug: "tilbehoer", title: "Tilbehør", intro: "Parykker, hatte, masker og alt det, der gør kostumet færdigt.", categories: ["tilbehoer"] },
+    {
+      slug: "tilbehoer",
+      title: "Tilbehør",
+      intro: "Parykker, hatte, masker og alt det, der gør kostumet færdigt.",
+      categories: ["tilbehoer"],
+      canonical: "/kategori/tilbehoer",
+    },
     {
       slug: "ansigtsmaling",
       title: "Ansigtsmaling",
@@ -310,11 +349,12 @@ const fastelavn: Merchandising = {
 
 const halloween: Merchandising = {
   hidden: ["jul-og-nytaar"],
+  navHidden: ["julepynt"],
   seasonFirst: { categories: ["halloween"], prefer: "in" },
   nav: [
     {
       label: "Kostumer",
-      href: "/kategori/halloween",
+      href: "/tema/halloweenkostumer",
       groups: [
         {
           title: "Halloweenkostumer",
@@ -340,7 +380,7 @@ const halloween: Merchandising = {
     },
     {
       label: "Temaer",
-      href: "/tema/hekse",
+      href: "/tema",
       groups: [
         {
           title: "Find dit monster",
@@ -386,7 +426,7 @@ const halloween: Merchandising = {
     hero: {
       title: "Bliv aftenens mest uhyggelige",
       text: "Halloweenkostumer, masker, blod og pynt – alt til en skræmmende god fest. Bestil før kl. 19 på hverdage, så sender vi samme dag.",
-      primary: { label: "Se halloweenkostumer", href: "/kategori/halloween" },
+      primary: { label: "Se halloweenkostumer", href: "/tema/halloweenkostumer" },
       secondary: { label: "Masker og make-up", href: "/tema/halloweenmasker" },
       products: [],
     },
@@ -395,7 +435,7 @@ const halloween: Merchandising = {
       tiles: [
         { label: "Damer", href: "/tema/halloweenkostumer-til-damer" },
         { label: "Herrer", href: "/tema/halloweenkostumer-til-herrer" },
-        { label: "Børn", href: "/tema/halloweenkostumer-til-boern" },
+        { label: "Børn", href: "/tema/halloweenkostumer-til-boern", product: "vampyrgreve-kostume-til-drenge" },
         { label: "Masker", href: "/tema/halloweenmasker", product: "pestlaegemaske-pvc" },
         { label: "Blod og effekter", href: "/kategori/blod-og-effekter", product: "vampyrgebis-i-hoej-kvalitet-med-termoplastisk-harpiks-roed-og-groen" },
         { label: "Pynt", href: "/kategori/halloweenpynt", product: "assorteret-skelet-kandelaber-med-lys-pvc-35-cm" },
@@ -406,7 +446,7 @@ const halloween: Merchandising = {
       collections: ["hekse", "vampyrer", "zombier", "skeletter", "djaevle-og-daemoner", "spoegelser", "de-doedes-dag", "horror-klovne"],
     },
     rows: [
-      { title: "Halloweenkostumer til voksne", intro: "De mest uhyggelige kostumer til damer og herrer", href: "/kategori/halloween", collection: "halloweenkostumer-til-voksne" },
+      { title: "Halloweenkostumer til voksne", intro: "De mest uhyggelige kostumer til damer og herrer", href: "/tema/halloweenkostumer-til-voksne", collection: "halloweenkostumer-til-voksne" },
       { title: "Halloween for børn", intro: "Uhyggeligt – men ikke for uhyggeligt", href: "/tema/halloweenkostumer-til-boern", collection: "halloweenkostumer-til-boern" },
       { title: "Masker, blod og effekter", intro: "Gør kostumet rigtig skræmmende", href: "/tema/masker-og-blod", collection: "masker-og-blod" },
       { title: "Pynt huset", intro: "Græskar, kranier, spindelvæv og animatronics", href: "/kategori/halloweenpynt", collection: "halloweenpynt" },
@@ -415,14 +455,28 @@ const halloween: Merchandising = {
       title: "Sådan bliver din halloween uhyggelig",
       text: "Et godt halloweenkostume handler om detaljerne. Her er tre råd fra os.",
       tips: [
-        { title: "Kostume + maske + blod", text: "Kombinér kostumet med en maske eller make-up og lidt kunstigt blod. Det er detaljerne, der gør det skræmmende." },
-        { title: "Vælg den rigtige størrelse", text: "Mål bryst, talje og hofte, og sammenlign med størrelsesguiden. Er du mellem to størrelser, så vælg den største." },
-        { title: "Pynt huset", text: "Græskar, kranier, spindelvæv og lys forvandler hjemmet til et spøgelseshus – og gør festen komplet." },
+        { title: "Kostume + maske + blod", text: "Kombinér kostumet med en maske eller make-up og lidt kunstigt blod. Det er detaljerne, der gør det skræmmende.", icon: "mask" },
+        { title: "Vælg den rigtige størrelse", text: "Mål bryst, talje og hofte, og sammenlign med størrelsesguiden. Er du mellem to størrelser, så vælg den største.", icon: "ruler" },
+        { title: "Pynt huset", text: "Græskar, kranier, spindelvæv og lys forvandler hjemmet til et spøgelseshus – og gør festen komplet.", icon: "house" },
       ],
       link: { label: "Se størrelsesguiden", href: "/stoerrelsesguide" },
     },
   },
+  themesPage: {
+    intro: "Find dit halloweenkostume efter tema – hekse, vampyrer, zombier, skeletter og alle de andre monstre.",
+    themesTitle: "Find dit monster",
+    moreTitle: "Kostumer, masker og pynt",
+  },
   collections: [
+    {
+      slug: "halloweenkostumer",
+      title: "Halloweenkostumer",
+      intro: "Halloweenkostumer til damer, herrer og børn – hekse, vampyrer, zombier, skeletter og meget mere.",
+      categories: [...ADULTS, ...CHILDREN],
+      alsoIn: ["halloween"],
+      alsoInFallbackThemes: HALLOWEEN_THEMES,
+      tileProduct: "zombiesygeplejerske-kostume-til-damer-hvid-og-roed",
+    },
     {
       slug: "halloweenkostumer-til-damer",
       title: "Halloweenkostumer til damer",
@@ -430,6 +484,7 @@ const halloween: Merchandising = {
       categories: ["damekostumer"],
       alsoIn: ["halloween"],
       alsoInFallbackThemes: HALLOWEEN_THEMES,
+      tileProduct: "vampyr-kostume-til-damer-roed-og-sort",
     },
     {
       slug: "halloweenkostumer-til-herrer",
@@ -446,6 +501,7 @@ const halloween: Merchandising = {
       categories: ADULTS,
       alsoIn: ["halloween"],
       alsoInFallbackThemes: HALLOWEEN_THEMES,
+      tileProduct: "forbandet-spoegelse-kostume-til-herrer",
     },
     {
       slug: "halloweenkostumer-til-boern",
@@ -454,6 +510,7 @@ const halloween: Merchandising = {
       categories: CHILDREN,
       alsoIn: ["halloween"],
       alsoInFallbackThemes: HALLOWEEN_THEMES,
+      tileProduct: "vampyrgreve-kostume-til-drenge",
     },
     {
       slug: "halloweenmasker",
@@ -473,23 +530,61 @@ const halloween: Merchandising = {
     },
     {
       slug: "halloweenpynt",
-      title: "Halloweenpynt",
-      intro: "Græskar, kranier, gravsten, lys og animatronics til huset.",
+      title: "Pynt huset til halloween",
+      intro: "Græskar, kranier, gravsten, lys og animatronics – alt til at forvandle huset og haven til et spøgelseshus.",
       categories: ["halloweenpynt", "figurer-og-animatronics", "lys-og-effekter"],
       alsoIn: ["halloween"],
       alsoInFallbackThemes: HALLOWEEN_THEMES,
     },
-    { slug: "hekse", title: "Hekse", intro: "Heksekostumer, heksehatte, koste og parykker til små og store hekse.", themes: ["Hekse"] },
-    { slug: "vampyrer", title: "Vampyrer", intro: "Vampyrkostumer, kapper, hugtænder og blod – til grever, grevinder og blodsugere.", themes: ["Vampyrer"] },
-    { slug: "zombier", title: "Zombier", intro: "Zombiekostumer, sår og blod til dem, der vil gå igen.", themes: ["Zombie"] },
-    { slug: "skeletter", title: "Skeletter", intro: "Skeletkostumer, kranier og knogler til kostumet – og til at pynte huset med.", themes: ["Skeletter"] },
-    { slug: "djaevle-og-daemoner", title: "Djævle og dæmoner", intro: "Djævlehorn, haler, treforke og dæmonmasker.", themes: ["Djævle og dæmoner"] },
-    { slug: "spoegelser", title: "Spøgelser", intro: "Spøgelseskostumer og uhyggelig pynt, der går igen.", themes: ["Spøgelser"] },
+    // The tiles show adult costumes: the newest product of a theme is often a child's.
+    {
+      slug: "hekse",
+      title: "Hekse",
+      intro: "Heksekostumer, heksehatte, koste og parykker til små og store hekse.",
+      themes: ["Hekse"],
+      tileProduct: "fantasiheks-kostume-til-damer-sort",
+    },
+    {
+      slug: "vampyrer",
+      title: "Vampyrer",
+      intro: "Vampyrkostumer, kapper, hugtænder og blod – til grever, grevinder og blodsugere.",
+      themes: ["Vampyrer"],
+      tileProduct: "vampyr-kostume-til-herrer-bordeaux-og-sort",
+    },
+    {
+      slug: "zombier",
+      title: "Zombier",
+      intro: "Zombiekostumer, sår og blod til dem, der vil gå igen.",
+      themes: ["Zombie"],
+      tileProduct: "zombie-studerende-kostume-til-damer",
+    },
+    {
+      slug: "skeletter",
+      title: "Skeletter",
+      intro: "Skeletkostumer, kranier og knogler til kostumet – og til at pynte huset med.",
+      themes: ["Skeletter"],
+      tileProduct: "skelet-kostume-til-herrer",
+    },
+    {
+      slug: "djaevle-og-daemoner",
+      title: "Djævle og dæmoner",
+      intro: "Djævlehorn, haler, treforke og dæmonmasker.",
+      themes: ["Djævle og dæmoner"],
+      tileProduct: "daemon-kostume-til-herrer",
+    },
+    {
+      slug: "spoegelser",
+      title: "Spøgelser",
+      intro: "Spøgelseskostumer og uhyggelig pynt, der går igen.",
+      themes: ["Spøgelser"],
+      tileProduct: "haarspoegelse-kostume-til-damer",
+    },
     {
       slug: "de-doedes-dag",
       title: "De Dødes Dag",
       intro: "Kostumer, blomsterkranse og make-up til den mexicanske Día de los Muertos – farverigt og flot.",
       themes: ["De Dødes Dag"],
+      tileProduct: "farverig-catrina-kostume-til-damer",
     },
     {
       slug: "horror-klovne",
@@ -498,6 +593,7 @@ const halloween: Merchandising = {
       themes: ["Klovne"],
       alsoIn: ["halloween"],
       alsoInFallbackThemes: HALLOWEEN_THEMES,
+      tileProduct: "ond-klovn-kostume-til-herrer",
     },
     { slug: "varulve", title: "Varulve", intro: "Varulvekostumer, masker og klør til fuldmånen.", themes: ["Varulv"] },
   ],
@@ -526,4 +622,26 @@ export const merchandising: Merchandising = merchandisingByStore[storeConfig.id]
 
 export function findCollection(slug: string): Collection | undefined {
   return merchandising.collections.find((c) => c.slug === slug);
+}
+
+/** Where links to a theme page go: the page itself, or the category page it stands in for. */
+export function collectionHref(collection: Collection): string {
+  return collection.canonical ?? `/tema/${collection.slug}`;
+}
+
+/** Whether menus and category chips list this category (not hidden, not `navHidden`). */
+export function shownInNav(slug: string, shop: Merchandising = merchandising): boolean {
+  return !shop.hidden.includes(slug) && !shop.navHidden.includes(slug);
+}
+
+/** The sections of the /tema overview: the themes (the front page's first), then the other theme pages. */
+export function themesOverview(shop: Merchandising = merchandising): { title: string; collections: Collection[] }[] {
+  const first = shop.home.themes.collections;
+  const rank = (c: Collection) => (first.includes(c.slug) ? first.indexOf(c.slug) : first.length);
+  const themes = shop.collections.filter((c) => c.themes?.length).sort((a, b) => rank(a) - rank(b));
+  const more = shop.collections.filter((c) => !c.themes?.length);
+  return [
+    { title: shop.themesPage.themesTitle, collections: themes },
+    { title: shop.themesPage.moreTitle, collections: more },
+  ].filter((section) => section.collections.length > 0);
 }
