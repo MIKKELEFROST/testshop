@@ -11,12 +11,14 @@ export type MenuItem = NavLink & { groups: { title: string; links: NavLink[] }[]
 
 /**
  * The menu on larger screens: a row of items; an item with a dropdown opens it on hover, on
- * click and with the keyboard (Enter/Space on the arrow, Esc closes).
+ * click and with the keyboard (Enter/Space on the arrow; Esc closes it and returns to the
+ * arrow, and tabbing out of the item closes it).
  */
 export function DesktopNav({ items, extra }: { items: MenuItem[]; extra: NavLink[] }) {
   const [open, setOpen] = useState<number | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const navRef = useRef<HTMLElement>(null);
+  const toggles = useRef<(HTMLButtonElement | null)[]>([]);
   const pathname = usePathname();
 
   // Close on navigation, a click elsewhere and Esc.
@@ -31,7 +33,10 @@ export function DesktopNav({ items, extra }: { items: MenuItem[]; extra: NavLink
       if (!navRef.current?.contains(event.target as Node)) setOpen(null);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(null);
+      if (event.key !== "Escape") return;
+      // Focus inside the closing dropdown would fall back to the page: keep it on the item's arrow.
+      if (navRef.current?.contains(document.activeElement)) toggles.current[open]?.focus();
+      setOpen(null);
     };
     document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
@@ -50,7 +55,15 @@ export function DesktopNav({ items, extra }: { items: MenuItem[]; extra: NavLink
     <nav ref={navRef} aria-label="Hovedmenu" className="relative hidden border-t border-chrome-line lg:block" onMouseLeave={() => hover(null, 180)}>
       <ul className="container-shop flex h-12 items-center gap-1">
         {items.map((item, index) => (
-          <li key={item.href} onPointerEnter={(event) => event.pointerType !== "touch" && hover(item.groups.length > 0 ? index : null, open === null ? 90 : 0)}>
+          <li
+            key={item.href}
+            onPointerEnter={(event) => event.pointerType !== "touch" && hover(item.groups.length > 0 ? index : null, open === null ? 90 : 0)}
+            onBlur={(event) => {
+              // Tabbing on from the dropdown's last link (or back past the item) closes it.
+              const next = event.relatedTarget;
+              if (open === index && next instanceof Node && !event.currentTarget.contains(next)) setOpen(null);
+            }}
+          >
             <div className="flex items-center">
               <Link
                 href={item.href}
@@ -62,6 +75,9 @@ export function DesktopNav({ items, extra }: { items: MenuItem[]; extra: NavLink
               </Link>
               {item.groups.length > 0 && (
                 <button
+                  ref={(element) => {
+                    toggles.current[index] = element;
+                  }}
                   type="button"
                   onClick={() => setOpen(open === index ? null : index)}
                   aria-expanded={open === index}
