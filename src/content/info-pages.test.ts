@@ -114,6 +114,11 @@ describe("information pages", () => {
       expect(shown(slug, true), slug).toContain("IP-adresse");
       expect(shown(slug, true), slug).toContain("https://legal.trustpilot.com/for-reviewers/end-user-privacy-terms");
     }
+    // What Trustpilot stores for us, for how long, and why (GDPR art. 13).
+    const privacy = shown("privatlivspolitik", true);
+    expect(privacy).toContain("i op til 2 år efter Trustpilots databehandleraftale");
+    expect(privacy).toContain("Vise vores bedømmelse fra Trustpilot");
+    expect(shown("privatlivspolitik", false)).not.toContain("op til 2 år");
     const cookies = shown("cookiepolitik", true);
     expect(cookies).toContain("Vores bedømmelse fra Trustpilot");
     expect(cookies).toContain("TrustBoxene sætter ingen cookies og gemmer intet i din browser");

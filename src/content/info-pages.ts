@@ -675,6 +675,11 @@ export const INFO_PAGES: InfoPage[] = [
               ],
             ],
           },
+          {
+            type: "p",
+            text: "Vise vores bedømmelse fra Trustpilot: IP-adresse og tekniske oplysninger om besøget. Retsgrundlag: vores legitime interesse i at vise, hvad andre kunder mener om os (artikel 6, stk. 1, litra f).",
+            trustbox: true,
+          },
         ],
       },
       {
@@ -745,6 +750,11 @@ export const INFO_PAGES: InfoPage[] = [
             ],
           },
           { type: "p", text: "Derefter sletter vi oplysningerne." },
+          {
+            type: "p",
+            text: "Trustpilot gemmer IP-adressen og de tekniske oplysninger fra TrustBoxene for os i op til 2 år efter Trustpilots databehandleraftale. Hvor længe Trustpilot gemmer dem til sine egne formål, står i [Trustpilots privatlivspolitik](https://legal.trustpilot.com/for-reviewers/end-user-privacy-terms).",
+            trustbox: true,
+          },
         ],
       },
       {
