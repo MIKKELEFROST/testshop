@@ -21,6 +21,16 @@ function texts(page: InfoPage): string[] {
 
 const pages = [...INFO_PAGES, ...Object.values(OM_OS)];
 
+function page(slug: string): InfoPage {
+  return INFO_PAGES.find((p) => p.slug === slug)!;
+}
+
+function section(slug: string, heading: string): string[] {
+  const found = page(slug).sections.find((s) => s.heading === heading);
+  expect(found, `${slug}: ${heading}`).toBeDefined();
+  return texts({ ...page(slug), title: "", description: "", intro: "", sections: [found!] }).filter(Boolean);
+}
+
 describe("information pages", () => {
   it("has a page for every link in the footer and side menu, and a route for every page", () => {
     for (const link of INFO_LINKS) {
@@ -47,5 +57,14 @@ describe("information pages", () => {
 
   it("has an Om os page for each shop", () => {
     expect(Object.keys(OM_OS).sort()).toEqual(["halloween-kostumer-dk", "piece-dk"]);
+  });
+
+  // Forbrugeraftaleloven § 18, stk. 2, nr. 5: only sealed hygiene goods whose seal is broken after delivery.
+  it("limits the hygiene exception to sealed goods", () => {
+    const exception = section("fortrydelsesret", "Undtagelser: hygiejnevarer");
+    expect(exception.join(" ")).toContain("hvis forseglingen er brudt efter levering");
+    expect(exception.join(" ")).toContain("Det står på produktsiden");
+    expect(exception.join(" ")).not.toContain("emballagen er brudt");
+    expect(exception.filter((t) => /^Masker/.test(t))).toEqual([]);
   });
 });

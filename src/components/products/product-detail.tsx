@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, Ruler, ShoppingBag } from "lucide-react";
+import { CircleCheck, RotateCcw, Ruler, ShoppingBag } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { FavoriteButton } from "@/components/favorites/favorite-button";
@@ -10,6 +10,7 @@ import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { formatAmount, fromMinorUnits, toMinorUnits } from "@/lib/money";
 import { discountPercent } from "@/lib/pricing";
 import type { Product, ProductImage as ProductImageType, ProductVariation, StockStatus } from "@/types/commerce";
+import { HygieneReturn } from "./hygiene-return";
 import { ProductGallery } from "./product-gallery";
 import { ProductImage } from "./product-image";
 import { stockLabel } from "./stock-badge";
@@ -200,6 +201,14 @@ export function ProductDetail({
         </div>
         {inCart > 0 && <p className="mt-3 text-sm text-muted">Du har {inCart} i kurven.</p>}
         {!soldOut && <DispatchCountdown className="mt-4" />}
+        {product.hygiene && (
+          <p className="mt-3 flex items-start gap-2.5 px-3.5 text-sm text-ink-soft">
+            <RotateCcw className="mt-px size-5 shrink-0 text-muted" aria-hidden="true" />
+            <span>
+              <HygieneReturn />
+            </span>
+          </p>
+        )}
 
         {promises && <div className="mt-7">{promises}</div>}
         {details && <div className="mt-2">{details}</div>}

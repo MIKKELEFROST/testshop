@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatThreshold, resolveTexts, resolveUsps, USP_PRODUCT, USP_STRIP } from "./usps";
+import { DELIVERY_FACTS, formatThreshold, HYGIENE_RETURN_PROMISE, RETURN_PROMISE, resolveTexts, resolveUsps, USP_PRODUCT, USP_STRIP } from "./usps";
 
 describe("selling points", () => {
   it("fills in the free shipping amount from WooCommerce", () => {
@@ -14,5 +14,11 @@ describe("selling points", () => {
     expect(resolveUsps(USP_STRIP, null)).toHaveLength(USP_STRIP.length - 1);
     expect(resolveUsps(USP_PRODUCT, null).some((u) => u.icon === "box")).toBe(false);
     expect(resolveTexts(["Fri fragt v/ {fri_fragt}", "30 dages returret"], null)).toEqual(["30 dages returret"]);
+  });
+
+  it("has a return promise with the hygiene condition for sealed products", () => {
+    expect(DELIVERY_FACTS).toContain(RETURN_PROMISE);
+    expect(HYGIENE_RETURN_PROMISE.startsWith(`${RETURN_PROMISE} – `)).toBe(true);
+    expect(HYGIENE_RETURN_PROMISE).toContain("forseglingen er brudt");
   });
 });

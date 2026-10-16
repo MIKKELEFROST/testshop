@@ -1,4 +1,4 @@
-import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
+import { ADULT_CATEGORY_SLUGS, HYGIENE_CATEGORY_SLUGS } from "@/config/catalog";
 import { SUPPLIER_IMAGE_HOSTS } from "@/config/images";
 import { discountPercent } from "@/lib/pricing";
 import type {
@@ -158,6 +158,7 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
     sizeChart: supplierUrl(meta(product, "_wchc_size_chart"), null),
     safetyInfo: supplierUrl(meta(product, "_wchc_safety_info"), null),
     videos: youtubeIds(meta(product, "_wchc_videos")),
+    hygiene: product.categories.some((c) => HYGIENE_CATEGORY_SLUGS.includes(c.slug)),
   };
 }
 

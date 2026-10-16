@@ -83,6 +83,8 @@ export type Product = ProductSummary & {
   safetyInfo: string | null;
   /** YouTube video IDs (from the import's `_wchc_videos` links). */
   videos: string[];
+  /** Can come with a hygiene seal (HYGIENE_CATEGORY_SLUGS): no return once the seal is broken. */
+  hygiene: boolean;
 };
 
 /** One page of a product listing. */

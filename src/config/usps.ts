@@ -30,12 +30,22 @@ export const USP_PRODUCT: Usp[] = [
   { icon: "trophy", title: "Bedømt som Fremragende", text: "+30.000 femstjernede anmeldelser" },
 ];
 
+/** The return promise in "Levering og retur" on product pages. */
+export const RETURN_PROMISE = "30 dages returret";
+
+/**
+ * The return promise on products sold with a hygiene seal (HYGIENE_CATEGORY_SLUGS in
+ * src/config/catalog.ts): the law lets the shop refuse them once the seal is broken, but only
+ * when the customer is told before buying (see /fortrydelsesret).
+ */
+export const HYGIENE_RETURN_PROMISE = "30 dages returret – gælder ikke, hvis forseglingen er brudt (hygiejnevare)";
+
 /** "Levering og retur" on product pages. */
 export const DELIVERY_FACTS: string[] = [
   "Fri fragt til pakkeshop ved køb for mindst {fri_fragt}",
   "Lynhurtig 1-dags levering: bestil før kl. 19",
   "Levering til pakkeshop eller til døren. Du vælger fragtfirma i kassen.",
-  "30 dages returret",
+  RETURN_PROMISE,
 ];
 
 /** The bar above the header. */

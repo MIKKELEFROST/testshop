@@ -192,7 +192,7 @@ export const INFO_PAGES: InfoPage[] = [
           { type: "p", text: RETURFRAGT },
           {
             type: "p",
-            text: "Forseglede hygiejnevarer som make-up og ansigtsmaling kan ikke returneres, når forseglingen er brudt. Læs hele vejledningen, undtagelserne og standardfortrydelsesformularen under [Returret og fortrydelse](/fortrydelsesret).",
+            text: "Forseglede hygiejnevarer som make-up og ansigtsmaling kan ikke returneres, når forseglingen er brudt. Det står på produktsiden, når en vare er omfattet. Læs hele vejledningen, undtagelserne og standardfortrydelsesformularen under [Returret og fortrydelse](/fortrydelsesret).",
           },
         ],
       },
@@ -396,20 +396,15 @@ export const INFO_PAGES: InfoPage[] = [
         blocks: [
           {
             type: "p",
-            text: "Nogle varer kan af hygiejniske eller sundhedsmæssige årsager ikke returneres, når forseglingen eller emballagen er brudt. Det gælder, når det fremgår af varen eller produktsiden, fx:",
+            text: "Varer, der leveres med en hygiejneforsegling, kan af hygiejniske eller sundhedsmæssige årsager ikke returneres, hvis forseglingen er brudt efter levering. Det står på produktsiden, når en vare er omfattet. Det kan fx være disse varer, når de leveres forseglet:",
           },
           {
             type: "list",
-            items: [
-              "Make-up og ansigtsmaling",
-              "Kunstige tænder og gebisser",
-              "Kunstige negle og vipper",
-              "Masker, der bæres direkte mod ansigtet",
-            ],
+            items: ["Make-up og ansigtsmaling", "Kunstige tænder og gebisser", "Kunstige negle og vipper"],
           },
           {
             type: "p",
-            text: "Forseglede hygiejnevarer kan ikke returneres, når de er åbnet. Uåbnede varer med ubrudt forsegling kan du returnere som alle andre varer.",
+            text: "Uåbnede varer med ubrudt forsegling kan du returnere som alle andre varer. Varer uden hygiejneforsegling, fx kostumer, masker og parykker, er ikke omfattet af undtagelsen.",
           },
         ],
       },
@@ -1091,7 +1086,7 @@ export const INFO_PAGES: InfoPage[] = [
         blocks: [
           {
             type: "p",
-            text: "Ja, du har 30 dages returret fra den dag, du modtager varen. Se, hvordan du gør, under [Returret og fortrydelse](/fortrydelsesret).",
+            text: "Ja, du har 30 dages returret fra den dag, du modtager varen. Forseglede hygiejnevarer som make-up kan dog ikke returneres, når forseglingen er brudt. Se, hvordan du gør, under [Returret og fortrydelse](/fortrydelsesret).",
           },
         ],
       },
