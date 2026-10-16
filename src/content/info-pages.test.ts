@@ -101,6 +101,12 @@ describe("information pages", () => {
     expect(section("cookiepolitik", "Det gemmes i din browser").some((t) => t.includes("sessionStorage"))).toBe(true);
   });
 
+  it("mentions 18+ only as a rule for the products marked so, as they can all be drafts", () => {
+    for (const p of pages) {
+      for (const text of texts(p).filter((t) => t?.includes("18+"))) expect(text, p.slug).toMatch(/^(Varer|Hvad betyder 18\+)/);
+    }
+  });
+
   it("tells what Trustpilot's TrustBoxes do only when the shop shows them", () => {
     const shown = (slug: string, trustbox: boolean) => texts(shownPage(page(slug), trustbox)).join(" ");
     for (const slug of ["cookiepolitik", "privatlivspolitik"]) {

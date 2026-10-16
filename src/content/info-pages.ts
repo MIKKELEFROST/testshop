@@ -1505,7 +1505,7 @@ export const OM_OS: Record<string, InfoPage> = {
         ],
       },
       {
-        heading: "Til hele familien – og nogle kun til voksne",
+        heading: "Til hele familien",
         blocks: [
           {
             type: "p",
@@ -1513,7 +1513,7 @@ export const OM_OS: Record<string, InfoPage> = {
           },
           {
             type: "p",
-            text: "Nogle kostumer er kun for voksne. De er mærket 18+ og sælges kun til kunder, der er fyldt 18 år.",
+            text: "Varer, der kun er for voksne, er mærket 18+ og sælges kun til kunder, der er fyldt 18 år.",
           },
           {
             type: "p",
