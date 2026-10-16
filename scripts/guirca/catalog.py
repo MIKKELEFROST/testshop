@@ -2,11 +2,13 @@
 
 Sizes of the same item share Guirca's size connector ("CONNECTOR SIZE") and become one
 variable product with a variation per size. Everything else becomes a simple product.
+adult_changes is what the `adult` command changes on the products already in WooCommerce.
 """
 from __future__ import annotations
 
 import collections
 import hashlib
+import html
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -156,9 +158,27 @@ def build(rows: list[dict], translations: Translations, images: rules.ImageStatu
     return specs, skipped
 
 
-def common_fields(row: dict, translations: Translations, images: rules.ImageStatus, groups: set[str], sized: bool):
+def sku_code(sku: str) -> str:
+    """Guirca's article number in a SKU the import gave: 'GU-2329' -> '2329', 'GU-79128-79129' -> '79128'."""
+    return sku[len(SKU_PREFIX):].split("-")[0] if (sku or "").startswith(SKU_PREFIX) else ""
+
+
+def is_adult(row: dict, name: str, description: str, codes: list[str]) -> bool:
+    """For adults only (18+): Guirca's EROTIC items and the crude jokes it files elsewhere (rules.is_crude)."""
+    return rules.is_erotic(row) or rules.is_crude(name, description, min(codes, key=code_key))
+
+
+def status_for(sellable: bool, adult: bool) -> str:
+    """Drafts: products that can't be sold yet (no price, no Danish name) and, for now, those for adults only."""
+    if not sellable:
+        return "draft"
+    return rules.ADULT_STATUS if adult else "publish"
+
+
+def common_fields(row: dict, translations: Translations, images: rules.ImageStatus, groups: set[str], sized: bool, adult: bool):
+    """Categories, tags and supplier data. Products for adults only are only in the 18+ category."""
     vocabulary = translations.vocabulary
-    categories = rules.main_categories(row, groups, sized)
+    categories = [rules.ADULT_ONLY] if adult else rules.main_categories(row, groups, sized)
     adult_only = categories == [rules.ADULT_ONLY]
     tags = [vocabulary["THEME"].get(t, t) for t in rules.tag_themes(row)]
     meta = {
@@ -244,9 +264,11 @@ def variable_spec(members: list[dict], translations: Translations, images: rules
     issues += [v.issue for v in variations if v.issue]
 
     colours = colours_of(members, translations)
-    common = common_fields(first, translations, images, groups, sized=True)
-    seasons = [c for r in by_code for c in rules.season_categories(r)]
-    common["categories"] = list(dict.fromkeys(common["categories"] + seasons))
+    short, description = rules.describe(first, translations.vocabulary, costume=costume, groups=groups, sizes=labels, colours=colours)
+    common = common_fields(first, translations, images, groups, sized=True, adult=is_adult(first, name, description, codes))
+    if not common["adult_only"]:
+        seasons = [c for r in by_code for c in rules.season_categories(r)]
+        common["categories"] = list(dict.fromkeys(common["categories"] + seasons))
     # Each size has its own copy of the photos, and a few sizes have more than the others:
     # use the size with the most (the lowest article number if several have as many).
     common["meta"]["_wchc_external_images"] = max((rules.image_urls(row, images) for row in by_code), key=len)
@@ -254,8 +276,8 @@ def variable_spec(members: list[dict], translations: Translations, images: rules
     common["meta"]["_guirca_size_connector"] = first.get("CONNECTOR SIZE", "")
     if first.get("SIZE_CHART"):
         common["meta"]["_wchc_size_chart"] = rules.https(first["SIZE_CHART"])
-    short, description = rules.describe(first, translations.vocabulary, costume=costume, groups=groups, sizes=labels, colours=colours)
 
+    sellable = any(v.price for v in variations) and not any("dansk navn" in i for i in issues)
     sorted_codes = sorted(codes, key=code_key)
     return ProductSpec(
         key="G" + first.get("CONNECTOR SIZE", first["ARTICLE CODE"]),
@@ -274,7 +296,7 @@ def variable_spec(members: list[dict], translations: Translations, images: rules
         ean="",
         weight=weight(first),
         dimensions=dimensions(first),
-        status="publish" if any(v.price for v in variations) and not any("dansk navn" in i for i in issues) else "draft",
+        status=status_for(sellable, common["adult_only"]),
         issues=issues,
         notes=list(dict.fromkeys(notes)),
         variations=variations,
@@ -304,10 +326,11 @@ def simple_spec(row: dict, translations: Translations, images: rules.ImageStatus
         notes.append(note)
 
     colours = colours_of([row], translations)
-    common = common_fields(row, translations, images, groups, sized)
-    common["categories"] = list(dict.fromkeys(common["categories"] + rules.season_categories(row)))
-    common["meta"]["_supplier_article_codes"] = row["ARTICLE CODE"]
     short, text = rules.describe(row, translations.vocabulary, costume=costume, groups=groups, colours=colours)
+    common = common_fields(row, translations, images, groups, sized, adult=is_adult(row, name, text, [row["ARTICLE CODE"]]))
+    if not common["adult_only"]:
+        common["categories"] = list(dict.fromkeys(common["categories"] + rules.season_categories(row)))
+    common["meta"]["_supplier_article_codes"] = row["ARTICLE CODE"]
 
     return ProductSpec(
         key="S" + row["ARTICLE CODE"],
@@ -326,7 +349,7 @@ def simple_spec(row: dict, translations: Translations, images: rules.ImageStatus
         ean=row.get("EAN", ""),
         weight=weight(row),
         dimensions=dimensions(row),
-        status="draft" if issues else "publish",
+        status=status_for(not issues, common["adult_only"]),
         issues=issues,
         notes=notes,
         **{k: v for k, v in common.items() if k != "meta"},
@@ -355,3 +378,45 @@ def disambiguate(specs: list[ProductSpec]) -> None:
     by_key = {spec.key: spec for spec in specs}
     for key, name in rules.unique_names({s.key: (s.name, name_facts(s)) for s in specs}).items():
         by_key[key].name = name
+
+
+# ---------------------------------------------------------------- products in WooCommerce for adults only
+
+
+@dataclass
+class AdultChange:
+    product: dict  # as WooCommerce lists it (id, name, sku, status, categories, description, webshops)
+    reason: str  # "18+-kategorien", or why it is crude (rules.crude_reason)
+    update: dict  # {id, status?, categories?, webshops?}; only the id when nothing changes
+
+
+def adult_changes(products: list[dict], adult_category: dict, webshops) -> list[AdultChange]:
+    """What makes every product for adults only a draft (rules.ADULT_STATUS): those in the 18+
+    category, and the crude jokes outside it (rules.is_crude), which also get the 18+ category as
+    their only category and only the webshops that sell 18+ products (`webshops`), as the import
+    gives new ones."""
+    changes = []
+    for product in products:
+        in_category = any(c.get("id") == adult_category["id"] for c in product.get("categories") or [])
+        name = html.unescape(product.get("name") or "")
+        reason = "18+-kategorien" if in_category else rules.crude_reason(name, product.get("description") or "", sku_code(product.get("sku") or ""))
+        if not reason:
+            continue
+        update = {"id": product["id"]}
+        if product.get("status") != rules.ADULT_STATUS:
+            update["status"] = rules.ADULT_STATUS
+        if not in_category:
+            update["categories"] = [{"id": adult_category["id"]}]
+            if sorted(product.get("webshops") or []) != sorted(webshops):
+                update["webshops"] = list(webshops)
+        changes.append(AdultChange(product, reason, update))
+    return changes
+
+
+def adult_saved(update: dict, result: dict) -> bool:
+    """Whether WooCommerce's answer to an update from adult_changes has what it set."""
+    return (
+        ("status" not in update or result.get("status") == update["status"])
+        and ("categories" not in update or {c["id"] for c in result.get("categories") or []} == {c["id"] for c in update["categories"]})
+        and ("webshops" not in update or sorted(result.get("webshops") or []) == sorted(update["webshops"]))
+    )

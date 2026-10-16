@@ -31,9 +31,13 @@ python3 scripts/guirca/import_guirca.py order --apply
 # 6. Unikke navne til varer, der hedder det samme (kun navnet, adresserne bliver)
 python3 scripts/guirca/import_guirca.py names --out /tmp/guirca/navne.csv
 python3 scripts/guirca/import_guirca.py names --apply
+
+# 7. Varer kun for voksne (18+ og grove varer) som kladder: først en prøvekørsel, der kun læser, så --apply
+python3 scripts/guirca/import_guirca.py adult
+python3 scripts/guirca/import_guirca.py adult --apply
 ```
 
-`order` og `names` skal ikke bruge arket. De læser alle varer i WooCommerce (100 ad gangen, én forespørgsel ad gangen) og skriver intet uden `--apply`. Se "Rækkefølge og ens navne" nedenfor.
+`order`, `names` og `adult` skal ikke bruge arket. De læser alle varer i WooCommerce (100 ad gangen, én forespørgsel ad gangen) og skriver intet uden `--apply`. Se "Rækkefølge og ens navne" og "Varer kun for voksne (18+)" nedenfor.
 
 Andre valg: `--codes 78224,19000` (kun bestemte Guirca-numre), `--webshop SLUG,SLUG` (webshops til nye varer, standard `halloween-kostumer-dk,piece-dk`), `--workers` og `--batch` (samtidige forespørgsler og varer pr. forespørgsel), `--image-status FIL` (svarene fra billedtjekket: døde links udelades, og fotos på Guircas server, som arket ikke nævner, kommer med).
 
@@ -57,15 +61,15 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 | Producent (GPSR) | Alle varer har Guircas navn og adresse fra deres sikkerhedsmærkat. Produktsiden linker til mærkaten med advarsler (også på dansk). |
 | Billeder | Guircas fotos hentes ikke ind i WordPress. Links gemmes på varen (`_wchc_external_images`), og shoppen viser dem via Vercels billedoptimering. Alle fotos kommer med, også dem arket ikke nævner (se "Billedtjek"), i arkets rækkefølge: hovedfoto, katalogfoto, uden emballage, bagfra, detaljer og emballage. Døde links udelades. For varer med størrelser bruges størrelsen med flest fotos. |
 | Lager | Lagerstyring slået fra og "på lager", fordi arket ikke har lagertal. Kommer der en lagerfil fra Guirca, kan importen opdatere lageret. |
-| Kladder | Varer uden brugbar pris (mangler eller f.eks. 1.455.985 EUR i arket) bliver kladder med forklaringen i `_wchc_import_issue`. Størrelser uden pris bliver private. |
-| Webshop | Alle varer tildeles begge webshops, Halloweenkostumer.dk (`halloween-kostumer-dk`) og Fastelavnskostumer.dk (`piece-dk`). Erotiske varer (Guirca-kategorien EROTIC) kommer i "Polterabend (18+)" og sælges kun i Halloweenkostumer.dk (`ADULT_WEBSHOPS`). |
+| Kladder | Varer uden brugbar pris (mangler eller f.eks. 1.455.985 EUR i arket) bliver kladder med forklaringen i `_wchc_import_issue`. Størrelser uden pris bliver private. Varer kun for voksne bliver kladder indtil videre (`ADULT_STATUS` i `rules.py`, ejerens beslutning 16-10-2026). |
+| Webshop | Alle varer tildeles begge webshops, Halloweenkostumer.dk (`halloween-kostumer-dk`) og Fastelavnskostumer.dk (`piece-dk`). Varer kun for voksne (Guirca-kategorien EROTIC og de grove varer, se "Varer kun for voksne (18+)") kommer kun i "Polterabend (18+)", uden sæsonkategori, og sælges kun i Halloweenkostumer.dk (`ADULT_WEBSHOPS`). |
 | Springes over | Butiksdisplays (f.eks. "CHRISTMAS DISPLAY 187 x 30 x 61 CM") og rækker uden navn. |
 
 ## Når importen køres igen
 
 - Varer findes igen på Guircas varenumre (`_supplier_article_codes`), så der ikke opstår dubletter. Uændrede varer springes over.
 - Pris, EAN, vægt, mål, størrelser, egenskaber, billedlinks og leverandørdata opdateres altid.
-- Navn, tekster, kategorier, tags, status, webshops og lagerindstillinger sættes kun, når varen oprettes. Rettelser i WooCommerce overskrives derfor ikke. Med `--overwrite texts,categories` (eller `all`) sættes de igen.
+- Navn, tekster, kategorier, tags, status, webshops og lagerindstillinger sættes kun, når varen oprettes. Rettelser i WooCommerce overskrives derfor ikke. Med `--overwrite texts,categories` (eller `all`) sættes de igen. Eksisterende varer kun for voksne bliver kladder med `adult`, ikke med importen.
 - Bliver en kørsel afbrudt, startes den bare igen. WooCommerce afviser dobbelte varenumre, og importen tjekker, hvad der nåede at blive gemt. Efter en afbrudt forespørgsel venter den først et minut (`--settle`), fordi WooCommerce kan være i gang med at gemme.
 - En vare med størrelser, der mangler nogle af sine størrelser i WooCommerce, gennemgås igen, også selvom resten er uændret.
 - `menu_order` sættes kun på nye varer; `order` sætter den for alle. Eksisterende varer får nye navne med `names`, ikke med importen.
@@ -106,6 +110,22 @@ En vare i flere kategorier får den bedste gruppe. Sæsonkategorierne tæller ik
 - `--out navne.csv` skriver alle omdøbninger (id, varenr., navn nu, nyt navn), så de kan tjekkes i Excel før `--apply`. Kør `names` igen, når kladder er blevet udgivet.
 - Prøvekørslen 15-10-2026: 283 navne delt af 643 udgivne varer. 132 får størrelsen, 17 målgruppen og 494 Guircas varenummer (især kostumer og parykker, hvor arket ikke har andre forskelle).
 
+## Varer kun for voksne (18+)
+
+Guirca lægger sine sexspil, sit undertøj og sine sado-varer i kategorien EROTIC (37 varer), men de fleste grove polterabend-gags andre steder: "Penisforklæde" i Tøj, "Oppustelige bryster" i Gadgets og sjov, kostumet "Sexlegetøj" i Herrekostumer og en "Amputeret penis" i Halloweenpynt. De er også kun for voksne (`is_crude` i `rules.py`), når
+
+- det danske navn nævner kønsorganer, bryster eller brystvorter, sex, sexlegetøj, kondomer, sæd, nøgenhed eller bondage, eller siger noget groft (`CRUDE_NAME`: "penis", "testikler", "bryster", "brystvorte", "kondom", "sædcelle", "sex" som ord, "sexlegetøj", "sexman", "fuck", "dick", "nøgen", "åben gylp", "med overraskelse", "bondage", "erotisk"),
+- indholdet i beskrivelsen er en penis eller testikler (`CRUDE_CONTENT`: "Indhold: hætte, heldragt og penis." på hingsten, hulemanden, bananen …),
+- eller Guircas varenummer står i `CRUDE_ARTICLES`: varer, hvis fotos er grove, uden at navnet siger det (penisformet konfetti, en kokkehue og en kat formet som kønsorganer, en bedstemor og et juleforklæde med nøgen krop). For en vare med størrelser er det det laveste nummer, som SKU'en starter med.
+
+Ordene tæller kun, hvor de betyder det: "kæmpenisse" har "penis" indeni, et "skjortebryst" er et skjorteforstykke og en "brystplade" en rustning, polstrede bryster i drag- og livredderkostumer tæller ikke, og "sexet" (sexet politibetjent, sexet kanin) er almindelige voksenkostumer. Reglen ser på de danske tekster, fordi `adult` kun har dem i WooCommerce. Importen og `adult` finder derfor de samme varer.
+
+Varer kun for voksne kommer kun i "Polterabend (18+)" (uden sæsonkategori), sælges kun i Halloweenkostumer.dk og oprettes som kladder (`ADULT_STATUS`). `adult` gør det samme for varerne i WooCommerce: alle i 18+-kategorien bliver kladder, og de grove varer uden for den bliver kladder med 18+ som eneste kategori og kun Halloweenkostumer.dk som webshop. Kun status, kategorier og webshops skrives, i portioner på højst 50 som `order`.
+
+- Prøvekørslen 16-10-2026 (hele listen med id, navn, status, kategorier og grunden): 85 varer kun for voksne, alle udgivne. 37 i "Polterabend (18+)" bliver kladder. 48 grove varer bliver kladder i 18+ og kun i Halloweenkostumer.dk: 37 efter navnet, 6 efter indholdet (kostumerne Hingst, Homo erectus, Glad banan, Skjult budskab, Stretching-gymnast og Big Drag) og 5 efter varenummeret. 19 af dem er herrekostumer, 4 var i Halloween (latexlem, krog med testikler, amputeret penis, skelet med penis) og 4 i Jul og nytår (tre juleforklæder og brystvortecovers). Arket giver de samme 85 (`report`: "Kun 18+ … 85").
+- Ikke med (sjove, men ikke grove): sjove underbukser og mankinier med dyr eller frugt foran (f.eks. 17189, 17191, 18292-18298, 27758, 27772, 27787-27789, 41143, 42512, 42513), kostumer med en slange, et stik eller en kasse foran (89059, 86807, 86108), forklæder og kostumer med påtrykt undertøj (18194, 41139, 79640) og de sexede voksenkostumer. Skal en af dem med, så tilføj varenummeret til `CRUDE_ARTICLES`.
+- Skal varerne sælges igen: sæt `ADULT_STATUS = "publish"` (nye varer), og udgiv de eksisterende i WooCommerce (Produkter → filtrér på kategorien Polterabend (18+) → Masseredigering → Status: Udgivet).
+
 ## Oversættelser
 
 `translations/families.json` (kostume- og tøjfamilier uden målgruppe), `names.json` (øvrige varer) og `vocabulary.json` (indhold, materialer, farver, temaer). Nøglen er Guircas engelske tekst. Ret en oversættelse i filen, og kør importen med `--overwrite texts --force` for de berørte varer (f.eks. med `--codes`). Nye varer i et senere ark mangler oversættelse og bliver kladder med "Mangler dansk navn", indtil de er oversat.
@@ -126,4 +146,4 @@ I WooCommerce-admin har varerne ingen udvalgt billede, fordi billederne ligger h
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/guirca` (kører også i CI; `python3 -m pytest scripts/guirca` virker også) tester størrelser, priser, navne og unikke navne, kategorier, rækkefølgen ved Anbefalet, beskrivelser, samling af størrelser og billedtjekkets regler (fotos, arket ikke nævner, koder med mellemrum, svar uden status).
+`python3 -m unittest discover -s scripts/guirca` (kører også i CI; `python3 -m pytest scripts/guirca` virker også) tester størrelser, priser, navne og unikke navne, kategorier (også varer kun for voksne og `adult`), rækkefølgen ved Anbefalet, beskrivelser, samling af størrelser og billedtjekkets regler (fotos, arket ikke nævner, koder med mellemrum, svar uden status).

@@ -8,9 +8,10 @@
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx>           # everything
     python3 scripts/guirca/import_guirca.py order [--apply]   # "Anbefalet" order (menu_order) of all products
     python3 scripts/guirca/import_guirca.py names [--apply]   # unique names for products that share one
+    python3 scripts/guirca/import_guirca.py adult [--apply]   # products for adults only (18+) as drafts
 
 Pass --image-status images.tsv to report and import to use the photos the check found.
-order and names only read WooCommerce unless --apply is given.
+order, names and adult only read WooCommerce unless --apply is given.
 WooCommerce credentials come from WOOCOMMERCE_URL, WOOCOMMERCE_CONSUMER_KEY and
 WOOCOMMERCE_CONSUMER_SECRET (e.g. `set -a; . ./.env.local; set +a`).
 
@@ -147,7 +148,7 @@ def report(args) -> int:
     for reason, count in collections.Counter(s.reason for s in skipped).most_common():
         print(f"  {count:5}  {reason}")
     print(f"Kladder (skal tjekkes): {sum(s.status == 'draft' for s in specs)}")
-    print(f"Kun 18+ (kun i {', '.join(ADULT_WEBSHOPS)}): {sum(s.adult_only for s in specs)}")
+    print(f"Kun 18+ (kun i {', '.join(ADULT_WEBSHOPS)}, status {rules.ADULT_STATUS}): {sum(s.adult_only for s in specs)}")
     print(f"Uden billeder: {sum(not s.images for s in specs)}")
     print(f"Billeder: {sum(len(s.images) for s in specs)} ({sum(len(s.images) == 1 for s in specs)} produkter har kun ét)")
     print("Kategorier:")
@@ -587,15 +588,21 @@ def read_products(woo: Woo, status: str, fields: str) -> list[dict]:
     return products
 
 
-def write_products(woo: Woo, updates: list[dict], field: str, args) -> int:
-    """Save one field ({id, field}) in batches of at most 50, one batch at a time with a pause.
+def saved_field(field: str):
+    """Whether the product WooCommerce answered with has the value an update ({id, field}) set."""
+    return lambda update, result: text(str(result.get(field))) == text(str(update[field]))
 
-    The updates only set a value, so a batch that fails is sent again after --settle seconds
+
+def write_products(woo: Woo, updates: list[dict], saved, args) -> int:
+    """Save updates ({id, fields …}) in batches of at most 50, one batch at a time with a pause.
+    `saved(update, result)` tells whether WooCommerce's answer has what the update set.
+
+    The updates only set values, so a batch that fails is sent again after --settle seconds
     (WooCommerce may still be saving it). Returns how many products were not saved.
     """
     size = max(1, min(args.batch, MAX_BATCH))
     batches = [updates[start:start + size] for start in range(0, len(updates), size)]
-    saved = failed = 0
+    done = failed = 0
     for number, chunk in enumerate(batches, 1):
         results = []
         for attempt in range(3):
@@ -611,23 +618,23 @@ def write_products(woo: Woo, updates: list[dict], field: str, args) -> int:
         by_id = {r.get("id"): r for r in results if not r.get("error")}
         for update in chunk:
             result = by_id.get(update["id"])
-            if result is not None and text(str(result.get(field))) == text(str(update[field])):
-                saved += 1
+            if result is not None and saved(update, result):
+                done += 1
             else:
                 failed += 1
                 error = next((r["error"].get("message") for r in results if r.get("error") and r.get("id") == update["id"]), "ikke gemt")
                 print(f"  FEJL produkt {update['id']}: {error}")
-        print(f"[{number}/{len(batches)}] gemt {saved}, fejl {failed}", flush=True)
+        print(f"[{number}/{len(batches)}] gemt {done}, fejl {failed}", flush=True)
         if number < len(batches):
             time.sleep(args.pause)
     return failed
 
 
-def finish(woo: Woo, updates: list[dict], field: str, args) -> int:
+def finish(woo: Woo, updates: list[dict], saved, args) -> int:
     if not args.apply:
         print("Prøvekørsel: intet er gemt. Kør igen med --apply for at gemme.")
         return 0
-    failed = write_products(woo, updates, field, args)
+    failed = write_products(woo, updates, saved, args)
     print(f"Færdig: gemt {len(updates) - failed}, fejl {failed}")
     return 1 if failed else 0
 
@@ -649,14 +656,14 @@ def run_order(args) -> int:
         print(f"  {tier}  {label}: {len(members)} ({published} udgivne){' · først: ' + first if first else ''}")
     updates = [{"id": p["id"], "menu_order": orders[p["id"]]} for p in products if p.get("menu_order") != orders[p["id"]]]
     print(f"menu_order ændres på {len(updates)} af {len(products)} produkter (kun menu_order)")
-    return finish(woo, updates, "menu_order", args)
+    return finish(woo, updates, saved_field("menu_order"), args)
 
 
 def product_name_facts(product: dict) -> rules.NameFacts:
     """NameFacts from what WooCommerce shows: description, Målgruppe, Farve and the Guirca number in the SKU."""
     options = {text(a.get("name", "")): a.get("options") or [] for a in product.get("attributes") or []}
     sku = product.get("sku") or ""
-    code = sku[len(catalog.SKU_PREFIX):].split("-")[0] if sku.startswith(catalog.SKU_PREFIX) else sku or str(product["id"])
+    code = catalog.sku_code(sku) or sku or str(product["id"])
     description = f"{product.get('description', '')} {product.get('short_description', '')}"
     return rules.name_facts(text=description, groups=options.get(GROUP, []), colours=options.get(COLOUR, []), code=code)
 
@@ -697,7 +704,34 @@ def run_names(args) -> int:
             for product_id in sorted(renamed, key=lambda i: (rules.name_key(current[i]), i)):
                 writer.writerow([product_id, skus[product_id], current[product_id], renamed[product_id]])
         print(f"Alle omdøbninger: {args.out}")
-    return finish(woo, [{"id": i, "name": n} for i, n in sorted(renamed.items())], "name", args)
+    return finish(woo, [{"id": i, "name": n} for i, n in sorted(renamed.items())], saved_field("name"), args)
+
+
+def run_adult(args) -> int:
+    """Keep products for adults only as drafts (the owner's decision, 16-10-2026): the 18+
+    category and the crude jokes Guirca files elsewhere (see catalog.adult_changes)."""
+    woo = Woo.from_env()
+    slug = rules.slugify(rules.ADULT_ONLY[-1])
+    adult_category = next((c for c in woo.get_all("wc/v3/products/categories", _fields="id,name,slug,parent") if c["slug"] == slug), None)
+    if adult_category is None:
+        raise SystemExit(f"Kategorien {rules.ADULT_ONLY[-1]} ({slug}) findes ikke i WooCommerce.")
+    products = read_products(woo, "any", "id,name,sku,status,categories,description,webshops")
+    changes = catalog.adult_changes(products, adult_category, ADULT_WEBSHOPS)
+    crude = [c for c in changes if "categories" in c.update]
+    print(f"Varer kun for voksne: {len(changes)} ({len(changes) - len(crude)} i {rules.ADULT_ONLY[-1]}, {len(crude)} grove varer uden for den)")
+    print(f"Status nu: {', '.join(f'{s} {n}' for s, n in collections.Counter(c.product.get('status') for c in changes).most_common())}")
+    print(f"Bliver kladde: {sum('status' in c.update for c in changes)} · får kun kategorien {rules.ADULT_ONLY[-1]}: {len(crude)} · får kun webshoppen {', '.join(ADULT_WEBSHOPS)}: {sum('webshops' in c.update for c in changes)}")
+    for title, group in (("I 18+-kategorien", [c for c in changes if c not in crude]), ("Grove varer, der får 18+-kategorien", crude)):
+        print(f"\n{title} ({len(group)}):")
+        print("  id\tstatus\tnavn\tkategorier nu\twebshops nu\thvorfor\tændring")
+        for change in sorted(group, key=lambda c: c.product["id"]):
+            p, update = change.product, change.update
+            categories = ", ".join(text(c.get("name", "")) for c in p.get("categories") or [])
+            planned = ", ".join(f"{k} → {'18+' if k == 'categories' else ','.join(v) if isinstance(v, list) else v}" for k, v in update.items() if k != "id") or "ingen"
+            print(f"  {p['id']}\t{p.get('status')}\t{text(p.get('name', ''))}\t{categories}\t{','.join(p.get('webshops') or []) or '-'}\t{change.reason}\t{planned}")
+    updates = [c.update for c in changes if len(c.update) > 1]
+    print(f"\nÆndres: {len(updates)} af {len(products)} produkter (kun status, kategorier og webshops)")
+    return finish(woo, updates, catalog.adult_saved, args)
 
 
 def main(argv=None) -> int:
@@ -727,7 +761,8 @@ def main(argv=None) -> int:
     p.add_argument("--settle", type=int, default=60, help="Sekunder at vente efter en afbrudt forespørgsel, før der tjekkes, hvad der blev gemt")
     sub.add_parser("order", help="Sæt rækkefølgen ved 'Anbefalet' (menu_order): kostumer først, nyeste først")
     sub.add_parser("names", help="Gør navne, som flere udgivne varer har, unikke (kun navnet, ikke adressen)")
-    for name in ("order", "names"):
+    sub.add_parser("adult", help="Gør alle varer kun for voksne (18+ og grove varer) til kladder")
+    for name in ("order", "names", "adult"):
         p = sub.choices[name]
         mode = p.add_mutually_exclusive_group()
         mode.add_argument("--dry-run", action="store_true", help="Vis kun, hvad der ville ændres (standard)")
@@ -738,7 +773,7 @@ def main(argv=None) -> int:
     sub.choices["names"].add_argument("--examples", type=int, default=20, help="Antal eksempler, der vises (standard 20)")
     sub.choices["names"].add_argument("--out", help="CSV med alle omdøbninger")
     args = parser.parse_args(argv)
-    commands = {"images": check_images, "report": report, "import": run_import, "order": run_order, "names": run_names}
+    commands = {"images": check_images, "report": report, "import": run_import, "order": run_order, "names": run_names, "adult": run_adult}
     return commands[args.command](args)
 
 

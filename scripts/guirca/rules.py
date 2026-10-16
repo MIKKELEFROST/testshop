@@ -341,6 +341,35 @@ def unique_names(products: dict) -> dict:
 
 EROTIC = "EROTIC"
 ADULT_ONLY = ("Polterabend (18+)",)
+# The owner's decision (16-10-2026): products for adults only are drafts for now, also new ones.
+ADULT_STATUS = "draft"
+
+# Guirca files its sex games, lingerie and sado items under EROTIC, but most of its crude
+# bachelor-party jokes elsewhere ("Penisforklæde", "Oppustelige bryster", the "Sexlegetøj"
+# costume, a latex penis for Halloween). They are for adults only too: products whose Danish
+# name names genitals, breasts or nipples, sex, sex toys, condoms, sperm, nudity or bondage, or
+# says something crude ("Fuckman", "Dickman", "Åben gylp", the aprons "med overraskelse").
+# Words only where they mean that: "kæmpenisse" (a giant elf) has "penis" inside, a
+# "skjortebryst" is a shirt front, "brystplade" a breastplate, and "sexet" (sexy police, sexy
+# bunny) is an ordinary adult costume. The Danish name, not Guirca's English, so the `adult`
+# command finds the same products in WooCommerce, where only the Danish texts are.
+CRUDE_NAME = re.compile(
+    r"\bpenis|penis\b|latexlem\b|testik(?:el|ler)|(?<!skjorte)bryst(?:er)?\b|brystvorte|kondom|sædcelle|"
+    r"\bsex(?:legetøj|man)?\b|fuck|\bdick|\bnøgen|åben gylp|med overraskelse|bondage|erotisk",
+    re.I,
+)
+# Costumes with a penis among their contents ("Indhold: heldragt og penis."): the stallion, the
+# caveman, the banana … Padded busts ("bryster") in drag and lifeguard costumes don't count.
+CRUDE_CONTENT = re.compile(r"\bpenis|penis\b|testik(?:el|ler)", re.I)
+# Crude products whose name and contents don't say so (their photos do), by Guirca's article
+# number (a product with sizes: its lowest, which its SKU starts with).
+CRUDE_ARTICLES = {
+    "14038": "konfettikanoner med penisformet konfetti",
+    "41141": "juleforklæde med nøgen mand",
+    "69078": "kokkehue med penis",
+    "80229": "bedstemor-kostume med nøgen krop under kjolen",
+    "86041": "kostume formet som et kvindeligt kønsorgan",
+}
 
 COSTUME_CATEGORIES = {
     "damer": ("Kostumer", "Damekostumer"),
@@ -509,6 +538,22 @@ CATEGORY_ORDER = [
 
 def is_erotic(row: dict) -> bool:
     return EROTIC in split_list(row.get("CATEGORY")) or EROTIC in split_list(row.get("SUBCATEGORY"))
+
+
+def crude_reason(name: str, description: str = "", code: str = "") -> str:
+    """Why a product is one of the crude jokes for adults (see CRUDE_NAME), '' when it isn't: a
+    word in its Danish name, a content its description lists, or its Guirca article number."""
+    if m := CRUDE_NAME.search(name or ""):
+        return f'navn: "{m[0].lower()}"'
+    if m := CRUDE_CONTENT.search(html.unescape(description or "")):
+        return f'indhold: "{m[0].lower()}"'
+    if code in CRUDE_ARTICLES:
+        return f"varenr. {code}: {CRUDE_ARTICLES[code]}"
+    return ""
+
+
+def is_crude(name: str, description: str = "", code: str = "") -> bool:
+    return bool(crude_reason(name, description, code))
 
 
 def main_categories(row: dict, groups: set[str], sized: bool) -> list[tuple[str, ...]]:
