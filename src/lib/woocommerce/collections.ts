@@ -66,13 +66,14 @@ export async function getSeasonalProducts(query: ProductQuery & { page: number; 
   const start = (query.page - 1) * perPage;
   const inSeason: ProductQuery = { [seasonFirst.prefer === "in" ? "inAnyCategoryIds" : "notInCategoryIds"]: seasonIds };
   const rest: ProductQuery = { [seasonFirst.prefer === "in" ? "notInCategoryIds" : "inAnyCategoryIds"]: seasonIds };
-  const base = { ...query, page: 1 };
 
-  const first = await getProducts({ ...base, ...inSeason, perPage, offset: start });
+  // The season's part by page, not by offset: WooCommerce reports the total (the season's
+  // size) for an empty page past the end, but 0 for an empty offset read.
+  const first = await getProducts({ ...query, ...inSeason, perPage });
   if (!first.ok) return first;
   const firstTotal = first.data.total;
   const missing = perPage - first.data.products.length;
-  const second = await getProducts({ ...base, ...rest, perPage: Math.max(missing, 1), offset: Math.max(0, start - firstTotal) });
+  const second = await getProducts({ ...query, ...rest, page: 1, perPage: Math.max(missing, 1), offset: Math.max(0, start - firstTotal) });
   if (!second.ok) return second;
 
   const total = firstTotal + second.data.total;

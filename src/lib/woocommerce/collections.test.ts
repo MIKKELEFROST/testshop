@@ -24,7 +24,10 @@ vi.mock("./products", () => ({
     const ids = query.notInCategoryIds ? SEASON : query.inAnyCategoryIds ? REST : [...SEASON, ...REST];
     const start = query.offset ?? ((query.page ?? 1) - 1) * (query.perPage ?? 5);
     const page = ids.slice(start, start + (query.perPage ?? 5));
-    return { ok: true, data: { products: page.map((id) => ({ id })), total: ids.length, totalPages: 0, page: query.page ?? 1 } };
+    // Like WooCommerce: an empty result reports a total of 0, unless it is a page past the
+    // end (page > 1, no offset), which WooCommerce counts again.
+    const total = page.length > 0 || (query.offset === undefined && (query.page ?? 1) > 1) ? ids.length : 0;
+    return { ok: true, data: { products: page.map((id) => ({ id })), total, totalPages: 0, page: query.page ?? 1 } };
   },
   collectionQuery: async () => ({ ok: true, data: null }),
   getProductBySlug: async () => ({ ok: true, data: null }),
@@ -51,10 +54,18 @@ describe("getSeasonalProducts (Fastelavn: Halloween and Christmas last)", () => 
     expect((await ids(4)).ids).toEqual([]);
   });
 
-  it("asks WooCommerce for the season first, then the rest, from the right offset", async () => {
+  it("asks WooCommerce for the season's page first, then the rest from the right offset", async () => {
     await ids(2);
-    expect(calls[0]).toMatchObject({ categoryIds: [50], notInCategoryIds: [103, 104], offset: 5, perPage: 5 });
-    expect(calls[1]).toMatchObject({ categoryIds: [50], inAnyCategoryIds: [103, 104], offset: 0, perPage: 3 });
+    expect(calls[0]).toMatchObject({ categoryIds: [50], notInCategoryIds: [103, 104], page: 2, perPage: 5 });
+    expect(calls[0]).not.toHaveProperty("offset");
+    expect(calls[1]).toMatchObject({ categoryIds: [50], inAnyCategoryIds: [103, 104], page: 1, offset: 0, perPage: 3 });
+  });
+
+  it("keeps the right total on pages wholly past the season's products", async () => {
+    await ids(3);
+    // The season's page 3 is empty, but WooCommerce still reports its 7 products, so the rest starts at 3.
+    expect(calls[0]).toMatchObject({ notInCategoryIds: [103, 104], page: 3, perPage: 5 });
+    expect(calls[1]).toMatchObject({ inAnyCategoryIds: [103, 104], page: 1, offset: 3, perPage: 5 });
   });
 
   it("uses the plain listing for other sortings, the season's own categories and an older plugin", async () => {
