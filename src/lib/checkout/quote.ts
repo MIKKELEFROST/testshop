@@ -113,3 +113,48 @@ export function cartShippingLabel(quote: ClientQuote | null): string | null {
 export function includesShipping(quote: ClientQuote, selectedRateId: string | null): boolean {
   return !quote.needsShipping || (selectedRateId !== null && quote.shippingRates.some((r) => r.id === selectedRateId));
 }
+
+/**
+ * What the checkout's "Leveringsmetode" shows: a request for the address, the quote's error
+ * (with "Prøv igen"), progress while the rates for the address load, that nothing can be
+ * delivered there, or the rates. While a new quote loads, the previous one is still the
+ * `quote`: rates it has stay visible, but a quote without rates (asked for before the postcode
+ * was typed) does not mean "we can't deliver there".
+ */
+export function shippingSection({
+  postcodeValid,
+  quote,
+  loading,
+  failed,
+}: {
+  postcodeValid: boolean;
+  quote: ClientQuote | null;
+  loading: boolean;
+  /** The quote failed (also while "Prøv igen" runs). */
+  failed: boolean;
+}): "address" | "error" | "loading" | "undeliverable" | "rates" {
+  if (!postcodeValid) return "address";
+  if (failed) return "error";
+  if (quote && quote.shippingRates.length > 0) return "rates";
+  return loading || !quote ? "loading" : "undeliverable";
+}
+
+/** The line under "Betal nu": what the customer pays, and whether delivery is included yet. */
+export function payTotalLine({
+  quote,
+  selectedRateId,
+  postcodeValid,
+  loading,
+}: {
+  quote: ClientQuote | null;
+  selectedRateId: string | null;
+  postcodeValid: boolean;
+  loading: boolean;
+}): string {
+  if (!quote) return "";
+  const total = formatPrice(quote.totals.total);
+  if (includesShipping(quote, selectedRateId)) return `Du betaler ${total} inkl. moms og levering.`;
+  if (!postcodeValid) return `Du betaler ${total} inkl. moms. Levering beregnes, når du har angivet din adresse.`;
+  // The address is there: its rates are on their way, or it can't be delivered to (said above).
+  return loading ? "Henter fragtpriser…" : `Du betaler ${total} inkl. moms.`;
+}

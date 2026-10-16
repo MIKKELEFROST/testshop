@@ -13,7 +13,7 @@ import { Field, SelectField } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
 import { loadCheckoutDraft, saveCheckoutDraft } from "@/lib/checkout/form-draft";
-import { includesShipping, type ClientQuote } from "@/lib/checkout/quote";
+import { payTotalLine, shippingSection, type ClientQuote } from "@/lib/checkout/quote";
 import { DELIVERY_ESTIMATE, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { cityForPostcode } from "@/lib/postcodes";
@@ -134,6 +134,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   // The town filled in from the postcode, per address: replaced when the postcode changes, unless the customer edited it.
   const filledCity = useRef<Record<"shipping" | "billing", string | null>>({ shipping: null, billing: null });
   // Where focus goes when "Prøv igen" has brought the quote.
+  const shippingHeading = useRef<HTMLHeadingElement>(null);
   const payLine = useRef<HTMLParagraphElement>(null);
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
@@ -180,6 +181,9 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   }
 
   const quoteErrors = quote?.errors ?? [];
+  const shippingState = shippingSection({ postcodeValid, quote, loading: quoteLoading, failed: quoteError !== null });
+  // A failed quote is shown with the delivery methods once there is an address, else by the pay button.
+  const quoteErrorInShipping = quote?.needsShipping !== false && shippingState === "error";
   const needsAddressForShipping = quote?.needsShipping && quote.shippingRates.length === 0;
   const payDisabled =
     submitting || !stripe || !elements || !paymentReady || !quote || quoteLoading || quoteErrors.length > 0 || Boolean(needsAddressForShipping && postcodeValid);
@@ -516,19 +520,21 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
 
           {quote?.needsShipping !== false && (
             <section aria-labelledby="fragt">
-              <h2 id="fragt" className="text-base font-semibold">
+              <h2 id="fragt" ref={shippingHeading} className="text-base font-semibold">
                 Leveringsmetode
               </h2>
               <div className="mt-3">
-                {!postcodeValid ? (
+                {shippingState === "address" ? (
                   <p className="rounded-[var(--radius-control)] bg-paper px-4 py-4 text-sm text-muted">
                     Angiv din leveringsadresse for at se de tilgængelige leveringsmetoder.
                   </p>
-                ) : !quote && quoteLoading ? (
+                ) : shippingState === "error" && quoteError ? (
+                  <QuoteError error={quoteError} retrying={quoteRetrying} onRetry={retryQuote} focusAfter={shippingHeading} />
+                ) : shippingState === "loading" ? (
                   <div className="flex items-center gap-2 rounded-[var(--radius-control)] bg-paper px-4 py-4 text-sm text-muted">
                     <Spinner /> Henter leveringsmetoder…
                   </div>
-                ) : quote && quote.shippingRates.length === 0 ? (
+                ) : shippingState === "undeliverable" ? (
                   <Alert tone="warning">Vi kan desværre ikke levere til den adresse.</Alert>
                 ) : (
                   <>
@@ -659,7 +665,9 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           <div className="space-y-4">
             {notice && <Alert tone="warning">{notice}</Alert>}
             {formError && <Alert tone="error">{formError}</Alert>}
-            {quoteError && <QuoteError error={quoteError} retrying={quoteRetrying} onRetry={retryQuote} focusAfter={payLine} />}
+            {quoteError && !quoteErrorInShipping && (
+              <QuoteError error={quoteError} retrying={quoteRetrying} onRetry={retryQuote} focusAfter={payLine} />
+            )}
             {quoteErrors.length > 0 && (
               <Alert tone="error" title="Kurven skal rettes">
                 <ul className="list-disc pl-5">
@@ -691,11 +699,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               )}
             </button>
             <p id="betal-total" ref={payLine} className="text-center text-xs leading-relaxed text-muted">
-              {quote
-                ? includesShipping(quote, selectedRateId)
-                  ? `Du betaler ${formatPrice(quote.totals.total)} inkl. moms og levering. `
-                  : `Du betaler ${formatPrice(quote.totals.total)} inkl. moms. Levering beregnes, når du har angivet din adresse. `
-                : ""}
+              {payTotalLine({ quote, selectedRateId, postcodeValid, loading: quoteLoading })}{" "}
               <TermsNotice action="trykke på Betal nu" />
             </p>
           </div>
