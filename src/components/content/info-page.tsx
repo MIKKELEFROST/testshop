@@ -88,7 +88,7 @@ export async function InfoPageView({ slug }: { slug: string }) {
             </ul>
             <p className="mt-5 border-t border-line pt-4 text-sm text-muted">
               Skriv til os på{" "}
-              <a href={`mailto:${storeConfig.supportEmail}`} className="font-semibold break-all text-accent underline underline-offset-2">
+              <a href={`mailto:${storeConfig.supportEmail}`} className="font-semibold wrap-anywhere text-accent underline underline-offset-2">
                 {storeConfig.supportEmail}
               </a>
             </p>

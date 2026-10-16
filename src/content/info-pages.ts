@@ -76,7 +76,7 @@ const SELLING_POINTS: InfoBlock = {
   items: [
     "Lynhurtig 1-dags levering – bestil før kl. 19 på hverdage",
     "Fri fragt til pakkeshop ved {fri_fragt}",
-    "30 dages returret",
+    "Gratis retur i 30 dage",
     "100% prismatch",
     "+500.000 glade kunder",
     "Bedømt som Fremragende – +30.000 femstjernede anmeldelser",
@@ -117,7 +117,7 @@ export const INFO_PAGES: InfoPage[] = [
           },
           {
             type: "p",
-            text: "Vi tager forbehold for åbenlyse fejl i priser og varebeskrivelser. Opdager vi en åbenlys fejl efter din bestilling, kontakter vi dig. Hvis købet bliver annulleret, får du alle pengene tilbage.",
+            text: "Vi tager forbehold for åbenlyse fejl i priser og varebeskrivelser. Opdager vi en åbenlys fejl efter din bestilling, kontakter vi dig. Bliver købet annulleret, betaler du ingenting: er varen ikke sendt, frigives reservationen, og er beløbet trukket, får du alle pengene tilbage.",
           },
         ],
       },
@@ -285,7 +285,7 @@ export const INFO_PAGES: InfoPage[] = [
           },
           {
             type: "p",
-            text: "Har vi grund til at tro, at køberen er under 18 år, kan vi annullere ordren og betale beløbet tilbage.",
+            text: "Har vi grund til at tro, at køberen er under 18 år, kan vi annullere ordren. Så frigives reservationen, og du betaler ingenting.",
           },
         ],
       },
@@ -390,7 +390,7 @@ export const INFO_PAGES: InfoPage[] = [
               `Giv os besked på ${EMAIL_LINK} inden for 30 dage fra den dag, du modtog varen.`,
               "Pak varen forsvarligt – gerne i den originale emballage – og læg en seddel med dit ordrenummer i pakken.",
               "Send pakken til: {returadresse}",
-              "Send pakken senest 14 dage efter, at du har givet os besked. Brug en forsendelse med sporing, og gem kvitteringen, til du har fået dine penge.",
+              "Send pakken med den gratis returlabel, vi sender dig, senest 14 dage efter, at du har givet os besked. Gem kvitteringen, til du har fået dine penge.",
               "Når vi har modtaget varen, betaler vi pengene tilbage til det betalingsmiddel, du brugte.",
             ],
           },
@@ -402,7 +402,7 @@ export const INFO_PAGES: InfoPage[] = [
           { type: "p", text: RETURFRAGT },
           {
             type: "p",
-            text: "Er varen defekt, eller har vi sendt en forkert vare, betaler vi returfragten. Læs om reklamation i vores [handelsbetingelser](/handelsbetingelser).",
+            text: "Er varen defekt, eller har vi sendt en forkert vare, er det en reklamation. Læs mere i vores [handelsbetingelser](/handelsbetingelser).",
           },
         ],
       },
@@ -1221,7 +1221,7 @@ export const INFO_PAGES: InfoPage[] = [
         blocks: [
           {
             type: "p",
-            text: "Ja. Betalingen behandles sikkert af Stripe (PCI DSS), og vi ser aldrig dine kortoplysninger. Du har 30 dages returret, og vi er bedømt som Fremragende med +30.000 femstjernede anmeldelser.",
+            text: "Ja. Betalingen behandles sikkert af Stripe (PCI DSS), og vi ser aldrig dine kortoplysninger. Du har gratis retur i 30 dage, og vi er bedømt som Fremragende med +30.000 femstjernede anmeldelser.",
           },
         ],
       },

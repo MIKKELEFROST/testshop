@@ -12,7 +12,7 @@ export function CheckoutFooter() {
       <div className="mx-auto flex max-w-[1120px] flex-col gap-3 px-4 py-6 text-xs text-muted sm:px-6 lg:flex-row lg:items-center lg:justify-between">
         <p className="leading-relaxed">
           {storeConfig.name} · {company.name} · {company.address} · CVR {company.cvr} ·{" "}
-          <a href={`mailto:${storeConfig.supportEmail}`} className="break-all underline underline-offset-2 hover:text-ink">
+          <a href={`mailto:${storeConfig.supportEmail}`} className="wrap-anywhere underline underline-offset-2 hover:text-ink">
             {storeConfig.supportEmail}
           </a>
         </p>
