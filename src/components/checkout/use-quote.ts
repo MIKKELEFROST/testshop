@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CartLine } from "@/lib/cart/cart";
 import type { ClientQuote } from "@/lib/checkout/quote";
-import { isTemporaryQuoteFailure, quoteRetryDelay, type QuoteFailure } from "@/lib/checkout/quote-retry";
+import { isTemporaryQuoteFailure, quoteRetryDelay, retryAfterMs, type QuoteFailure } from "@/lib/checkout/quote-retry";
 
 export type QuoteAddress = { country?: string; postcode?: string; city?: string; address1?: string };
 
@@ -17,8 +17,8 @@ type Attempt = { payload: string; attempt: number; manual: boolean };
  * Debounced; stale responses are discarded. While a new quote loads, the previous one
  * stays visible (dimmed by the UI) and payment is disabled.
  *
- * When WooCommerce is busy or the connection drops, the error is shown and the quote is asked
- * for again a couple of times in the background (see quote-retry.ts); `retry` asks right away.
+ * When WooCommerce is too busy or the connection drops, the error is shown and the quote is
+ * asked for once more in the background (see quote-retry.ts); `retry` asks right away.
  */
 export function useQuote(
   lines: CartLine[],
@@ -70,7 +70,10 @@ export function useQuote(
         if (response.ok) {
           setResult({ payload, attempt, quote: data as ClientQuote, error: null, failure: null });
         } else {
-          fail({ status: response.status, code: typeof data?.code === "string" ? data.code : null }, data?.message ?? "Priserne kunne ikke beregnes.");
+          fail(
+            { status: response.status, code: typeof data?.code === "string" ? data.code : null, retryAfterMs: retryAfterMs(response.headers.get("Retry-After")) },
+            data?.message ?? "Priserne kunne ikke beregnes.",
+          );
         }
       } catch {
         if (controller.signal.aborted) return;

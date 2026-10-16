@@ -6,8 +6,8 @@ import { wooEnv } from "@/lib/env";
  * Minimal, server-only WooCommerce REST client.
  *
  * - Credentials are sent as HTTP Basic auth over HTTPS and never leave the server.
- * - Every request has a timeout; GETs (and POSTs marked `retry`) are retried on network
- *   errors/5xx, a busy host (508, 429) only once and a timeout not at all.
+ * - Every request has a timeout. GETs are retried on network errors/5xx, a busy host (508,
+ *   429) only once and a timeout not at all; POSTs only when marked `retry`.
  * - While the host is down or overloaded, GETs fail at once instead of adding to its load
  *   (the breaker below).
  * - Responses are validated with Zod, so unexpected payloads fail loudly instead of
@@ -42,10 +42,14 @@ type RequestOptions<T extends z.ZodType> = {
   acceptStatus?: number[];
   timeoutMs?: number;
   /**
-   * Retry a POST like a GET. Only for endpoints that change nothing (the quote): a retried
-   * order POST could create a second order.
+   * POSTs: "connection" sends it once more when the connection dropped before any answer. Not
+   * after a timeout or a busy host (508, 429): the browser asks again itself, after a pause.
+   * Only for endpoints that change nothing (the quote): a retried order POST could create a
+   * second order.
    */
-  retry?: boolean;
+  retry?: "connection";
+  /** Stops the request and its retries, e.g. when the browser that asked for it has gone. */
+  signal?: AbortSignal;
   /**
    * GETs: sent even while the breaker is open, and not counted by it. Only for a paying
    * customer's own order, never for catalogue reads.
@@ -147,8 +151,10 @@ function isDown(error: unknown): boolean {
  * Milliseconds to wait before trying again after failed attempt number `attempt` (1 = the
  * first), or null to give up. A busy host (508, 429) gets one more try after a pause, a timeout
  * none: the host is still working on the abandoned request, and another would add to its load.
+ * `connection`: only a dropped connection, once.
  */
-function retryDelay(error: WooCommerceError, attempt: number): number | null {
+function retryDelay(error: WooCommerceError, attempt: number, policy: "read" | "connection"): number | null {
+  if (policy === "connection") return error.code === "network_error" && attempt === 1 ? jitter(RETRY_DELAYS_MS[0]!) : null;
   if (error.code === "timeout") return null;
   if (error.status === 508 || error.status === 429) return attempt === 1 ? jitter(OVERLOADED_RETRY_MS) : null;
   const delay = error.retryable ? RETRY_DELAYS_MS[attempt - 1] : undefined;
@@ -175,7 +181,7 @@ export async function wooRequest<T extends z.ZodType>(
   const counted = method === "GET" && !options.ignoreBreaker;
   const { probe } = counted ? admitRead(path) : { probe: false };
   // The probe asks once. Other reads stop retrying as soon as any read has opened the breaker.
-  const retries = (method === "GET" || options.retry) && !probe;
+  const policy = method === "GET" ? (probe ? null : "read") : (options.retry ?? null);
   const send = async () => {
     if (counted && !probe && breaker.tripped) throw breakerOpen(path);
     const response = await fetch(url, {
@@ -186,7 +192,7 @@ export async function wooRequest<T extends z.ZodType>(
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      signal: AbortSignal.timeout(options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS),
+      signal: withTimeout(options.signal, options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS),
       cache: "no-store",
     });
     return { response, json: await response.json().catch(() => undefined) };
@@ -213,6 +219,7 @@ export async function wooRequest<T extends z.ZodType>(
       } catch (thrown) {
         // An invalid answer, or not sent at all (the breaker opened, no read slot came free).
         if (thrown instanceof WooCommerceError) throw thrown;
+        if (options.signal?.aborted) throw cancelled(method, path, thrown);
         const timedOut = thrown instanceof Error && (thrown.name === "TimeoutError" || thrown.name === "AbortError");
         // Keep the low-level error (e.g. "other side closed") so logs show the real cause.
         error = new WooCommerceError(
@@ -224,16 +231,28 @@ export async function wooRequest<T extends z.ZodType>(
         );
       }
 
-      const delay = retries ? retryDelay(error, attempt) : null;
+      const delay = policy ? retryDelay(error, attempt, policy) : null;
       if (delay === null) {
         outcome = isDown(error) ? "down" : "other";
         throw error;
       }
       await sleep(delay);
+      if (options.signal?.aborted) throw cancelled(method, path, options.signal.reason);
     }
   } finally {
     if (counted) settleRead(probe, outcome);
   }
+}
+
+/** The request's timeout, and the caller's signal when it has one. */
+function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+/** The caller stopped the request (not WooCommerce's fault, so neither retried nor counted). */
+function cancelled(method: string, path: string, cause: unknown) {
+  return new WooCommerceError(`WooCommerce request cancelled (${method} ${path})`, 0, "cancelled", undefined, { cause });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

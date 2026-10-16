@@ -97,12 +97,47 @@ describe("wooRequest retries", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("retries a POST marked `retry`, at most three attempts in all", async () => {
-    const fetch = respond(503, 503, 503, 200);
-    const { error } = await settle(wooRequest("wc-headless/v1/quote", { method: "POST", body: {}, schema: okSchema, retry: true }));
-    expect(error).toBeInstanceOf(WooCommerceError);
-    expect(failure(error).status).toBe(503);
-    expect(fetch).toHaveBeenCalledTimes(3);
+  it("sends a POST marked `retry: \"connection\"` once more only after a dropped connection", async () => {
+    const quote = () => wooRequest("wc-headless/v1/quote", { method: "POST", body: {}, schema: okSchema, retry: "connection" });
+    const dropped = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", dropped);
+    expect(failure((await settle(quote())).error).code).toBe("network_error");
+    expect(dropped).toHaveBeenCalledTimes(2);
+
+    for (const status of [508, 429, 503]) {
+      const fetch = respond(status, 200);
+      const { error } = await settle(quote());
+      expect(error).toBeInstanceOf(WooCommerceError);
+      expect(failure(error).status).toBe(status);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+    const timedOut = vi.fn().mockRejectedValue(timeout());
+    vi.stubGlobal("fetch", timedOut);
+    expect(failure((await settle(quote())).error).code).toBe("timeout");
+    expect(timedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops when the caller's signal aborts, also between attempts", async () => {
+    const controller = new AbortController();
+    const fetch = vi.fn().mockRejectedValueOnce(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetch);
+    const request = wooRequest("wc-headless/v1/quote", { method: "POST", body: {}, schema: okSchema, retry: "connection", signal: controller.signal });
+    const result = request.catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    await vi.runAllTimersAsync();
+    expect(failure(await result).code).toBe("cancelled");
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // Aborted while WooCommerce works on it: passed on to fetch, and not taken for a timeout.
+    const inFlight = vi.fn((_url: URL, init: RequestInit) => new Promise<Response>((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason))));
+    vi.stubGlobal("fetch", inFlight);
+    const again = new AbortController();
+    const second = wooRequest("wc-headless/v1/quote", { method: "POST", body: {}, schema: okSchema, retry: "connection", signal: again.signal }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    again.abort();
+    expect(failure(await second).code).toBe("cancelled");
+    expect(inFlight).toHaveBeenCalledTimes(1);
   });
 
   it("sends any other POST once", async () => {
@@ -114,7 +149,7 @@ describe("wooRequest retries", () => {
 
   it("does not retry an answer that will not change (4xx)", async () => {
     const fetch = respond(400, 200);
-    const { error } = await settle(wooRequest("wc-headless/v1/quote", { method: "POST", body: {}, schema: okSchema, retry: true }));
+    const { error } = await settle(wooRequest("wc-headless/v1/quote", { method: "POST", body: {}, schema: okSchema, retry: "connection" }));
     expect(failure(error).status).toBe(400);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
@@ -248,12 +283,37 @@ describe("the read queue", () => {
 describe("checkout endpoints", () => {
   const items = [{ product_id: 1, variation_id: 0, quantity: 1 }];
 
-  it("retries the quote, which creates nothing", async () => {
-    // Busy, then an error that ends the attempts: two requests were sent.
-    const fetch = respond(508, 400);
+  it("sends the quote, which creates nothing, again after a dropped connection", async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(new TypeError("other side closed")).mockResolvedValueOnce(Response.json({}, { status: 400 }));
+    vi.stubGlobal("fetch", fetch);
     const { error } = await settle(fetchQuote({ store_id: "piece-dk", items, address: { country: "DK" } }));
     expect(failure(error).status).toBe(400);
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("calculates a quote at most twice per cart and address while WooCommerce is in trouble", async () => {
+    // The browser (use-quote.ts) and the route together, for each kind of outage.
+    const { quoteFailureResponse, quoteRetryDelay } = await import("@/lib/checkout/quote-retry");
+    // Calculations sent: busy once by the server and once more by the browser after Retry-After;
+    // too slow only once; a dropped connection twice by the server, which the browser leaves be.
+    const outages: [string, () => Promise<Response>, number][] = [
+      ["busy", async () => Response.json({ code: "http_508" }, { status: 508 }), 2],
+      ["too slow", async () => Promise.reject(timeout()), 1],
+      ["connection dropped", async () => Promise.reject(new TypeError("other side closed")), 2],
+    ];
+    for (const [outage, answer, sent] of outages) {
+      const fetch = vi.fn(answer);
+      vi.stubGlobal("fetch", fetch);
+      for (let attempt = 0; ; attempt++) {
+        const { error } = await settle(fetchQuote({ store_id: "piece-dk", items, address: { country: "DK" } }));
+        const route = quoteFailureResponse(failure(error));
+        const delay = quoteRetryDelay({ status: route.status, code: route.code, retryAfterMs: route.retryAfter && route.retryAfter * 1000 }, attempt);
+        if (delay === null) break;
+        await vi.advanceTimersByTimeAsync(delay);
+      }
+      expect(fetch.mock.calls.length, outage).toBe(sent);
+    }
   });
 
   it("never retries creating an order", async () => {
