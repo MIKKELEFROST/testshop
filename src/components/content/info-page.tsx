@@ -50,8 +50,9 @@ export async function InfoPageView({ slug }: { slug: string }) {
     <div className="container-shop pt-8 pb-8 sm:pt-10">
       {slug === "faq" && <JsonLd data={faqData(page, fill)} />}
       <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: fill(page.title) }]} />
-      <div className="mt-2 grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-16">
-        <article className="max-w-3xl">
+      {/* grid-cols-1 and min-w-0: a wide table scrolls in its own box instead of widening the page on phones. */}
+      <div className="mt-2 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-16">
+        <article className="min-w-0 max-w-3xl">
           <h1 className="heading text-[34px] text-ink sm:text-5xl">{fill(page.title)}</h1>
           <p className="mt-4 text-lg leading-relaxed text-ink-soft">
             <RichText text={fill(page.intro)} />
