@@ -4,13 +4,16 @@
 
 ## Sådan køres den
 
-Kræver Python 3.11+ og `pip install -r scripts/guirca/requirements.txt` (pandas, openpyxl, requests). WooCommerce-nøglerne læses fra miljøet, f.eks. fra `.env.local`:
+Kræver Python 3.11+ og `pip install -r scripts/guirca/requirements.txt` (pandas, openpyxl, requests; numpy og opencv-python-headless bruges kun af `doubles`). WooCommerce-nøglerne læses fra miljøet, f.eks. fra `.env.local`:
 
 ```bash
 set -a; . ./.env.local; set +a
 
 # 0. Billedtjek (ca. 30 minutter første gang): hvilke af Guircas fotos findes, også dem arket ikke nævner
 python3 scripts/guirca/import_guirca.py images PRODUCTS_INFORMATIONS.xlsx --out images.tsv
+
+# 0b. Hovedfotos, der viser varen to gange (ca. en time): skriver src/config/guirca-double-photos.json, som skal committes
+python3 scripts/guirca/import_guirca.py doubles PRODUCTS_INFORMATIONS.xlsx --image-status images.tsv
 
 # 1. Oversigt uden at røre WooCommerce: tal i terminalen + guirca-preview.csv (åbner i Excel)
 python3 scripts/guirca/import_guirca.py report PRODUCTS_INFORMATIONS.xlsx --out /tmp/guirca --image-status images.tsv
@@ -59,7 +62,7 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 | Egenskaber | Størrelse (bruges til varianter), Målgruppe og Farve (til filtre senere). |
 | Beskrivelse | Bygget af arkets fakta: indhold, størrelser med højde, materiale, farve, mål, lys/lyd/bevægelse, batterier, brandhæmmende/CE og anbefalet alder. |
 | Producent (GPSR) | Alle varer har Guircas navn og adresse fra deres sikkerhedsmærkat. Produktsiden linker til mærkaten med advarsler (også på dansk). |
-| Billeder | Guircas fotos hentes ikke ind i WordPress. Links gemmes på varen (`_wchc_external_images`), og shoppen viser dem via Vercels billedoptimering. Alle fotos kommer med, også dem arket ikke nævner (se "Billedtjek"), i arkets rækkefølge: hovedfoto, katalogfoto, uden emballage, bagfra, detaljer og emballage. Døde links udelades. For varer med størrelser bruges størrelsen med flest fotos. |
+| Billeder | Guircas fotos hentes ikke ind i WordPress. Links gemmes på varen (`_wchc_external_images`), og shoppen viser dem via Vercels billedoptimering. Alle fotos kommer med, også dem arket ikke nævner (se "Billedtjek"), i arkets rækkefølge: hovedfoto, katalogfoto, uden emballage, bagfra, detaljer og emballage. Et hovedfoto (`<nr>.jpg`), der viser varen to gange, udelades, når varen har andre fotos (se "Hovedfotos, der viser varen to gange"). Døde links udelades. For varer med størrelser bruges størrelsen med flest fotos. |
 | Lager | Lagerstyring slået fra og "på lager", fordi arket ikke har lagertal. Kommer der en lagerfil fra Guirca, kan importen opdatere lageret. |
 | Kladder | Varer uden brugbar pris (mangler eller f.eks. 1.455.985 EUR i arket) bliver kladder med forklaringen i `_wchc_import_issue`. Størrelser uden pris bliver private. Varer kun for voksne bliver kladder indtil videre (`ADULT_STATUS` i `rules.py`, ejerens beslutning 16-10-2026). |
 | Webshop | Alle varer tildeles begge webshops, Halloweenkostumer.dk (`halloween-kostumer-dk`) og Fastelavnskostumer.dk (`piece-dk`). Varer kun for voksne (Guirca-kategorien EROTIC og de grove varer, se "Varer kun for voksne (18+)") kommer kun i "Polterabend (18+)", uden sæsonkategori, og sælges kun i Halloweenkostumer.dk (`ADULT_WEBSHOPS`). |
@@ -137,6 +140,16 @@ Guirca har op til 21 fotos pr. vare på `marketing.guirca.com/<nr>/<nr><ending>.
 - En afbrudt kørsel fortsætter, hvor den slap: links, der allerede har et svar i filen, spørges ikke igen. Brug en ny fil for at spørge om alt igen (f.eks. når Guirca har lagt nye fotos op).
 - 404 tæller som død. Timeouts og serverfejl tæller som "intet svar" og spørges igen næste gang. Arkets egne links uden svar beholdes.
 - Første kørsel (15-10-2026): 265.073 links, 63.049 fotos fandtes, heraf 5.544 som arket ikke nævnte. 2.402 varer fik flere fotos (i alt 3.910), og kun 49 varer har stadig ét foto, fordi Guirca kun har ét.
+
+## Hovedfotos, der viser varen to gange
+
+Guircas hovedfoto (`<nr>.jpg`) er ofte en collage, der viser varen to gange: et udsnit med det samme foto igen i mindre format i et hjørne eller ved siden af, eller varen på en model ved siden af varen alene, dens emballage eller en display. Et sådant hovedfoto udelades, når varen har andre fotos, så det næste foto (normalt katalogfotoet) bliver det første. Enkeltfotos og stemningsbilleder beholdes, og et hovedfoto, der er varens eneste foto, beholdes altid.
+
+- **Kostumer:** hovedfotoet er altid et udsnit med det samme foto nederst i venstre hjørne. Det udelades, når kostumets katalogfoto (`<nr>_01.jpg`, hele kostumet) findes. Det er en fast regel, som også gælder nye kostumer.
+- **Andre varer:** kommandoen `doubles` henter hvert hovedfoto og de to fotos efter det og skriver Guirca-numrene på dem, der viser varen to gange, i `src/config/guirca-double-photos.json` (`codes`). Dem, den overser, men som er fundet ved at se på fotoene, står i samme fil under `by_eye`, og de bliver stående, når `doubles` køres igen. Importen (`rules.py`) og shoppen (`src/lib/woocommerce/mappers.ts`) læser begge lister, så shoppen udelader fotoet med det samme, også på varer, der blev importeret før. Kør `doubles` igen, når Guirca sender et nyt ark eller nye fotos, og commit filen. Et hovedfoto, der skal med alligevel, fjernes fra listen i hånden.
+- Sådan genkendes det (`photos.py`, OpenCV): fotoet indeholder en skaleret kopi af sig selv (SIFT-punkter, som én skalering på 1,3-6 gange fører fra én del af fotoet til en anden), eller et af varens andre fotos står i det som et felt ved siden af andet indhold på en hvid baggrund. En vare, der er sat ind i et stemningsbillede, tæller ikke.
+- Afprøvet på 68 håndsorterede hovedfotos af tilbehør og pynt: alle 9 med det samme foto to gange og 30 af 34 collager blev fundet, og ingen af de 25 enkeltfotos og stemningsbilleder blev udeladt. Den overser især collager, hvor varen på modellen er set fra en anden vinkel end varen alene. En collage, der ikke genkendes, beholder blot sit hovedfoto, til den kommer på `by_eye`.
+- Første kørsel (16-10-2026): `doubles` fandt 3.994 af 7.176 hovedfotos (uden kostumer med katalogfoto). I en stikprøve på 48 af dem viste 47 varen to gange (det sidste var en emballage med et lille foto af modellen). De 3.182, den ikke fandt, blev gennemset to gange uafhængigt på kontaktark, og ved uenighed i stor størrelse: 753 af dem viser også varen to gange (mest varen på en model ved siden af varen alene), og de står under `by_eye`. I alt udelades 4.747 hovedfotos.
 
 ## Billeder og Vercel
 

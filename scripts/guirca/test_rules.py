@@ -1,4 +1,6 @@
 """Unit tests for the Guirca import rules: python3 -m unittest discover -s scripts/guirca"""
+import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -329,12 +331,42 @@ class Catalog(unittest.TestCase):
             "https://marketing.guirca.com/86865/86865_01.jpg\t200\timage/jpeg",
             "https://marketing.guirca.com/86865/86865_07.jpg\t404\ttext/html",
         ])
-        # Ordered like the sheet's columns: main, catalogue (_01), back (_02).
+        # Ordered like the sheet's columns: catalogue (_01), back (_02). The main photo, a crop
+        # with the same photo small in the corner, is left out because _01 is there.
         self.assertEqual(rules.image_urls(row, status), [
-            "https://marketing.guirca.com/86865/86865.jpg",
             "https://marketing.guirca.com/86865/86865_01.jpg",
             "https://marketing.guirca.com/86865/86865_02.jpg",
         ])
+
+    def test_a_main_photo_that_shows_the_same_photo_twice_is_left_out(self):
+        g = "https://marketing.guirca.com/"
+        none = frozenset()
+        # A costume's main photo goes when its catalogue photo (_01) is there.
+        self.assertEqual(rules.without_double_photos([g + "80031/80031.jpg", g + "80031/80031_01.jpg", g + "80031/80031_04.jpg"], none),
+                         [g + "80031/80031_01.jpg", g + "80031/80031_04.jpg"])
+        # Other articles keep their main photo unless the check found it doubled.
+        wig = [g + "4778/4778.jpg", g + "4778/4778_07.jpg", g + "4778/4778_08.jpg"]
+        self.assertEqual(rules.without_double_photos(wig, none), wig)
+        self.assertEqual(rules.without_double_photos(wig, frozenset({"4778"})), wig[1:])
+        # A main photo that is the only photo stays, and another article's photos don't count.
+        self.assertEqual(rules.without_double_photos([g + "4778/4778.jpg"], frozenset({"4778"})), [g + "4778/4778.jpg"])
+        self.assertEqual(rules.without_double_photos([g + "1/1.jpg", g + "2/2_01.jpg"], none), [g + "1/1.jpg", g + "2/2_01.jpg"])
+        # A dead catalogue photo is not in the list, so the costume's main photo stays.
+        row = {"ARTICLE CODE": "80031", "LINK": "http://marketing.guirca.com/80031/80031.jpg", "Link_CostumeCat": "http://marketing.guirca.com/80031/80031_01.jpg"}
+        dead = rules.ImageStatus(dead=frozenset({g + "80031/80031_01.jpg"}))
+        self.assertEqual(rules.image_urls(row, dead), [g + "80031/80031.jpg"])
+        self.assertEqual(rules.image_urls(row), [g + "80031/80031_01.jpg"])
+        self.assertEqual(rules.all_image_urls(row), [g + "80031/80031.jpg", g + "80031/80031_01.jpg"])
+
+    def test_the_list_of_doubled_main_photos(self):
+        data = json.loads(rules.DOUBLE_PHOTOS_FILE.read_text())
+        codes, by_eye = data["codes"], data["by_eye"]
+        self.assertTrue(codes)
+        for found in (codes, by_eye):
+            self.assertEqual(found, sorted(set(found), key=lambda c: (len(c), c)))
+            self.assertTrue(all(re.fullmatch(r"\d+", c) for c in found))
+        self.assertFalse(set(codes) & set(by_eye))
+        self.assertEqual(rules.double_photo_codes(), frozenset(codes) | frozenset(by_eye))
 
     def test_links_with_a_space_in_the_code_are_found_under_the_code(self):
         row = {"ARTICLE CODE": "13101", "LINK": "http://marketing.guirca.com/13101 /13101 .jpg"}

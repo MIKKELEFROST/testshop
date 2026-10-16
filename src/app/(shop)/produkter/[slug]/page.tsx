@@ -191,8 +191,8 @@ function gtinData(gtin: string): Record<string, string> {
 }
 
 /**
- * The 30 days' right of return (src/config/usps.ts), once the owner has decided who pays the
- * return shipping (src/config/company.ts); until then none, rather than a guess.
+ * The 30 days' right of return (src/config/usps.ts) with free returns, as the terms say
+ * (company.returnShipping in src/config/company.ts); none while that is a placeholder.
  */
 function returnPolicyData() {
   if (isPlaceholder(company.returnShipping)) return {};
@@ -203,6 +203,7 @@ function returnPolicyData() {
       returnPolicyCategory: "https://schema.org/MerchantReturnFiniteReturnWindow",
       merchantReturnDays: 30,
       returnMethod: "https://schema.org/ReturnByMail",
+      returnFees: "https://schema.org/FreeReturn",
     },
   };
 }

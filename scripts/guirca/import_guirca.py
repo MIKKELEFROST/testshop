@@ -133,6 +133,76 @@ def check_images(args) -> int:
     return 0
 
 
+DOUBLE_PHOTOS_ABOUT = (
+    "Guirca articles whose main photo (<nr>.jpg) shows the product twice: the same photo again, "
+    "or a collage with the article's other photos. The import and the storefront leave that "
+    "photo out when the product has other photos. codes is written by: python3 "
+    "scripts/guirca/import_guirca.py doubles <sheet> --image-status images.tsv; by_eye are the "
+    "ones found by looking at the photos the command missed, and are kept when it runs again."
+)
+
+
+def code_order(code: str) -> tuple[int, str]:
+    """Guirca numbers in numeric order (they are digits of different lengths)."""
+    return len(code), code
+
+
+def find_double_photos(args) -> int:
+    """Check every Guirca main photo that is not its article's only photo for showing the
+    product twice (photos.is_collage), and write the articles where it does to --out
+    (src/config/guirca-double-photos.json), which the import and the storefront read.
+
+    A costume's main photo is left out by rule when its catalogue photo (_01) is there, so it is
+    not checked. An article whose photos can't be fetched keeps its earlier answer.
+    """
+    import photos  # needs opencv-python-headless and numpy
+
+    images = rules.ImageStatus.parse(Path(args.image_status).read_text().splitlines()) if args.image_status else rules.ImageStatus()
+    todo: dict[str, list[str]] = {}
+    for row in catalog.read_sheet(Path(args.sheet)):
+        urls = rules.all_image_urls(row, images)
+        main = rules.GUIRCA_PHOTO.match(urls[0]) if len(urls) > 1 else None
+        if main and main[2] is None and f"{rules.IMAGE_HOST}/{main[1]}/{main[1]}_01.jpg" not in urls:
+            todo[main[1]] = urls[:3]  # the main photo and the two photos after it
+    print(f"{len(todo)} hovedfotos at tjekke", flush=True)
+    local = threading.local()
+
+    def check(item: tuple[str, list[str]]) -> tuple[str, bool | None]:
+        code, urls = item
+        if not hasattr(local, "session"):
+            local.session = requests.Session()
+        for attempt in range(3):
+            try:
+                data = []
+                for url in urls:
+                    response = local.session.get(url, timeout=60)
+                    response.raise_for_status()
+                    data.append(response.content)
+                return code, photos.is_collage(data[0], data[1:])
+            except (requests.RequestException, ValueError):
+                time.sleep(2**attempt)
+        return code, None
+
+    doubles: set[str] = set()
+    failed: set[str] = set()
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        for done, (code, double) in enumerate(pool.map(check, todo.items()), 1):
+            if double is None:
+                failed.add(code)
+            elif double:
+                doubles.add(code)
+            if done % 500 == 0 or done == len(todo):
+                print(f"{done}/{len(todo)} · viser varen to gange: {len(doubles)} · uden svar: {len(failed)}", flush=True)
+    out = Path(args.out)
+    earlier = json.loads(out.read_text()) if out.exists() else {}
+    doubles |= set(earlier.get("codes", [])) & failed
+    by_eye = set(earlier.get("by_eye", [])) - doubles
+    codes = sorted(doubles, key=code_order)
+    out.write_text(json.dumps({"about": DOUBLE_PHOTOS_ABOUT, "codes": codes, "by_eye": sorted(by_eye, key=code_order)}, indent=1) + "\n")
+    print(f"{len(codes)} hovedfotos viser varen to gange, og {len(by_eye)} mere fundet ved at se på dem: {args.out}" + (f" ({len(failed)} uden svar beholdt deres tidligere svar)" if failed else ""))
+    return 0
+
+
 # ---------------------------------------------------------------- report
 
 
@@ -741,6 +811,11 @@ def main(argv=None) -> int:
     p.add_argument("sheet", help="Guircas Excel-ark (PRODUCTS_INFORMATIONS.xlsx)")
     p.add_argument("--out", required=True, help="TSV med svarene (url, HTTP-status, indholdstype); fortsætter en tidligere kørsel")
     p.add_argument("--workers", type=int, default=16, help="Samtidige forespørgsler (standard 16)")
+    p = sub.add_parser("doubles", help="Find hovedfotos, der viser det samme foto to gange (kræver opencv-python-headless)")
+    p.add_argument("sheet", help="Guircas Excel-ark (PRODUCTS_INFORMATIONS.xlsx)")
+    p.add_argument("--image-status", help="TSV fra et billedtjek (kommandoen images)")
+    p.add_argument("--out", default=str(rules.DOUBLE_PHOTOS_FILE), help="JSON med Guirca-numrene (standard: src/config/guirca-double-photos.json)")
+    p.add_argument("--workers", type=int, default=4, help="Samtidige fotos (standard 4)")
     for name in ("report", "import"):
         p = sub.add_parser(name)
         p.add_argument("sheet", help="Guircas Excel-ark (PRODUCTS_INFORMATIONS.xlsx)")
@@ -773,7 +848,7 @@ def main(argv=None) -> int:
     sub.choices["names"].add_argument("--examples", type=int, default=20, help="Antal eksempler, der vises (standard 20)")
     sub.choices["names"].add_argument("--out", help="CSV med alle omdøbninger")
     args = parser.parse_args(argv)
-    commands = {"images": check_images, "report": report, "import": run_import, "order": run_order, "names": run_names, "adult": run_adult}
+    commands = {"images": check_images, "doubles": find_double_photos, "report": report, "import": run_import, "order": run_order, "names": run_names, "adult": run_adult}
     return commands[args.command](args)
 
 
