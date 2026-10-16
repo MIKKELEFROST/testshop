@@ -319,8 +319,10 @@ export function rankProducts<T extends Pick<ProductSummary, "name" | "categories
  * The shop's categories and themes whose names have the words (in any form), most specific
  * first: a word that fits fewer of them counts for more, and links that fit only a far
  * commoner word than the best one are left out ("heks kostume" → Hekse, not every costume
- * category). Categories the shop keeps out of its menu (e.g. Halloweenpynt in the Fastelavn
- * shop) come after the others. `searched` adds the words that actually found the products.
+ * category). A category the shop keeps out of its menu (e.g. Julepynt in the Fastelavn shop)
+ * is ranked at half its score: after links that fit as well ("pynt" → Pynt og fest first), but
+ * still first when it fits far better ("jule pynt" → Julepynt). `searched` adds the words that
+ * actually found the products.
  */
 export function matchingLinks(query: string, categories: ProductCategory[], searched?: string, limit = SUGGESTED_LINKS): SuggestedLink[] {
   const all: SuggestedLink[] = [
@@ -333,9 +335,10 @@ export function matchingLinks(query: string, categories: ProductCategory[], sear
   const scored = all.map((link, index) => ({ link, index, score: score(link) }));
   const best = Math.max(0, ...scored.map((entry) => entry.score));
   const aside = new Set(categories.filter((c) => !shownInNav(c.slug)).map((c) => `/kategori/${c.slug}`));
+  const rank = (entry: { link: SuggestedLink; score: number }) => (aside.has(entry.link.href) ? entry.score / 2 : entry.score);
   return scored
     .filter((entry, i, list) => entry.score > 0 && entry.score >= best / 4 && list.findIndex((x) => x.link.href === entry.link.href) === i)
-    .sort((a, b) => Number(aside.has(a.link.href)) - Number(aside.has(b.link.href)) || b.score - a.score || a.index - b.index)
+    .sort((a, b) => rank(b) - rank(a) || a.index - b.index)
     .slice(0, limit)
     .map((entry) => entry.link);
 }
