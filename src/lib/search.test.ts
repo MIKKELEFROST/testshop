@@ -210,6 +210,22 @@ describe("ranking search results", () => {
     expect(rankProducts(products, "kat", tree, halloween).map((p) => p.id)).toEqual([1, 2, 3]);
   });
 
+  it("puts the season before a better name, among names with the words", () => {
+    // "Kat, 30 cm" (a Halloween figure) has the word on its own; "Kattekostume" inside a word.
+    const products = [product(1, "Kat, 30 cm", inCategory(2)), product(2, "Halvmaske", inCategory(3)), product(3, "Kattekostume til piger", inCategory(3))];
+    expect(rankProducts(products, "kat", tree, fastelavn).map((p) => p.id)).toEqual([3, 1, 2]);
+    expect(rankProducts(products, "kat", tree, halloween).map((p) => p.id)).toEqual([1, 3, 2]);
+    // The same season: the better name first.
+    const costumes = [product(4, "Kattekostume til piger", inCategory(3)), product(5, "Sort kat – kostume til piger", inCategory(3))];
+    expect(rankProducts(costumes, "kat", tree, fastelavn).map((p) => p.id)).toEqual([5, 4]);
+  });
+
+  it("puts categories the shop keeps out of its menu after the others", () => {
+    // The tests run as the Fastelavn shop, which keeps Halloweenpynt and Julepynt out of its menu.
+    const categories = [category(95, "Halloweenpynt", "halloweenpynt"), category(102, "Julepynt", "julepynt"), category(94, "Pynt og fest", "pynt-og-fest")];
+    expect(matchingLinks("pynt", categories).map((l) => l.label)).toEqual(["Pynt og fest", "Halloweenpynt", "Julepynt"]);
+  });
+
   it("links the most specific categories and themes", () => {
     const categories = [category(1, "Kostumer", "kostumer"), category(2, "Pigekostumer", "pigekostumer"), category(3, "Drengekostumer", "drengekostumer")];
     expect(matchingLinks("pirat kostume", categories)).toEqual([{ label: "Pirater", href: "/tema/pirater", kind: "Tema" }]);

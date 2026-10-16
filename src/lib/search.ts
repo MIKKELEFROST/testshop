@@ -1,4 +1,4 @@
-import { merchandising, type Merchandising } from "@/config/merchandising";
+import { merchandising, shownInNav, type Merchandising } from "@/config/merchandising";
 import { storeConfig, type Season } from "@/config/store";
 import type { Loadable, ProductCategory, ProductList, ProductSummary } from "@/types/commerce";
 
@@ -286,8 +286,9 @@ function nameScore(name: string, words: string[]): number {
 
 /**
  * Search results in a better order, within the page WooCommerce returned (which matches
- * descriptions too and sorts by date): products with the words in their name first, then
- * in each group the shop's season first, otherwise as they came.
+ * descriptions too): products with the words in their name first, then in each group the
+ * shop's season first, then the names that fit best ("Kat" before "Kattekostume"), otherwise
+ * as they came. So in the Fastelavn shop a cat costume comes before a Halloween cat figure.
  */
 export function rankProducts<T extends Pick<ProductSummary, "name" | "categories">>(
   products: T[],
@@ -299,7 +300,7 @@ export function rankProducts<T extends Pick<ProductSummary, "name" | "categories
   const later = offSeason(categories, seasonFirst);
   return products
     .map((product, index) => ({ product, index, score: nameScore(product.name, words), later: later(product) ? 1 : 0 }))
-    .sort((a, b) => b.score - a.score || a.later - b.later || a.index - b.index)
+    .sort((a, b) => Number(b.score > 0) - Number(a.score > 0) || a.later - b.later || b.score - a.score || a.index - b.index)
     .map((entry) => entry.product);
 }
 
@@ -307,7 +308,8 @@ export function rankProducts<T extends Pick<ProductSummary, "name" | "categories
  * The shop's categories and themes whose names have the words (in any form), most specific
  * first: a word that fits fewer of them counts for more, and links that fit only a far
  * commoner word than the best one are left out ("heks kostume" → Hekse, not every costume
- * category). `searched` adds the words that actually found the products.
+ * category). Categories the shop keeps out of its menu (e.g. Halloweenpynt in the Fastelavn
+ * shop) come after the others. `searched` adds the words that actually found the products.
  */
 export function matchingLinks(query: string, categories: ProductCategory[], searched?: string, limit = SUGGESTED_LINKS): SuggestedLink[] {
   const all: SuggestedLink[] = [
@@ -319,9 +321,10 @@ export function matchingLinks(query: string, categories: ProductCategory[], sear
   const score = (link: SuggestedLink) => fits.reduce((sum, hrefs) => (hrefs.has(link.href) ? sum + 1 / hrefs.size : sum), 0);
   const scored = all.map((link, index) => ({ link, index, score: score(link) }));
   const best = Math.max(0, ...scored.map((entry) => entry.score));
+  const aside = new Set(categories.filter((c) => !shownInNav(c.slug)).map((c) => `/kategori/${c.slug}`));
   return scored
     .filter((entry, i, list) => entry.score > 0 && entry.score >= best / 4 && list.findIndex((x) => x.link.href === entry.link.href) === i)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .sort((a, b) => Number(aside.has(a.link.href)) - Number(aside.has(b.link.href)) || b.score - a.score || a.index - b.index)
     .slice(0, limit)
     .map((entry) => entry.link);
 }
