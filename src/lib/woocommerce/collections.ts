@@ -1,7 +1,18 @@
 import "server-only";
 import { findCollection, merchandising } from "@/config/merchandising";
 import type { Loadable, ProductCategory, ProductList, ProductSummary } from "@/types/commerce";
-import { PAGE_SIZE, collectionQuery, getCategories, getPluginFeatures, getProductBySlug, getProducts, type ProductQuery, type SortKey } from "./products";
+import type { ListingScope } from "./filters";
+import {
+  PAGE_SIZE,
+  collectionQuery,
+  getCategories,
+  getPluginFeatures,
+  getProductBySlug,
+  getProducts,
+  type ProductFilters,
+  type ProductQuery,
+  type SortKey,
+} from "./products";
 
 /**
  * Products for the shop's theme pages and front page tiles (src/config/merchandising.ts).
@@ -11,7 +22,7 @@ import { PAGE_SIZE, collectionQuery, getCategories, getPluginFeatures, getProduc
 /** A page of a theme page's products; null when the theme does not exist in this shop (not when WooCommerce is unavailable). */
 export async function getCollectionProducts(
   slug: string,
-  options: { page?: number; perPage?: number; sort?: SortKey } = {},
+  options: ProductFilters & { page?: number; perPage?: number; sort?: SortKey } = {},
 ): Promise<Loadable<ProductList> | null> {
   const collection = findCollection(slug);
   if (!collection) return null;
@@ -19,6 +30,16 @@ export async function getCollectionProducts(
   if (!query.ok) return query;
   if (!query.data) return null;
   return getProducts({ ...query.data, ...options });
+}
+
+/**
+ * What a theme page lists, for its filters' choices (see ./filters.ts): its categories and
+ * themes. Null when that can't be told (unknown theme, or WooCommerce can't be read).
+ */
+export async function getCollectionScope(slug: string): Promise<ListingScope | null> {
+  const collection = findCollection(slug);
+  const query = collection ? await collectionQuery(collection) : null;
+  return query?.ok && query.data ? { categoryIds: query.data.categoryIds, tagIds: query.data.tagIds } : null;
 }
 
 /** The first products behind a link to a category or theme page (for a tile's photo). */

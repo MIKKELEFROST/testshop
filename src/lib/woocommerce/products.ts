@@ -79,7 +79,21 @@ export function parseSort(value: string | string[] | undefined): SortKey {
   return key && key in SORTS ? (key as SortKey) : "anbefalet";
 }
 
-export type ProductQuery = {
+/** WooCommerce's global size attribute (the Guirca import's "Størrelse"). */
+export const SIZE_ATTRIBUTE = "pa_storrelse";
+
+/** A listing's filters (see lib/listing-filters.ts and ./filters.ts). */
+export type ProductFilters = {
+  /** … with any of these sizes (terms of SIZE_ATTRIBUTE). */
+  sizeTermIds?: number[];
+  /** … with a price (incl. VAT) from `minPrice` up to `maxPrice` kr.; a variable product when one of its sizes is. */
+  minPrice?: number;
+  maxPrice?: number;
+  /** … that are in stock (a variable product when one of its sizes is). */
+  inStockOnly?: boolean;
+};
+
+export type ProductQuery = ProductFilters & {
   /** Products in any of these categories (a category includes its subcategories' products). */
   categoryIds?: number[];
   /** … that are also in every one of these (plugin 1.4+, see getPluginFeatures). */
@@ -131,6 +145,11 @@ async function readProducts(options: ProductQuery): Promise<Read<ProductList>> {
         tag: list(options.tagIds),
         exclude: list(adult?.data),
         search: options.search || undefined,
+        attribute: options.sizeTermIds?.length ? SIZE_ATTRIBUTE : undefined,
+        attribute_term: list(options.sizeTermIds),
+        min_price: options.minPrice,
+        max_price: options.maxPrice,
+        stock_status: options.inStockOnly ? "instock" : undefined,
         _fields: SUMMARY_FIELDS,
       },
       schema: z.array(wcProductSchema),

@@ -11,17 +11,19 @@ import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
 import { merchandising, shownInNav } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { categoryHomeStore, storeUrl } from "@/lib/home-store";
+import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
 import { categoryDescription } from "@/lib/meta-description";
 import { parsePage } from "@/lib/pagination";
 import { breadcrumbData, JsonLd } from "@/lib/seo";
 import { categoryPath, subcategories } from "@/lib/woocommerce/category-tree";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { getCategories, parseSort, type SortKey } from "@/lib/woocommerce/products";
+import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
+import { getCategories, parseSort, type ProductFilters, type SortKey } from "@/lib/woocommerce/products";
 import type { ProductCategory } from "@/types/commerce";
 
 export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Promise<Metadata> {
   const [{ slug }, query] = await Promise.all([props.params, props.searchParams]);
-  const categories = await getCategories();
+  const [categories, filters] = await Promise.all([getCategories(), resolveFilters(parseFilters(query))]);
   // Without WooCommerce, a plain title (see the product page).
   if (!categories.ok) return { title: "Kategori" };
   // An unknown category or a page past the last one. Search engines get the metadata before
@@ -29,7 +31,7 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Pr
   const category = categories.data.find((c) => c.slug === slug);
   if (!category) notFound();
   const page = parsePage(query.side);
-  const products = await categoryProducts(category, page, parseSort(query.sorter));
+  const products = await categoryProducts(category, page, parseSort(query.sorter), filters.query);
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();
   return {
     title: page > 1 ? `${category.name} – side ${page}` : category.name,
@@ -37,12 +39,14 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Pr
     // Each page of the listing is its own page (without the sorting). A category this shop
     // hides, whose home is another shop, points there (e.g. Halloween in the Fastelavn shop).
     alternates: { canonical: `${storeUrl(categoryHomeStore(category, categories.data))}${pageHref(`/kategori/${category.slug}`, page)}` },
+    // A filtered view is not a page of its own for search engines (its links are followed).
+    robots: activeFilterCount(filters.selection) > 0 ? { index: false, follow: true } : undefined,
   };
 }
 
 /** A page of the category's products, the season's first (see getSeasonalProducts). */
-function categoryProducts(category: ProductCategory, page: number, sort: SortKey) {
-  return getSeasonalProducts({ categoryIds: [category.id], page, sort });
+function categoryProducts(category: ProductCategory, page: number, sort: SortKey, filters: ProductFilters) {
+  return getSeasonalProducts({ categoryIds: [category.id], page, sort, ...filters });
 }
 
 export default function CategoryPage(props: PageProps<"/kategori/[slug]">) {
@@ -76,13 +80,16 @@ async function CategoryContent({
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
-  const categories = await getCategories();
+  const [categories, filters] = await Promise.all([getCategories(), resolveFilters(parseFilters(query))]);
   if (!categories.ok) return <Alert tone="warning">{categories.error}</Alert>;
 
   const category = categories.data.find((c) => c.slug === slug);
   if (!category) notFound();
 
-  const products = await categoryProducts(category, page, sort);
+  const [products, options] = await Promise.all([
+    categoryProducts(category, page, sort, filters.query),
+    getFilterOptions({ categoryIds: [category.id] }, filters.selection),
+  ]);
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();
 
   const path = categoryPath(categories.data, category);
@@ -119,7 +126,7 @@ async function CategoryContent({
       )}
 
       {products.ok ? (
-        <ProductListing list={products.data} sort={sort} path={`/kategori/${category.slug}`} />
+        <ProductListing list={products.data} sort={sort} path={`/kategori/${category.slug}`} filters={{ options, selection: filters.selection }} />
       ) : (
         <div className="mt-8">
           <Alert tone="warning">{products.error}</Alert>

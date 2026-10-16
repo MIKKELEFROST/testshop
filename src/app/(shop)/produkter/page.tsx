@@ -5,22 +5,30 @@ import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { pageHref } from "@/components/ui/pagination";
+import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
 import { parsePage } from "@/lib/pagination";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { parseSort, type SortKey } from "@/lib/woocommerce/products";
+import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
+import { parseSort, type ProductFilters, type SortKey } from "@/lib/woocommerce/products";
 
 export async function generateMetadata(props: PageProps<"/produkter">): Promise<Metadata> {
   const query = await props.searchParams;
   // As on category pages, search engines get the metadata first: a 404 for a page past the last one.
   const page = parsePage(query.side);
-  const result = await allProducts(page, parseSort(query.sorter));
+  const filters = await resolveFilters(parseFilters(query));
+  const result = await allProducts(page, parseSort(query.sorter), filters.query);
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
-  return { title: page > 1 ? `Alle produkter – side ${page}` : "Alle produkter", alternates: { canonical: pageHref("/produkter", page) } };
+  return {
+    title: page > 1 ? `Alle produkter – side ${page}` : "Alle produkter",
+    alternates: { canonical: pageHref("/produkter", page) },
+    // A filtered view is not a page of its own for search engines (its links are followed).
+    robots: activeFilterCount(filters.selection) > 0 ? { index: false, follow: true } : undefined,
+  };
 }
 
 /** A page of all the shop's products except the 18+ ones, the season's first. */
-function allProducts(page: number, sort: SortKey) {
-  return getSeasonalProducts({ page, sort, hideAdult: true });
+function allProducts(page: number, sort: SortKey, filters: ProductFilters) {
+  return getSeasonalProducts({ page, sort, hideAdult: true, ...filters });
 }
 
 export default function ProductsPage(props: PageProps<"/produkter">) {
@@ -46,7 +54,8 @@ async function AllProducts({ searchParams }: { searchParams: Promise<Record<stri
   const query = await searchParams;
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
-  const result = await allProducts(page, sort);
+  const filters = await resolveFilters(parseFilters(query));
+  const [result, options] = await Promise.all([allProducts(page, sort, filters.query), getFilterOptions({}, filters.selection)]);
   if (!result.ok) {
     return (
       <div className="mt-8">
@@ -55,5 +64,5 @@ async function AllProducts({ searchParams }: { searchParams: Promise<Record<stri
     );
   }
   if (result.data.products.length === 0 && page > 1) notFound();
-  return <ProductListing list={result.data} sort={sort} path="/produkter" />;
+  return <ProductListing list={result.data} sort={sort} path="/produkter" filters={{ options, selection: filters.selection }} />;
 }

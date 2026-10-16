@@ -52,6 +52,14 @@ describe("getProducts", () => {
     expect(requests[1]?.query).toMatchObject({ orderby: "date", order: "desc" });
   });
 
+  it("asks WooCommerce for the listing filters: sizes, price band and stock", async () => {
+    route = () => ({ body: [], total: 0, totalPages: 0 });
+    await getProducts({ sizeTermIds: [22, 160], minPrice: 100, maxPrice: 249.99, inStockOnly: true });
+    expect(requests[0]?.query).toMatchObject({ attribute: "pa_storrelse", attribute_term: "22,160", min_price: 100, max_price: 249.99, stock_status: "instock" });
+    await getProducts();
+    for (const name of ["attribute", "attribute_term", "min_price", "max_price", "stock_status"]) expect(requests[1]?.query[name]).toBeUndefined();
+  });
+
   it("answers with the friendly error when WooCommerce can't be read", async () => {
     route = () => Promise.reject(new Error("WooCommerce is unreachable"));
     expect(await getProducts()).toEqual({ ok: false, error: "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt." });

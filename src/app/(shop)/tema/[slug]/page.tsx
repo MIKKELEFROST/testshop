@@ -8,9 +8,11 @@ import { CardBand, ProductGridSkeleton } from "@/components/products/product-car
 import { Alert } from "@/components/ui/alert";
 import { pageHref } from "@/components/ui/pagination";
 import { findCollection, merchandising } from "@/config/merchandising";
+import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
 import { parsePage } from "@/lib/pagination";
 import { breadcrumbData, JsonLd } from "@/lib/seo";
-import { getCollectionProducts } from "@/lib/woocommerce/collections";
+import { getCollectionProducts, getCollectionScope } from "@/lib/woocommerce/collections";
+import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
 import { parseSort } from "@/lib/woocommerce/products";
 
 /** A theme page (src/config/merchandising.ts): e.g. "Prinsesser og prinser" or "Halloweenkostumer til damer". */
@@ -26,13 +28,16 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promis
   // As on category pages, search engines get the metadata first: a 404 for an unknown theme
   // or a page past the last one.
   const page = parsePage(query.side);
-  const result = await getCollectionProducts(slug, { page, sort: parseSort(query.sorter) });
+  const filters = await resolveFilters(parseFilters(query));
+  const result = await getCollectionProducts(slug, { page, sort: parseSort(query.sorter), ...filters.query });
   if (result === null) notFound();
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
   return {
     title: page > 1 ? `${collection.title} – side ${page}` : collection.title,
     description: collection.intro,
     alternates: { canonical: collection.canonical ?? pageHref(`/tema/${collection.slug}`, page) },
+    // A filtered view is not a page of its own for search engines (its links are followed).
+    robots: activeFilterCount(filters.selection) > 0 ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -69,7 +74,11 @@ async function ThemeContent({
   if (!collection) notFound();
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
-  const result = await getCollectionProducts(slug, { page, sort });
+  const filters = await resolveFilters(parseFilters(query));
+  const [result, options] = await Promise.all([
+    getCollectionProducts(slug, { page, sort, ...filters.query }),
+    getCollectionScope(slug).then((scope) => getFilterOptions(scope, filters.selection)),
+  ]);
   if (result === null) notFound();
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
 
@@ -105,7 +114,13 @@ async function ThemeContent({
           </ul>
         </nav>
       )}
-      {result.ok ? <ProductListing list={result.data} sort={sort} path={`/tema/${slug}`} /> : <div className="mt-8"><Alert tone="warning">{result.error}</Alert></div>}
+      {result.ok ? (
+        <ProductListing list={result.data} sort={sort} path={`/tema/${slug}`} filters={{ options, selection: filters.selection }} />
+      ) : (
+        <div className="mt-8">
+          <Alert tone="warning">{result.error}</Alert>
+        </div>
+      )}
     </>
   );
 }
