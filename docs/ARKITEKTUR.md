@@ -106,10 +106,10 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 
 - **Produktkort** (`components/products/product-card.tsx`): hvide kort på en lys baggrund (`bg-canvas`), billedet vist helt, rabatmærke (`-20 %`, kendes kun for simple produkter), videomærke, 18+-mærke, favorit-hjerte, antal størrelser, stor pris i farven `price` og lagerstatus. 5 pr. række på computer, 3 på tablet og 2 på mobil.
 - **Produktside** (`app/(shop)/produkter/[slug]`):
-  - Galleri med video. YouTube-videoer (`_wchc_videos`) indlæses først, når kunden trykker afspil, og i YouTubes privatlivstilstand (youtube-nocookie.com).
+  - Galleri med video. Billederne swipes ét ad gangen med en tæller (2/4), og miniaturerne følger med. Et tryk på billedet åbner det i fuld skærm, hvor man kan zoome med to fingre, swipe eller bruge pilene (også piletasterne); Esc lukker. YouTube-videoer (`_wchc_videos`) indlæses først, når kunden trykker afspil, og i YouTubes privatlivstilstand (youtube-nocookie.com).
   - Pris med "Spar X kr." og lagerstatus. Størrelsesknapperne viser kropshøjden, når beskrivelsen har den ("Størrelser: 3-4 år (109 cm) …", se `lib/product-text.ts`).
   - Under knappen står webshoppens løfter og foldbare afsnit med beskrivelse, størrelser, levering og retur samt produktsikkerhed.
-  - På mobil kommer en købsbjælke frem, når man har scrollet forbi knappen. Uden valgt størrelse ruller bjælken op til størrelserne.
+  - På mobil kommer en købsbjælke frem, når man har scrollet forbi knappen, og den glider væk, når footeren kommer frem, så den ikke dækker firmaoplysningerne. Uden valgt størrelse ruller bjælken op til størrelserne.
 - **Relevant tilbehør og Lignende produkter** (`getRelatedProducts`, `lib/woocommerce/related.ts`):
   - Tilbehør er varer i kategorierne fra `ACCESSORY_CATEGORY_SLUGS` (Tilbehør og Make-up) med et af produktets temaer (tags). Er der for få, bruges tilbehør fra produktets øvrige kategorier, f.eks. Halloween.
   - Rækken viser én af hver slags (hat, paryk, maske …), før der kommer to af samme slags.

@@ -81,6 +81,13 @@
     }
   }
 
+  /* Phones: also clear of the product page's buy bar at the bottom while it shows. */
+  html:has([data-buy-bar="shown"]) {
+    @media (width < 64rem) {
+      scroll-padding-bottom: 6rem;
+    }
+  }
+
   body {
     background: var(--color-paper);
     color: var(--color-ink);
