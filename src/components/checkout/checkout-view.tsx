@@ -16,7 +16,7 @@ import { loadCheckoutDraft, saveCheckoutDraft } from "@/lib/checkout/form-draft"
 import { payTotalLine, shippingSection, type ClientQuote } from "@/lib/checkout/quote";
 import { DELIVERY_ESTIMATE, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
-import { cityForPostcode } from "@/lib/postcodes";
+import { cityForPostcode, filledTown } from "@/lib/postcodes";
 import { getStripeClient } from "@/lib/stripe/client";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
 import { CouponField } from "./coupon-field";
@@ -132,7 +132,8 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const [paymentLoadError, setPaymentLoadError] = useState<string | null>(null);
   const inFlight = useRef(false);
   // The town filled in from the postcode, per address: replaced when the postcode changes, unless the customer edited it.
-  const filledCity = useRef<Record<"shipping" | "billing", string | null>>({ shipping: null, billing: null });
+  // A restored town that is its postcode's own counts as filled in, so a new postcode still replaces it.
+  const filledCity = useRef<Record<"shipping" | "billing", string | null>>({ shipping: filledTown(draft?.shipping), billing: filledTown(draft?.billing) });
   // Where focus goes when "Prøv igen" has brought the quote.
   const shippingHeading = useRef<HTMLHeadingElement>(null);
   const payLine = useRef<HTMLParagraphElement>(null);
