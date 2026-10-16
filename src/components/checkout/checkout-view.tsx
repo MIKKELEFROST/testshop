@@ -7,6 +7,7 @@ import type { ZodType } from "zod";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useCart } from "@/components/cart/cart-provider";
+import { TrustBox } from "@/components/marketing/trustbox";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
 import { Field, SelectField } from "@/components/ui/field";
@@ -481,6 +482,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               addressComplete={postcodeValid}
               coupon={<div className="hidden lg:block">{couponField("couponCode")}</div>}
             />
+            <TrustBox placement="cart" className="mt-8 border-t border-line pt-6" />
           </div>
         </div>
       </aside>

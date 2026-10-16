@@ -24,6 +24,7 @@ Serverfunktionerne (sider, der bygges om, `/api/*`) kører i `arn1` (Stockholm),
 | `NEXT_PUBLIC_STORE_ID` | `piece-dk` (webshoppens butiks-ID, se [MULTISHOP.md](MULTISHOP.md)) |
 | `WOOCOMMERCE_WEBHOOK_SECRET` | (valgfri) tilfældig lang streng |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | (valgfri) kundeservice-e-mail. Uden den bruges brandets, f.eks. `hej@halloweenkostumer.dk` (`src/config/store.ts`). Den står i footer, på informationssiderne og som "Svar til" i ordremails. |
+| `NEXT_PUBLIC_TRUSTPILOT_BUSINESS_UNIT_ID`, `NEXT_PUBLIC_TRUSTPILOT_PROFILE_URL` | (valgfri) webshoppens Trustpilot, i stedet for i `src/config/trustpilot.ts`. Se [Trustpilot](#trustpilot-trustboxe) nedenfor. |
 
 4. **Deploy.**
 
@@ -53,7 +54,33 @@ Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet
 - **Afsender på ordremails:** **WooCommerce → Indstillinger → E-mails → Fra-adresse** er i dag en personlig postkasse og er afsender på alle mails fra begge webshops. Skift den til en neutral butiksadresse på et domæne med SPF og DKIM (f.eks. `ordre@fastelavnskostumer.dk`), og send mails fra WordPress gennem udbyderens SMTP-server. Se [WOOCOMMERCE.md](WOOCOMMERCE.md#11-ordremails-i-webshoppens-navn).
 - **Stripe live, offentlige oplysninger:** i live-tilstand under **Settings → Business → Public details**: det offentlige firmanavn, support-e-mail og en kort, neutral **Shortened descriptor**, der passer til begge webshops. Hver webshop sender sit eget suffiks til kortudtoget (statement descriptor suffix), så kunden kan genkende betalingen. MobilePay viser kontoens firmanavn. Se [STRIPE.md](STRIPE.md).
 - **Betalingsmetoder:** handelsbetingelserne ("Betaling") og FAQ'en ("Hvordan kan jeg betale?") i `src/content/info-pages.ts` nævner Visa, Mastercard, MobilePay, Apple Pay og Google Pay. Slå præcis dem til i Stripe live (**Settings → Payment methods**), eller ret listerne, så de passer til det, der er slået til (f.eks. PayPal, Klarna eller Revolut Pay).
+- **Trustpilot (valgfrit):** business unit ID, profilside og TrustBoxe pr. webshop, se [Trustpilot](#trustpilot-trustboxe).
 - **Produkt-webhooks pr. webshop:** opret WooCommerce-webhooks for *Produkt oprettet / opdateret / slettet* for hver webshop: ét sæt med leverings-URL `https://fastelavnskostumer.dk/api/revalidate` og ét med `https://halloweenkostumer.dk/api/revalidate`, hver med samme secret som `WOOCOMMERCE_WEBHOOK_SECRET` i webshoppens Vercel-projekt. Gør det, når domænerne er forbundet (leveringer til beskyttede `*.vercel.app`-previews fejler). Se [WOOCOMMERCE.md](WOOCOMMERCE.md#4-valgfrit-øjeblikkelig-opdatering-af-produkter).
+
+## Trustpilot (TrustBoxe)
+
+Webshopperne kan vise Trustpilots egne TrustBoxe med webshoppens rigtige bedømmelse: under løfterækken på forsiden, under løfterne ved "Læg i kurv", i kurven og i kassens ordreoversigt og i footerens nederste linje (mørkt tema). Kun Trustpilots script og kode viser bedømmelsen; shoppen tegner aldrig Trustpilots logo, stjerner eller farver selv (Trustpilots varemærke, og en bedømmelse, kunden ikke kan finde hos Trustpilot, vildleder). Indtil TrustBoxene er sat op, viser produktsiden teksten "Bedømt som Fremragende – +30.000 femstjernede anmeldelser" som i dag, og der hentes intet fra Trustpilot.
+
+**Det skal ejeren give for hver webshop (Fastelavnskostumer.dk og Halloweenkostumer.dk):**
+
+1. **Business unit ID** (24 tegn): Trustpilot Business → **Integrations** → **TrustBox widgets** (i nogle konti **Share & promote → Website widgets**) → vælg en TrustBox → **Get code**. Koden har `data-businessunit-id="…"`. Hver webshop skal helst have sin egen profil på sit eget domæne (gør krav på profilen i Trustpilot Business, og bekræft domænet). Én fælles business unit kun, hvis begge domæner hører til samme profil hos Trustpilot; ellers viser den ene webshop en bedømmelse, kunden ikke finder under dens navn.
+2. **Profilside**: `https://dk.trustpilot.com/review/<domæne>`, f.eks. `https://dk.trustpilot.com/review/halloweenkostumer.dk`. Den er linket i hver TrustBox (Trustpilot kræver det; uden JavaScript vises kun linket).
+3. **Hvilke TrustBoxe, og hvilket abonnement**: template-ID'et er `data-template-id` i samme kode. På Trustpilots Free-plan virker kun **Review Collector** ("Bedøm os på Trustpilot"; den viser ingen bedømmelse, kopiér også `data-token`). **Micro Star**, **Micro TrustScore**, **Micro Combo** og de større TrustBoxe kræver et betalt abonnement. Shoppen starter med:
+
+| Placering | TrustBox (`TRUSTBOX_TEMPLATES` i `src/config/trustpilot.ts`) | Tema |
+| --- | --- | --- |
+| Løfterækken over footeren, kun på forsiden (`strip`) | Micro Star | lyst |
+| Under løfterne ved "Læg i kurv" (`product`); erstatter teksten "Bedømt som Fremragende" | Micro Star | lyst |
+| Kurven og kassens ordreoversigt (`cart`) | Micro Star | lyst |
+| Footerens nederste linje ved betalingsmærkerne (`footer`) | Micro TrustScore | mørkt (footeren er mørk i begge webshops) |
+
+**Sådan slås de til:** udfyld `businessUnitId` og `profileUrl` (og evt. `placements`) for webshoppen i `src/config/trustpilot.ts`, eller sæt `NEXT_PUBLIC_TRUSTPILOT_BUSINESS_UNIT_ID` og `NEXT_PUBLIC_TRUSTPILOT_PROFILE_URL` i webshoppens Vercel-projekt, og redeploy. Er et ID eller en adresse forkert, vises teksten i stedet for en tom boks. En placering, der fjernes fra `placements`, viser ingen TrustBox. Andre `data-*` fra Trustpilots kode (f.eks. `data-token`, `data-stars`) skrives i `data` uden "data-".
+
+**Før de slås til:**
+
+- **Tallene skal passe sammen.** TrustBoxen viser Trustpilots tal. "+500.000 glade kunder" i løfterækken og "Bedømt som Fremragende – +30.000 femstjernede anmeldelser" i FAQ'en og "Om os"-listerne står der stadig: de skal kunne dokumenteres og må ikke modsige det, profilen viser. Trustpilots vilkår kræver, at bedømmelsen altid vises korrekt og ikke vildledende, og kun med Trustpilots egne widgets.
+- **Cookies og samtykke.** TrustBoxene sætter ingen cookies og gemmer intet i browseren (tjekket i Trustpilots scripts 16-10-2026; Trustpilots eneste cookie, `TrustboxSplitTest_…`, kommer kun med deres A/B-test, `data-group`, som shoppen ikke bruger). Men browseren henter dem fra widget.trustpilot.com, når siden er indlæst, og Trustpilot får IP-adresse, sidens adresse, siden kunden kom fra, browser, sprog og styresystem, og tæller visninger og klik. Cookie- og privatlivspolitikken beskriver det automatisk, når TrustBoxene er slået til (`trustbox: true` i `src/content/info-pages.ts`). Om det kræver samtykke, skal juristen vurdere sammen med de øvrige tekster (EDPB's retningslinjer 2/2023 regner også sporing uden cookies med under ePrivacy-direktivets art. 5, stk. 3). Kræver det samtykke, må TrustBoxene først indlæses efter et ja; shoppen har ingen samtykkeløsning i dag.
+- **Databehandleraftale.** Trustpilot behandler widgetdata (IP-adresse og metadata) for virksomheden efter Trustpilots databehandleraftale (DPA), som er en del af Trustpilots vilkår for virksomheder og accepteres med Trustpilot Business-kontoen.
 
 ## 5. Efter deploy
 

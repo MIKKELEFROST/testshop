@@ -3,17 +3,18 @@ import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { company } from "@/config/company";
 import { storeConfig } from "@/config/store";
+import { trustBoxesShown } from "@/config/trustpilot";
 import { formatThreshold } from "@/config/usps";
 import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoBlock, type InfoPage } from "@/content/info-pages";
-import { fillTokens, parseText, safeHref } from "@/lib/info-text";
+import { fillTokens, parseText, safeHref, shownPage } from "@/lib/info-text";
 import { JsonLd, plainText } from "@/lib/seo";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 
 /** The information and legal pages, with the company's and the shop's details filled in. */
 
 export function findInfoPage(slug: string): InfoPage | undefined {
-  if (slug === "om-os") return OM_OS[storeConfig.id] ?? Object.values(OM_OS)[0];
-  return INFO_PAGES.find((p) => p.slug === slug);
+  const page = slug === "om-os" ? (OM_OS[storeConfig.id] ?? Object.values(OM_OS)[0]) : INFO_PAGES.find((p) => p.slug === slug);
+  return page && shownPage(page, trustBoxesShown);
 }
 
 async function tokenValues(): Promise<Record<string, string>> {

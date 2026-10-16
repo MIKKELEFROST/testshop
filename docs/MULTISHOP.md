@@ -9,6 +9,7 @@ Flere frontends (Fastelavnskostumer.dk og Halloweenkostumer.dk) deler **én WooC
 | Vercel | Ét projekt pr. webshop, alle fra samme GitHub-repo. Forskellen er miljøvariablerne, især `NEXT_PUBLIC_STORE_ID`. |
 | `src/config/store.ts` | Webshoppens brand: navn, logo, tekster, farver, overskriftsskrift, kundeservice-e-mail og den sæson, shoppen er bygget op om. Valgt ud fra `NEXT_PUBLIC_STORE_ID`. |
 | `src/config/merchandising.ts` | Hvad webshoppen viser først: menu, forside, temasider (`/tema/…`), egne kategoritekster, hvilke kategorier forsiden og temasiderne holder sig fra, og hvilken sæson kategorisiderne viser først. |
+| `src/config/trustpilot.ts` | Webshoppens Trustpilot: business unit ID, profilside og hvilken TrustBox (Trustpilots egen widget) der står hvor. Tom indtil videre: så viser webshoppen sin tekst om bedømmelsen og henter intet fra Trustpilot. Se [DEPLOY.md](DEPLOY.md#trustpilot-trustboxe). |
 | `src/config/company.ts` | Firmaet bag webshoppene (navn, CVR, adresse, telefon, åbningstider) og ejerens beslutninger til handelsbetingelserne. Fælles for alle webshops. |
 | WooCommerce → **Produkter → Webshops** | Én webshop pr. frontend. **Slug = butiks-ID** (`NEXT_PUBLIC_STORE_ID`). |
 | Produktet i WooCommerce | Boksen **Webshops**: kryds de webshops af, der sælger produktet. Et produkt kan være i flere. |
@@ -65,6 +66,7 @@ De fem testprodukter fra opsætningen og en tom kladde ligger i papirkurven i Wo
 3. **Vercel:** **Add New → Project** → importér repoet. Sæt miljøvariablerne (se [DEPLOY.md](DEPLOY.md)) med webshoppens egne `NEXT_PUBLIC_STORE_ID`, `NEXT_PUBLIC_SITE_URL` og `STRIPE_WEBHOOK_SECRET`. WooCommerce- og Stripe-nøglerne kan være de samme som de andre webshops'.
 4. **Stripe:** Opret et webhook-endpoint til `https://<domæne>/api/stripe/webhook` (samme fire hændelser som i [STRIPE.md](STRIPE.md)) og registrér domænet under **Payment method domains**, så Apple Pay virker. Hvert endpoint får alle kontoens betalinger, men frontend ignorerer betalinger fra andre webshops (`metadata.store_id`).
 5. **Domæne:** Tilføj webshoppens domæne i Vercel-projektet, og registrér det også hos Stripe.
+6. **Trustpilot (valgfrit):** Webshoppens egen Trustpilot-profil på dens domæne (business unit ID og profilsiden `https://dk.trustpilot.com/review/<domæne>`) i `trustpilotByStore` i `src/config/trustpilot.ts` eller i Vercel (`NEXT_PUBLIC_TRUSTPILOT_*`), og TrustBoxe, der passer til Trustpilot-abonnementet (Free: kun Review Collector). Se [DEPLOY.md](DEPLOY.md#trustpilot-trustboxe).
 
 ## E-mails
 

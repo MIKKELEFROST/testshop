@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DELIVERY_FACTS, formatThreshold, HYGIENE_RETURN_PROMISE, RETURN_PROMISE, resolveTexts, resolveUsps, USP_BAR, USP_PRODUCT, USP_STRIP } from "./usps";
+import { DELIVERY_FACTS, formatThreshold, HYGIENE_RETURN_PROMISE, RETURN_PROMISE, resolveTexts, resolveUsps, USP_BAR, USP_PRODUCT, USP_STRIP, withoutRating } from "./usps";
 
 /** Every selling point as one text (title and text together). */
 const ALL_TEXTS = [...[...USP_STRIP, ...USP_PRODUCT].map((u) => [u.title, u.text].filter(Boolean).join(" ")), ...DELIVERY_FACTS, ...USP_BAR];
@@ -33,6 +33,13 @@ describe("selling points", () => {
       expect(text, text).not.toMatch(/\d\.\s?(januar|februar|marts|april|maj|juni|juli|august|september|oktober|november|december)/i);
     }
     expect(ALL_TEXTS.filter((t) => t.includes("1-dags levering"))).toHaveLength(4);
+  });
+
+  it("leaves the text-only rating out where a Trustpilot TrustBox shows the real one", () => {
+    expect(withoutRating(USP_PRODUCT).map((u) => u.icon)).toEqual(["clock-truck", "denmark", "box"]);
+    expect(withoutRating(USP_STRIP)).toEqual(USP_STRIP);
+    // Without a TrustBox the rating stays exactly as the owner wrote it.
+    expect(USP_PRODUCT.find((u) => u.icon === "trophy")).toEqual({ icon: "trophy", title: "Bedømt som Fremragende", text: "+30.000 femstjernede anmeldelser" });
   });
 
   it("has a return promise with the hygiene condition for sealed products", () => {

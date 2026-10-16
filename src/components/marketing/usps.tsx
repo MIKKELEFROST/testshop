@@ -1,9 +1,12 @@
 import { Check } from "lucide-react";
+import { Suspense } from "react";
 import { UspIcon } from "@/components/icons/usp-icons";
-import { resolveTexts, resolveUsps, USP_BAR, USP_PRODUCT, USP_STRIP } from "@/config/usps";
+import { trustBox } from "@/config/trustpilot";
+import { resolveTexts, resolveUsps, USP_BAR, USP_PRODUCT, USP_STRIP, withoutRating } from "@/config/usps";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
+import { FrontPageTrustBox, TrustBox } from "./trustbox";
 
-/** The five selling points with large icons, above the footer. */
+/** The five selling points with large icons, above the footer; on the front page with the TrustBox under them. */
 export async function UspStrip() {
   const usps = resolveUsps(USP_STRIP, await getFreeShippingFrom());
   if (usps.length === 0) return null;
@@ -18,14 +21,21 @@ export async function UspStrip() {
           </li>
         ))}
       </ul>
+      <Suspense fallback={null}>
+        <FrontPageTrustBox className="mx-auto -mt-2 max-w-md px-4 pb-10" />
+      </Suspense>
     </section>
   );
 }
 
-/** 2 × 2 promises under "Læg i kurv" (delivery, Danish shop, free shipping, rating). */
+/**
+ * 2 × 2 promises under "Læg i kurv" (delivery, Danish shop, free shipping, rating). With a
+ * TrustBox, it takes the text-only rating's place.
+ */
 export async function ProductUsps() {
-  const usps = resolveUsps(USP_PRODUCT, await getFreeShippingFrom());
-  if (usps.length === 0) return null;
+  const box = trustBox("product");
+  const usps = resolveUsps(box ? withoutRating(USP_PRODUCT) : USP_PRODUCT, await getFreeShippingFrom());
+  if (usps.length === 0 && !box) return null;
   return (
     <ul className="grid gap-x-6 gap-y-5 border-y border-line py-6 sm:grid-cols-2">
       {usps.map((usp) => (
@@ -41,6 +51,12 @@ export async function ProductUsps() {
           </p>
         </li>
       ))}
+      {/* A row of its own: a TrustBox needs about 320 px, more than half the panel. */}
+      {box && (
+        <li className="sm:col-span-2">
+          <TrustBox placement="product" className="w-full max-w-80" />
+        </li>
+      )}
     </ul>
   );
 }

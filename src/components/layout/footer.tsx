@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { INFO_LINKS } from "@/components/content/info-page";
+import { TrustBox } from "@/components/marketing/trustbox";
 import { company } from "@/config/company";
 import { merchandising } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
@@ -8,7 +9,7 @@ import { PaymentMarks } from "./payment-marks";
 
 const TEST_MODE = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.startsWith("pk_test_") ?? false;
 
-/** Footer in the brand's footer colours: shop, customer service, contact, payment and the company. */
+/** Footer in the brand's footer colours: shop, customer service, contact, payment (with the TrustBox) and the company. */
 export function Footer() {
   const service = INFO_LINKS.filter((l) => !["/handelsbetingelser", "/privatlivspolitik", "/cookiepolitik", "/om-os"].includes(l.href));
   const about = INFO_LINKS.filter((l) => ["/om-os", "/handelsbetingelser", "/privatlivspolitik", "/cookiepolitik"].includes(l.href));
@@ -38,6 +39,7 @@ export function Footer() {
       <div className="border-t border-footer-line">
         <div className="container-shop flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
           <PaymentMarks />
+          <TrustBox placement="footer" className="w-full max-w-72 sm:w-64 lg:w-80 lg:max-w-80" />
           <p className="text-xs text-footer-muted">Sikker betaling med Stripe. Alle priser er inkl. moms.</p>
         </div>
       </div>

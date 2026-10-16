@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { INFO_LINKS } from "@/components/content/info-page";
-import { fillTokens } from "@/lib/info-text";
+import { fillTokens, shownPage } from "@/lib/info-text";
 import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoPage } from "./info-pages";
 
 // Pages that exist under app/(shop) (each information page is its own folder).
@@ -99,5 +99,22 @@ describe("information pages", () => {
 
   it("lists the checkout form kept in sessionStorage in the cookie policy", () => {
     expect(section("cookiepolitik", "Det gemmes i din browser").some((t) => t.includes("sessionStorage"))).toBe(true);
+  });
+
+  it("tells what Trustpilot's TrustBoxes do only when the shop shows them", () => {
+    const shown = (slug: string, trustbox: boolean) => texts(shownPage(page(slug), trustbox)).join(" ");
+    for (const slug of ["cookiepolitik", "privatlivspolitik"]) {
+      expect(shown(slug, false), slug).not.toContain("Trustpilot");
+      expect(shown(slug, true), slug).toContain("IP-adresse");
+      expect(shown(slug, true), slug).toContain("https://legal.trustpilot.com/for-reviewers/end-user-privacy-terms");
+    }
+    const cookies = shown("cookiepolitik", true);
+    expect(cookies).toContain("Vores bedømmelse fra Trustpilot");
+    expect(cookies).toContain("TrustBoxene sætter ingen cookies og gemmer intet i din browser");
+    // With TrustBoxes the page no longer says that nothing needs consent.
+    expect(cookies).not.toContain("Derfor skal vi ikke bede om dit samtykke");
+    expect(shown("cookiepolitik", false)).toContain("Derfor skal vi ikke bede om dit samtykke");
+    // Every page mentions Trustpilot only in TrustBox-only text.
+    for (const p of pages) expect(texts(shownPage(p, false)).join(" "), p.slug).not.toContain("Trustpilot");
   });
 });

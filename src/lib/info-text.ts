@@ -4,6 +4,8 @@
  * that the owner still has to fill in.
  */
 
+import type { InfoPage } from "@/content/info-pages";
+
 export type TextPart = { kind: "text"; text: string } | { kind: "link"; text: string; href: string } | { kind: "placeholder"; text: string };
 
 export function fillTokens(text: string, values: Record<string, string>): string {
@@ -33,4 +35,10 @@ export function safeHref(href: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** The page as the shop shows it: the sections and blocks for whether it shows TrustBoxes (`trustbox` in the content). */
+export function shownPage(page: InfoPage, trustbox: boolean): InfoPage {
+  const shown = (item: { trustbox?: boolean }) => item.trustbox === undefined || item.trustbox === trustbox;
+  return { ...page, sections: page.sections.filter(shown).map((section) => ({ ...section, blocks: section.blocks.filter(shown) })) };
 }

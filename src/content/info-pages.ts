@@ -32,16 +32,24 @@
  *
  * Text format: links are written as [link text](/path), [link text](mailto:{email}) or
  * [link text](https://…). There is no other markup.
+ *
+ * A section or block with `trustbox: true` is only shown when the shop shows Trustpilot
+ * TrustBoxes (src/config/trustpilot.ts), one with `trustbox: false` only when it doesn't.
  */
 import type { Season } from "@/config/store";
 
-export type InfoBlock =
+/** Only with Trustpilot TrustBoxes (true) or only without them (false); always when left out. */
+type Shown = { trustbox?: boolean };
+
+export type InfoBlock = (
   | { type: "p"; text: string }
   | { type: "list"; items: string[] }
   | { type: "steps"; items: string[] } // numbered
-  | { type: "table"; head: string[]; rows: string[][] };
+  | { type: "table"; head: string[]; rows: string[][] }
+) &
+  Shown;
 
-export type InfoSection = { heading: string; blocks: InfoBlock[] };
+export type InfoSection = { heading: string; blocks: InfoBlock[] } & Shown;
 
 export type InfoPage = {
   slug: string;
@@ -707,6 +715,11 @@ export const INFO_PAGES: InfoPage[] = [
             type: "p",
             text: "Webhotellet, Vercel og vores e-mailudbyder er databehandlere. De må kun behandle oplysningerne på vores vegne og efter vores instruks.",
           },
+          {
+            type: "p",
+            text: "Vi viser vores bedømmelse fra Trustpilot. Når en side viser den, får Trustpilot A/S i København din IP-adresse og tekniske oplysninger om besøget (se [cookiepolitikken](/cookiepolitik)). Trustpilot behandler dem for os, så bedømmelsen kan vises, og bruger dem også selv, fx til at forbedre sine TrustBoxe og forebygge misbrug. Det sker på grundlag af vores legitime interesse i at vise, hvad andre kunder mener om os (artikel 6, stk. 1, litra f). Læs mere i [Trustpilots privatlivspolitik](https://legal.trustpilot.com/for-reviewers/end-user-privacy-terms).",
+            trustbox: true,
+          },
           { type: "p", text: "Vi videregiver også oplysninger, hvis loven kræver det, fx til offentlige myndigheder." },
         ],
       },
@@ -892,11 +905,39 @@ export const INFO_PAGES: InfoPage[] = [
         ],
       },
       {
+        heading: "Vores bedømmelse fra Trustpilot",
+        trustbox: true,
+        blocks: [
+          {
+            type: "p",
+            text: "Vi viser vores bedømmelse fra Trustpilot i små felter fra Trustpilot (TrustBoxe), fx nederst på siden, på produktsiderne og ved kurven. De hentes fra Trustpilots server (widget.trustpilot.com), når resten af siden er indlæst.",
+          },
+          {
+            type: "p",
+            text: "TrustBoxene sætter ingen cookies og gemmer intet i din browser. Men når din browser henter dem, får Trustpilot din IP-adresse og tekniske oplysninger om besøget: den side, du er på, siden, du kom fra, din browser, dit sprog og dit styresystem. Med dem tæller Trustpilot, hvor tit en TrustBox bliver vist, set og klikket på.",
+          },
+          {
+            type: "p",
+            text: "Trustpilot A/S i København behandler oplysningerne for os, så TrustBoxene kan vises, og bruger dem også selv, fx til at forbedre TrustBoxene og forebygge misbrug. Læs mere i [Trustpilots privatlivspolitik](https://legal.trustpilot.com/for-reviewers/end-user-privacy-terms).",
+          },
+          {
+            type: "p",
+            text: "Klikker du på en TrustBox, åbnes vores side på Trustpilot. Dér gælder Trustpilots egne vilkår og cookies.",
+          },
+        ],
+      },
+      {
         heading: "Derfor ser du ikke et cookiebanner",
         blocks: [
           {
             type: "p",
             text: "Vi bruger kun det, der er strengt nødvendigt for, at webshoppen virker, eller som du selv aktivt beder om. Derfor skal vi ikke bede om dit samtykke.",
+            trustbox: false,
+          },
+          {
+            type: "p",
+            text: "Vi gemmer kun det i din browser, der er strengt nødvendigt for, at webshoppen virker, eller som du selv aktivt beder om. TrustBoxene fra Trustpilot gemmer intet i din browser.",
+            trustbox: true,
           },
           {
             type: "p",

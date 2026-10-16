@@ -37,6 +37,14 @@ export const USP_PRODUCT: Usp[] = [
   { icon: "trophy", title: "Bedømt som Fremragende", text: "+30.000 femstjernede anmeldelser" },
 ];
 
+/**
+ * The selling points without the text-only rating ("Bedømt som Fremragende"), where a Trustpilot
+ * TrustBox shows the real one instead (src/config/trustpilot.ts).
+ */
+export function withoutRating(usps: Usp[]): Usp[] {
+  return usps.filter((usp) => usp.icon !== "trophy");
+}
+
 /** The return promise in "Levering og retur" on product pages. */
 export const RETURN_PROMISE = "30 dages returret";
 

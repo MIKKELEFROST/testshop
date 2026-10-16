@@ -176,6 +176,19 @@ Browsertest (Playwright) mod lokale builds af begge webshops på test.piece.dk (
 | 18+ | 37 varer i Halloweenkostumer.dk (8.606 i alt), 0 i Fastelavnskostumer.dk (8.569). |
 | Billeder | Ølflaske – kostume til herrer: 3 fotos (86865, _01, _02), før 1. 80'er-kasket (kode med mellemrum i arket): 5, før 0. |
 
+### Trustpilot TrustBoxe 16-10-2026
+
+Lokale dev-servere for begge webshops på test.piece.dk med en testopsætning (`NEXT_PUBLIC_TRUSTPILOT_*` på kommandolinjen med en kendt dansk webshops offentlige business unit, ikke committet), Playwright ved 390 og 1440 px:
+
+| Tjek | Resultat |
+| --- | --- |
+| Forside | Micro Star under løfterækken (lyst tema) og Micro TrustScore i footerens nederste linje (mørkt tema, læsbart på den mørke footer i begge webshops). Ingen vandret scroll. |
+| Produktside | Micro Star som egen række under løfterne i stedet for "Bedømt som Fremragende"; i en halv kolonne var den for smal ved 1440 px. |
+| Kurv og kasse | Micro Star nederst i kurvens oversigt og under kassens ordreoversigt (også i den foldede oversigt på mobil). |
+| Navigation i browseren | Forside → produkt → kontakt → tilbage: produktsidens TrustBox indlæses efter navigationen (`loadFromElement`), løfterækkens kun på forsiden, og Trustpilots script hentes én gang. |
+| Uden opsætning | Ingen TrustBoxe, ingen forespørgsler til Trustpilot, produktsiden viser "Bedømt som Fremragende – +30.000 femstjernede anmeldelser" som før, og cookie- og privatlivspolitikken nævner ikke Trustpilot. |
+| Template-ID'er | Micro Star (`5419b732fbfb950b10de65e5`) og Micro TrustScore (`5419b637fa0340045cd0c936`) set i browseren; Micro Combo og Review Collector findes hos Trustpilot (svarer 200), men er ikke prøvet i browseren. |
+
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
 Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe listen` kører, eller webhooken er oprettet i Stripe.

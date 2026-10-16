@@ -120,6 +120,7 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
   - Lignende produkter er produkter fra produktets mest specifikke kategori, og dem med samme temaer kommer først.
   - Begge foretrækker produktets målgruppe. Børnevarer til voksenkostumer og omvendt kommer sidst.
 - **Løfter (USP'er)** står i `config/usps.ts` og er fælles for webshops: baren øverst, rækken over footeren og 2 × 2-boksen på produktsiden. Beløbet for fri fragt (`{fri_fragt}`) læses fra WooCommerce ("Fri fragt fra" på fragtmetoderne, `lib/woocommerce/shipping.ts`). Løfter om fri fragt udelades, hvis ingen metode har det. Kurven viser, hvor meget der mangler til fri fragt.
+- **Trustpilot** (`config/trustpilot.ts`, `components/marketing/trustbox.tsx`): Trustpilots egne TrustBoxe med webshoppens rigtige bedømmelse under løfterækken på forsiden, under løfterne på produktsiden (i stedet for teksten "Bedømt som Fremragende"), i kurven og kassens ordreoversigt og i footeren. Trustpilots kode (`div.trustpilot-widget` med `data-*` og linket til profilsiden) og deres script, som hentes én gang, når siden er færdig (`next/script` `lazyOnload`); en TrustBox, der kommer til ved navigation i browseren, indlæses med `Trustpilot.loadFromElement`. Uden business unit ID og profilside vises ingen og hentes intet. Cookie- og privatlivspolitikken har tekster, der kun vises med TrustBoxe (`trustbox: true` i `content/info-pages.ts`). Se [DEPLOY.md](DEPLOY.md#trustpilot-trustboxe).
 
 ## Forside, menu, søgning og favoritter
 

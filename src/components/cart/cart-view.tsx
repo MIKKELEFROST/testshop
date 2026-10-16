@@ -6,6 +6,7 @@ import { useCart } from "@/components/cart/cart-provider";
 import { QuoteError } from "@/components/checkout/quote-error";
 import { useQuote } from "@/components/checkout/use-quote";
 import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
+import { TrustBox } from "@/components/marketing/trustbox";
 import { ProductImage } from "@/components/products/product-image";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { Alert } from "@/components/ui/alert";
@@ -58,6 +59,7 @@ export function CartView() {
         <Link href="/produkter" className="mt-4 block text-center text-sm text-muted underline underline-offset-4 hover:text-ink">
           Fortsæt med at handle
         </Link>
+        <TrustBox placement="cart" className="mt-6 border-t border-line pt-5" />
       </aside>
     </div>
   );
