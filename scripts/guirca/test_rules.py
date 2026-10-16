@@ -94,17 +94,17 @@ class Categories(unittest.TestCase):
         crude = [
             "Penisforklæde", "Forklæde med lille penis", "Bevægelig penishat", "Hårbøjle med penisser, 6,5 cm", "Kæmpepenis, 75 cm",
             "Oppustelige bryster", "Blødt latexbryst, 9 cm", "Brystvortecovers med pailletter", "Oppustelige testikler – kostume til herrer",
-            "Sexlegetøj – kostume til herrer", "Sexman-T-shirt med hætte", 'Pokal "Mister Sex"', "3 minikondomer i latex, 6 cm",
+            "Sexlegetøj – kostume til herrer", "Sexman-T-shirt med hætte", "3 minikondomer i latex, 6 cm",
             "Sædcelle – kostume til herrer", "Nøgen-juleforklæde, 78 × 63 cm", "Juleforklæde med nøgenmotiv", "Fuckman-briller",
             "Dickman – kostume til herrer", "Åben gylp – kostume til herrer", "Hotdog-forklæde med overraskelse", "Halskæde med latexlem 12 cm",
             "Bondage – kostume til herrer", 'Erotisk spil "Date and Night" til voksne',
         ]
         for name in crude:
             self.assertTrue(rules.is_crude(name), name)
-        # "penis" inside other words, a shirt front, a breastplate, padded busts, "sexy" costumes, surprises that aren't.
+        # "penis" inside other words, a shirt front, a breastplate, padded busts, "sexy" costumes, a slogan, surprises that aren't.
         harmless = [
             "Kæmpenisse", "Kæmpenisser med lys", "Skjortebryst 26 cm", "Steampunk-skjortebryst", "Indianerbrystplade",
-            "Sexet politibetjent – kostume til herrer", "Sexet kanin – kostume til damer", "Sexsymbol-paryk (i æske)",
+            "Sexet politibetjent – kostume til herrer", "Sexet kanin – kostume til damer", "Sexsymbol-paryk (i æske)", 'Vifte "Sea, Sex & Sun"',
             "Overraskelses-chipsdåse 20 cm", "Hudfarvet body til børn", "Kondibukser",
         ]
         for name in harmless:
@@ -116,6 +116,10 @@ class Categories(unittest.TestCase):
         # Photos that say what the name doesn't, by the article number.
         self.assertTrue(rules.is_crude("Kat – kostume til herrer", "", "86041"))
         self.assertFalse(rules.is_crude("Kat – kostume til damer", "", "86040"))
+        # The bachelor-party cups go together: one has a penis on it, the other a naked pin-up.
+        self.assertTrue(rules.is_crude('Pokal "Mister Sex"', "", "17516"))
+        self.assertTrue(rules.is_crude('Pokal "Miss Sexy"', "", "17518"))
+        self.assertFalse(rules.is_crude('Pokal "Beer King"', "", "17517"))
         self.assertEqual(rules.crude_reason("Penisforklæde"), 'navn: "penis"')
         self.assertEqual(rules.crude_reason("Glad banan – kostume til herrer", "<p>Indhold: penis og dragt.</p>"), 'indhold: "penis"')
         self.assertTrue(rules.crude_reason("Pose med 3 sexy konfettikanoner", "", "14038").startswith("varenr. 14038: "))

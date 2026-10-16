@@ -350,12 +350,13 @@ ADULT_STATUS = "draft"
 # name names genitals, breasts or nipples, sex, sex toys, condoms, sperm, nudity or bondage, or
 # says something crude ("Fuckman", "Dickman", "Åben gylp", the aprons "med overraskelse").
 # Words only where they mean that: "kæmpenisse" (a giant elf) has "penis" inside, a
-# "skjortebryst" is a shirt front, "brystplade" a breastplate, and "sexet" (sexy police, sexy
-# bunny) is an ordinary adult costume. The Danish name, not Guirca's English, so the `adult`
-# command finds the same products in WooCommerce, where only the Danish texts are.
+# "skjortebryst" is a shirt front, "brystplade" a breastplate, "sexet" (sexy police, sexy
+# bunny) is an ordinary adult costume, and "sex" alone is a slogan ("Sea, Sex & Sun" on a fan).
+# The Danish name, not Guirca's English, so the `adult` command finds the same products in
+# WooCommerce, where only the Danish texts are.
 CRUDE_NAME = re.compile(
     r"\bpenis|penis\b|latexlem\b|testik(?:el|ler)|(?<!skjorte)bryst(?:er)?\b|brystvorte|kondom|sædcelle|"
-    r"\bsex(?:legetøj|man)?\b|fuck|\bdick|\bnøgen|åben gylp|med overraskelse|bondage|erotisk",
+    r"\bsex(?:legetøj|man)\b|fuck|\bdick|\bnøgen|åben gylp|med overraskelse|bondage|erotisk",
     re.I,
 )
 # Costumes with a penis among their contents ("Indhold: heldragt og penis."): the stallion, the
@@ -365,6 +366,9 @@ CRUDE_CONTENT = re.compile(r"\bpenis|penis\b|testik(?:el|ler)", re.I)
 # number (a product with sizes: its lowest, which its SKU starts with).
 CRUDE_ARTICLES = {
     "14038": "konfettikanoner med penisformet konfetti",
+    # The bachelor-party cups as a pair: "Mister Sex" has a penis on it, "Miss Sexy" a naked pin-up.
+    "17516": 'pokal "Mister Sex" med penis',
+    "17518": 'pokal "Miss Sexy" med nøgen pin-up',
     "41141": "juleforklæde med nøgen mand",
     "69078": "kokkehue med penis",
     "80229": "bedstemor-kostume med nøgen krop under kjolen",
