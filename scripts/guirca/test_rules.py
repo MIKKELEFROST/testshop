@@ -95,6 +95,32 @@ class Categories(unittest.TestCase):
         self.assertEqual(rules.season_categories({"SEASON": "X'MAS AND NEW YEAR"}), [rules.CHRISTMAS])
         self.assertEqual(rules.season_categories({"THEME": "Pirates"}), [])
 
+    def test_generic_halloween_theme_alone_does_not_make_everyday_make_up_halloween(self):
+        paint = {"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "MAKE UP", "SUBCATEGORY": "OILBASED MAKEUP", "THEME": "White Collour, Halloween", "SEASON": "HALLOWEEN & OKTOBERFEST"}
+        self.assertEqual(rules.season_categories({**paint, "DESCRIPTION": "MAKE-UP TUBE, CREME 20ML, WHITE"}), [])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "MAKE UP", "THEME": "Halloween", "DESCRIPTION": "SPONGE EGG SHAPE"}), [])
+        lashes = {"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "MAKE UP", "SUBCATEGORY": "LASHES", "THEME": "Halloween"}
+        self.assertEqual(rules.season_categories({**lashes, "DESCRIPTION": "BLACK EYELASHES"}), [])
+        # A word of the season in the name, a specific theme or a seasonal category still counts.
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "MAKE UP", "CATEGORY": "MAKEUP SETS", "THEME": "Halloween", "DESCRIPTION": "SET ZOMBIE MAKEUP"}), [rules.HALLOWEEN])
+        self.assertEqual(rules.season_categories({**lashes, "SUBCATEGORY": "NAILS", "DESCRIPTION": "12 BLOODY NAILS WITH GLUE"}), [rules.HALLOWEEN])
+        self.assertEqual(rules.season_categories({**paint, "THEME": "Halloween, Witches", "DESCRIPTION": "MAKE-UP TUBE, CREME 20ML, GREEN"}), [rules.HALLOWEEN])
+        # Blood and effects, masks and wigs keep the generic theme: there it marks scary items.
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "MAKE UP", "CATEGORY": "BLOOD AND LATEX", "THEME": "Halloween", "DESCRIPTION": "LATEX, 28 ML WHITE"}), [rules.HALLOWEEN])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "MASKS", "THEME": "Halloween", "DESCRIPTION": "CROSS MASK, PVC"}), [rules.HALLOWEEN])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "COSTUMES", "CATEGORY": "COSTUMES", "THEME": "Halloween", "DESCRIPTION": "TUNIC WITH HOOD, BLACK, ADULT, SIZE L"}), [rules.HALLOWEEN])
+
+    def test_generic_christmas_themes_alone_do_not_make_make_up_and_accessories_christmas(self):
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "MAKE UP", "THEME": "Elf", "DESCRIPTION": "MAKE-UP TUBE, CREME 20ML, LIGHT GREEN"}), [])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "PROSTHETICS", "THEME": "Christmas, Elf", "SEASON": "PERMANENTE", "DESCRIPTION": "LATEX ELF EARS"}), [])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "WINGS", "THEME": "Angel, Christmas, Religion", "DESCRIPTION": "BLACK CLOTH ANGEL WINGS"}), [])
+        # Guirca's Christmas season, a specific theme or a word of the season still counts.
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "HATS AND CAPS", "THEME": "Elf", "SEASON": "XMAS AND NEW YEAR", "DESCRIPTION": "ELF HAT"}), [rules.CHRISTMAS])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "HATS AND CAPS", "THEME": "Christmas, Santa Claus", "DESCRIPTION": "HAT"}), [rules.CHRISTMAS])
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "ACCESSORIES", "CATEGORY": "GLASSES", "THEME": "Christmas", "DESCRIPTION": "CHRISTMAS GLASSES"}), [rules.CHRISTMAS])
+        # Costumes keep the generic theme.
+        self.assertEqual(rules.season_categories({"PARENT CATEGORY": "COSTUMES", "CATEGORY": "COSTUMES", "THEME": "Elf", "DESCRIPTION": "ELF, CHILDREN, 5-6 YEARS"}), [rules.CHRISTMAS])
+
     def test_colour_and_category_themes_are_not_tags(self):
         self.assertEqual(rules.tag_themes({"THEME": "Pirates, Black Colour, Halloween, White Collour"}), ["Pirates"])
 

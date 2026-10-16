@@ -449,6 +449,25 @@ CHRISTMAS_THEMES = {
 }
 CHRISTMAS_SEASONS = {"XMAS AND NEW YEAR", "X'MAS AND NEW YEAR"}
 
+# Guirca's generic themes also mark whole ranges that have no season of their own: "Halloween" is
+# on all of its everyday make-up (its Halloween catalogue carries the make-up: face paint in every
+# colour, sponges, brushes, lipstick, lashes), and "Christmas" and "Elf" on fantasy, angel and
+# royal accessories (elf ears, angel wings, a page's hat) and on light-green face paint. There
+# they only count with a word of the season in Guirca's name for the item. A seasonal category,
+# a specific theme ("Zombie", "Santa Claus") or Guirca's Christmas season still counts as before.
+# Costumes, decorations, masks, weapons, wigs and blood keep the generic "Halloween": on them it
+# marks scary items whose names often have no such word ("CROSS MASK, PVC", "MACHETE 50 CM").
+GENERIC_HALLOWEEN_THEMES = {"Halloween"}
+GENERIC_CHRISTMAS_THEMES = {"Christmas", "Elf"}
+EVERYDAY_MAKEUP = {("Make-up", "Sminke og ansigtsmaling"), ("Make-up", "Glimmer og ansigtssmykker"), ("Make-up", "Negle og øjenvipper")}
+HALLOWEEN_WORDS = re.compile(
+    r"\b(?:halloween|pumpkins?|skulls?|skelet\w*|bones?|zombies?|witch\w*|vampir\w*|devil\w*|demon\w*|satanic|possessed|"
+    r"ghosts?|spiders?|spiderwebs?|cobwebs?|blood\w*|scars?|wounds?|horror|terror|killers?|evil|dead|death|monsters?|"
+    r"werewol\w*|gothic|catrina|bats?)\b",
+    re.I,
+)
+CHRISTMAS_WORDS = re.compile(r"\b(?:christmas|x'?mas|santa|reindeers?|snowm[ae]n|nativity)\b", re.I)
+
 # Top-level menu order, then subcategory order (the shop shows categories in this order).
 CATEGORY_ORDER = [
     ("Kostumer",),
@@ -545,15 +564,23 @@ def themes(row: dict) -> list[str]:
 
 
 def season_categories(row: dict) -> list[tuple[str, ...]]:
-    """'Halloween' and 'Jul og nytår' next to the main category."""
+    """'Halloween' and 'Jul og nytår' next to the main category (see GENERIC_HALLOWEEN_THEMES)."""
     if is_erotic(row):
         return []
     row_themes = set(themes(row))
     categories = set(split_list(row.get("CATEGORY")))
+    name = " ".join(clean(row.get(column)) for column in ("DESCRIPTION", "PARENT DESCRIPTION", "SON DESCRIPTION"))
+    halloween_themes = row_themes & HALLOWEEN_THEMES
+    if halloween_themes <= GENERIC_HALLOWEEN_THEMES and main_categories(row, set(), sized=False)[0] in EVERYDAY_MAKEUP and not HALLOWEEN_WORDS.search(name):
+        halloween_themes = set()
+    christmas_themes = row_themes & CHRISTMAS_THEMES
+    make_up_or_accessory = clean(row.get("PARENT CATEGORY")).upper() in ("ACCESSORIES", "MAKE UP")
+    if christmas_themes <= GENERIC_CHRISTMAS_THEMES and make_up_or_accessory and not CHRISTMAS_WORDS.search(name):
+        christmas_themes = set()
     result = []
-    if row_themes & HALLOWEEN_THEMES or categories & HALLOWEEN_CATEGORIES:
+    if halloween_themes or categories & HALLOWEEN_CATEGORIES:
         result.append(HALLOWEEN)
-    if clean(row.get("SEASON")).upper() in CHRISTMAS_SEASONS or row_themes & CHRISTMAS_THEMES:
+    if clean(row.get("SEASON")).upper() in CHRISTMAS_SEASONS or christmas_themes:
         result.append(CHRISTMAS)
     return result
 
