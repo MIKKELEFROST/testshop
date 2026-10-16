@@ -9,7 +9,8 @@ import { ProductRow, RelatedProductsSkeleton } from "@/components/products/relat
 import { merchandising, type GuideIcon, type HomePage as HomeConfig } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { JsonLd, shopData } from "@/lib/seo";
-import { getCollectionProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
+import type { ProductPhoto } from "@/lib/woocommerce/products";
+import { getCollectionProducts, getProductPhotos } from "@/lib/woocommerce/collections";
 
 // One address for the front page, also when it is opened with e.g. "?utm_source=…".
 export const metadata: Metadata = { alternates: { canonical: "/" } };
@@ -46,7 +47,7 @@ export default function HomePage() {
 }
 
 async function HeroWithPhotos({ hero, firstRow }: { hero: HomeConfig["hero"]; firstRow?: string }) {
-  let products = hero.products.length > 0 ? await getProductsBySlug(hero.products) : [];
+  let products: ProductPhoto[] = hero.products.length > 0 ? await getProductPhotos(hero.products) : [];
   if (products.length === 0 && firstRow) {
     const result = await getCollectionProducts(firstRow, { perPage: 6 });
     products = result?.ok ? result.data.products : [];

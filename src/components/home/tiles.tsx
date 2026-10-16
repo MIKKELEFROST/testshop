@@ -3,7 +3,8 @@ import { ProductImage } from "@/components/products/product-image";
 import { COSTUME_CATEGORY_SLUGS } from "@/config/catalog";
 import { collectionHref, findCollection, type Tile } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
-import { getLinkProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
+import { getLinkProducts } from "@/lib/woocommerce/collections";
+import { getProductPhoto } from "@/lib/woocommerce/products";
 
 /** "Hvem skal klædes ud?": round photos of who the costume is for. */
 export async function AudienceTiles({ title, tiles }: { title: string; tiles: Tile[] }) {
@@ -85,8 +86,8 @@ export async function ThemeTiles({
 /** A tile's photo: its chosen product's, or else the first costume (or product) behind its link. */
 async function tilePhoto(tile: Tile) {
   if (tile.product) {
-    const [product] = await getProductsBySlug([tile.product]);
-    if (product?.image) return product.image;
+    const photo = await getProductPhoto(tile.product);
+    if (photo?.image) return photo.image;
   }
   const products = (await getLinkProducts(tile.href, 12)).filter((p) => p.image);
   const costume = products.find((p) => p.categories.some((c) => COSTUME_CATEGORY_SLUGS.includes(c.slug)));

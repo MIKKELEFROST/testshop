@@ -7,9 +7,10 @@ import {
   collectionQuery,
   getCategories,
   getPluginFeatures,
-  getProductBySlug,
+  getProductPhoto,
   getProducts,
   type ProductFilters,
+  type ProductPhoto,
   type ProductQuery,
   type SortKey,
 } from "./products";
@@ -59,10 +60,10 @@ export async function getLinkProducts(href: string, perPage: number): Promise<Pr
   return [];
 }
 
-/** Product cards for these slugs (unknown or unpublished ones are left out). */
-export async function getProductsBySlug(slugs: string[]): Promise<ProductSummary[]> {
-  const products = await Promise.all(slugs.map((slug) => getProductBySlug(slug)));
-  return products.flatMap((p) => (p.ok && p.data ? [p.data] : []));
+/** The photos of these products (slugs, see getProductPhoto), in that order; unknown or unpublished ones are left out. */
+export async function getProductPhotos(slugs: string[]): Promise<ProductPhoto[]> {
+  const photos = await Promise.all(slugs.map((slug) => getProductPhoto(slug)));
+  return photos.filter((photo) => photo !== null);
 }
 
 /** IDs of the shop's hidden categories (merchandising.hidden), except the one being shown. */

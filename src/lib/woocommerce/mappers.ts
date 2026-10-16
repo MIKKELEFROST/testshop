@@ -25,7 +25,7 @@ function image(value: { src: string; alt: string } | null | undefined): ProductI
   return value?.src ? { src: value.src, alt: value.alt } : null;
 }
 
-function meta(product: WcProduct, key: string): unknown {
+function meta(product: Pick<WcProduct, "meta_data">, key: string): unknown {
   return product.meta_data.find((m) => m.key === key)?.value;
 }
 
@@ -44,7 +44,7 @@ function supplierUrl(value: unknown, hosts: readonly string[] | null = SUPPLIER_
  * The product's photos: its WooCommerce images, or else the supplier photos an import
  * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS).
  */
-export function productImages(product: WcProduct): ProductImage[] {
+export function productImages(product: Pick<WcProduct, "name" | "images" | "meta_data">): ProductImage[] {
   const own = product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null);
   if (own.length > 0) return own;
   const external = meta(product, "_wchc_external_images");

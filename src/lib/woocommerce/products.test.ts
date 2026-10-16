@@ -21,7 +21,7 @@ vi.mock("./client", () => ({
   },
 }));
 
-const { getAllProductSlugs, getCategories, getProducts, getRelatedProducts } = await import("./products");
+const { getAllProductSlugs, getCategories, getProductPhoto, getProducts, getRelatedProducts } = await import("./products");
 
 const category = (id: number, slug: string, count: number, parent = 0) => ({ id, name: slug, slug, parent, count });
 const product = (id: number, name: string, categories: number[]) => ({
@@ -89,6 +89,24 @@ describe("getAllProductSlugs", () => {
     route = (_path, query) => (query.page === 3 ? Promise.reject(new Error("HTTP 508")) : { body: [{ slug: "x" }], totalPages: 40 });
     expect((await getAllProductSlugs()).ok).toBe(false);
     expect(requests.length).toBeLessThan(10);
+  });
+});
+
+describe("getProductPhoto", () => {
+  it("reads only the product's photos, in one request (no sizes)", async () => {
+    route = () => ({ body: [{ id: 7, slug: "pirat", name: "Pirat &amp; papeg&oslash;je", images: [{ src: "https://shop.test/pirat.jpg", alt: "" }] }] });
+    expect(await getProductPhoto("pirat")).toEqual({ id: 7, slug: "pirat", name: "Pirat & papegøje", image: { src: "https://shop.test/pirat.jpg", alt: "" } });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ path: "wc/v3/products", query: { slug: "pirat", status: "publish", _fields: "id,slug,name,images,meta_data" } });
+  });
+
+  it("uses the supplier's photo of a product without its own, and is null for an unknown product or a failed read", async () => {
+    route = () => ({ body: [{ id: 8, slug: "heks", name: "Heks", meta_data: [{ key: "_wchc_external_images", value: ["https://marketing.guirca.com/heks.jpg"] }] }] });
+    expect((await getProductPhoto("heks"))?.image?.src).toBe("https://marketing.guirca.com/heks.jpg");
+    route = () => ({ body: [] });
+    expect(await getProductPhoto("ukendt")).toBeNull();
+    route = () => Promise.reject(new Error("HTTP 508"));
+    expect(await getProductPhoto("pirat")).toBeNull();
   });
 });
 

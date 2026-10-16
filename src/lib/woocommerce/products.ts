@@ -9,7 +9,7 @@ import type { Loadable, Product, ProductCategory, ProductList, ProductSummary } 
 import { HOURS, MINUTES, fetched, orFailure, type CacheLife, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { categoryPath, primaryCategory } from "./category-tree";
-import { decodeEntities, mapCategory, mapProduct, mapProductSummary } from "./mappers";
+import { decodeEntities, mapCategory, mapProduct, mapProductSummary, productImages } from "./mappers";
 import { rankAccessories, rankSimilar, seasonFilter } from "./related";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
@@ -309,6 +309,36 @@ async function readProductBySlug(slug: string): Promise<Read<Product | null>> {
           ).data
         : [];
     return mapProduct(product, variations);
+  });
+}
+
+/** A product's name and first photo, for the front page's hero and the tiles. */
+export type ProductPhoto = Pick<ProductSummary, "id" | "slug" | "name" | "image">;
+
+/**
+ * The photo of a product chosen in src/config/merchandising.ts (a hero photo or a tile's).
+ * One small request for its photos only (no text, no sizes), kept for an hour: these pages
+ * are regenerated every minute, the photos rarely change, and a product webhook still
+ * refreshes them. Null for an unknown or unpublished product, or when WooCommerce can't be read.
+ */
+export async function getProductPhoto(slug: string): Promise<ProductPhoto | null> {
+  const result = await readProductPhoto(slug).catch(orFailure);
+  return result.ok ? result.data : null;
+}
+
+async function readProductPhoto(slug: string): Promise<Read<ProductPhoto | null>> {
+  "use cache: remote";
+  cacheTag(CATALOG_TAG);
+  return fetched("getProductPhoto", HOURS, async () => {
+    const { data } = await wooRequest("wc/v3/products", {
+      // meta_data: the supplier photos of a product without its own (see productImages).
+      query: { ...SHOP, slug, status: "publish", _fields: "id,slug,name,images,meta_data" },
+      schema: z.array(wcProductSchema.pick({ id: true, slug: true, name: true, images: true, meta_data: true })),
+    });
+    const product = data[0];
+    if (!product) return null;
+    cacheTag(productTag(product.id));
+    return { id: product.id, slug: product.slug, name: decodeEntities(product.name), image: productImages(product)[0] ?? null };
   });
 }
 

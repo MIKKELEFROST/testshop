@@ -3,7 +3,7 @@ import { ProductImage } from "@/components/products/product-image";
 import { ButtonLink } from "@/components/ui/button";
 import type { HomePage } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
-import type { ProductSummary } from "@/types/commerce";
+import type { ProductPhoto } from "@/lib/woocommerce/products";
 import { EventCountdown } from "./event-countdown";
 
 /**
@@ -11,7 +11,7 @@ import { EventCountdown } from "./event-countdown";
  * two clear ways in and real product photos.
  * Fastelavn: sunny yellow with confetti. Halloween: a night sky with a moon and bats.
  */
-export function Hero({ hero, products }: { hero: HomePage["hero"]; products: ProductSummary[] }) {
+export function Hero({ hero, products }: { hero: HomePage["hero"]; products: ProductPhoto[] }) {
   const halloween = storeConfig.season === "halloween";
   return (
     <section className="container-shop pt-4 sm:pt-6">
@@ -51,7 +51,7 @@ export function Hero({ hero, products }: { hero: HomePage["hero"]; products: Pro
   );
 }
 
-function HeroPhotos({ products, halloween }: { products: ProductSummary[]; halloween: boolean }) {
+function HeroPhotos({ products, halloween }: { products: ProductPhoto[]; halloween: boolean }) {
   const shown = products.filter((p) => p.image).slice(0, 3);
   if (shown.length === 0) {
     return (
