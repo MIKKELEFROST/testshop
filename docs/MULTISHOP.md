@@ -31,13 +31,13 @@ Lageret er fælles: sælger begge webshops samme produkt, trækker de fra samme 
 | **Fastelavnskostumer.dk** | `piece-dk` | Fastelavn hele året: farverig og familievenlig, konfetti, logo med en kat i tønden, overskrifter i Fredoka. Forsiden tæller ned til fastelavnssøndag. | https://testshop-weld.vercel.app (Vercel-projekt `testshop`) |
 | **Halloweenkostumer.dk** | `halloween-kostumer-dk` | Halloween hele året: mørk header og footer (sort, orange og lilla), lyse produkt-, kurv- og kassesider, logo med et lysende græskar, overskrifter i Bebas Neue. Forsiden tæller ned til 31. oktober. | https://testshop-maskerade.vercel.app (Vercel-projekt `testshop-maskerade`) |
 
-Begge sælger hele Guircas sortiment. Det er fremhævningen, der er forskellig:
+Begge sælger hele Guircas sortiment, undtagen varerne kun for voksne, som kun Halloweenkostumer.dk sælger (se 18+ nedenfor). Det er fremhævningen, der er forskellig:
 
 - **Menu og forside:** hver sin menu, hero, målgruppe-fliser, temaer ("Prinsesser og prinser", "Superhelte" … / "Hekse", "Zombier" …) og produktrækker.
 - **Temasider** (`/tema/<slug>`) samler produkter fra kategorier og temaer (WooCommerce-tags), f.eks. "Halloweenkostumer til damer" = Damekostumer, der også ligger i Halloween.
 - **Den anden sæson holdes væk** fra forsiden, temasiderne og produktsidernes anbefalinger: Fastelavnsshoppen viser ikke Halloween og jul dér (heller ikke tilbehør med f.eks. flagermus, kranier eller nisser), Halloweenshoppen ikke jul. Produkterne findes stadig i kategorierne og i søgningen.
 - **Kategorisider og "Alle produkter"** viser med sorteringen "Anbefalet" shoppens sæson først og resten bagefter (Fastelavn: det, der ikke er Halloween eller jul; Halloween: Halloween først). Ingen varer skjules.
-- **18+:** Varer kun for voksne ("Polterabend (18+)": Guircas 37 erotiske varer og 48 grove polterabend-gags, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md#varer-kun-for-voksne-18)) sælges kun i Halloweenkostumer.dk. Ejeren har besluttet (16-10-2026), at de er kladder indtil videre: importen opretter dem som kladder, og `import_guirca.py adult --apply` gør de eksisterende til kladder. Udgives de igen, vises de med et 18+-mærke og kun i deres kategori og i søgningen, aldrig på forsiden, i anbefalinger eller under "Alle produkter". Mens de er kladder, er 18+-kategorien tom og findes ikke i webshoppen: menu, kategorichips, søgning og `sitemap.xml` viser kun kategorier med udgivne varer, `/kategori/polterabend-18` svarer 404, og ingen links peger fast på den. Kassen afviser en kladde ("Produktet kan ikke købes."), også hvis den ligger i en kundes kurv fra før.
+- **18+:** Varer kun for voksne sælges kun i Halloweenkostumer.dk, aldrig i Fastelavnskostumer.dk (ejerens beslutning 16-10-2026). Det er Guircas 37 erotiske varer i "Polterabend (18+)" og 48 grove polterabend-gags i deres egne kategorier (Herrekostumer, Tøj, Halloween, Jul og nytår …), se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md#varer-kun-for-voksne-18). De er udgivne. Importen giver nye varer kun Halloweenkostumer.dk, og `import_guirca.py adult --apply` fjerner de andre webshops fra de eksisterende (kun feltet Webshops); indtil da sælges de 48 grove varer også i Fastelavnskostumer.dk. Varerne i "Polterabend (18+)" vises med et 18+-mærke og kun i deres kategori (med en 18+-besked) og i søgningen, aldrig på forsiden, i anbefalinger eller under "Alle produkter". De grove varer i andre kategorier vises som andre varer i Halloweenkostumer.dk, uden 18+-mærke. Fastelavnskostumer.dk viser ingen af dem: WooCommerce giver den kun dens egne produkter (lister, søgning, favoritter, `sitemap.xml`, og produktsiden svarer 404), og kassen afviser dem ("Produktet sælges ikke i denne webshop."), også fra en kurv fra før.
 
 Temasider med "også i" og sæsonsorteringen bruger plugin 1.4's kategorifiltre. Med en ældre plugin falder de tilbage til temaer (tags) og almindelig sortering.
 
@@ -46,16 +46,17 @@ Temasider med "også i" og sæsonsorteringen bruger plugin 1.4's kategorifiltre.
 Begge webshops har de samme ~8.600 produktsider med samme navn, tekst og billeder. Uden hjælp vælger Google selv én kopi pr. produkt, og så kan et heksekostume ende med at rangere som en side på Fastelavnskostumer.dk. Derfor har hvert produkt én **hjemme-webshop** (`homeCategories` i `src/config/store.ts`, `src/lib/home-store.ts`):
 
 - Produkter i **Halloween** (og dens underkategorier) og **18+**-varerne hører hjemme på Halloweenkostumer.dk. Alt andet, også jul, hører hjemme på Fastelavnskostumer.dk.
+- Hjemmet er altid en webshop, der sælger produktet (feltet `webshops` på produktet): sælger kun Halloweenkostumer.dk det, som de grove varer kun for voksne i Herrekostumer, Tøj eller Jul og nytår, hører det hjemme dér, uanset kategori.
 - Produktsiden peger i begge webshops på hjemme-webshoppens side som den kanoniske (`<link rel="canonical">` og adressen i produktets strukturerede data), og kun hjemme-webshoppens `sitemap.xml` har produktet med.
 - En kategori, som en webshop holder ude af menuen og kategori-chipsene (`hidden` og `navHidden` i `merchandising.ts`), peger på kategorisiden i den webshop, der viser den: f.eks. `/kategori/halloween`, `/kategori/halloweenpynt` og `/kategori/blod-og-effekter` i Fastelavnsshoppen → `https://halloweenkostumer.dk/kategori/…`. Viser ingen af dem kategorien, hører den hjemme hos produkternes hjemme-webshop: `/kategori/jul-og-nytaar` og `/kategori/julepynt` i Halloweenshoppen → Fastelavnskostumer.dk. Den står kun i hjemme-webshoppens sitemap. Produkternes hjem ændres ikke af det.
-- Produkterne kan stadig købes i begge webshops; det ændrer kun, hvilken side Google viser.
+- Produkterne kan stadig købes i alle webshops, der sælger dem; det ændrer kun, hvilken side Google viser.
 
 Den anden webshops adresse er `siteUrl` i `src/config/store.ts` (de rigtige domæner). Webshoppens egne sider bruger `NEXT_PUBLIC_SITE_URL`. Indtil domænerne er koblet på, peger kanoniske adresser altså på domæner, der endnu ikke svarer; kobl begge domæner på samtidig.
 
 | Produkt | Fastelavnskostumer.dk | Halloweenkostumer.dk |
 | --- | --- | --- |
-| Guircas sortiment (8.569 varer, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) | ✓ | ✓ |
-| Guircas varer til 18+ ("Polterabend (18+)": 37 udgivne i dag, 85 kladder efter `adult --apply`) | | ✓ (når de udgives) |
+| Guircas sortiment (8.569 varer, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) | ✓ (8.521 efter `adult --apply`) | ✓ |
+| Guircas varer kun for voksne (85: 37 i "Polterabend (18+)" og 48 grove varer i deres egne kategorier, alle udgivne) | De 48 grove varer, indtil `adult --apply` | ✓ |
 
 De fem testprodukter fra opsætningen og en tom kladde ligger i papirkurven i WooCommerce (15-10-2026).
 

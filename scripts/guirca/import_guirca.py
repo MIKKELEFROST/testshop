@@ -8,7 +8,7 @@
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx>           # everything
     python3 scripts/guirca/import_guirca.py order [--apply]   # "Anbefalet" order (menu_order) of all products
     python3 scripts/guirca/import_guirca.py names [--apply]   # unique names for products that share one
-    python3 scripts/guirca/import_guirca.py adult [--apply]   # products for adults only (18+) as drafts
+    python3 scripts/guirca/import_guirca.py adult [--apply]   # products for adults only (18+) in the Halloween shop only
 
 Pass --image-status images.tsv to report and import to use the photos the check found.
 order, names and adult only read WooCommerce unless --apply is given.
@@ -45,8 +45,6 @@ from woo import Woo, WooError  # noqa: E402
 HERE = Path(__file__).resolve().parent
 IMPORTER_VERSION = "1"
 DEFAULT_WEBSHOPS = "halloween-kostumer-dk,piece-dk"
-# 18+ products are only sold in these webshops (of those the import assigns).
-ADULT_WEBSHOPS = ("halloween-kostumer-dk",)
 BRAND = "Guirca"
 SIZE, GROUP, COLOUR = "Størrelse", "Målgruppe", "Farve"
 SHOP_OWNED = ("texts", "categories", "tags", "status", "webshops", "stock")
@@ -218,7 +216,9 @@ def report(args) -> int:
     for reason, count in collections.Counter(s.reason for s in skipped).most_common():
         print(f"  {count:5}  {reason}")
     print(f"Kladder (skal tjekkes): {sum(s.status == 'draft' for s in specs)}")
-    print(f"Kun 18+ (kun i {', '.join(ADULT_WEBSHOPS)}, status {rules.ADULT_STATUS}): {sum(s.adult_only for s in specs)}")
+    adult = [s for s in specs if s.adult_only]
+    in_category = sum(rules.ADULT_ONLY in s.categories for s in adult)
+    print(f"Kun 18+ (kun i {', '.join(rules.ADULT_WEBSHOPS)}): {len(adult)} ({in_category} i {rules.ADULT_ONLY[-1]}, {len(adult) - in_category} grove varer i deres egne kategorier)")
     print(f"Uden billeder: {sum(not s.images for s in specs)}")
     print(f"Billeder: {sum(len(s.images) for s in specs)} ({sum(len(s.images) == 1 for s in specs)} produkter har kun ét)")
     print("Kategorier:")
@@ -379,11 +379,6 @@ def setup(woo: Woo, specs: list[catalog.ProductSpec], webshops: list[str]) -> Id
 # ---------------------------------------------------------------- payloads
 
 
-def shops_for(spec: catalog.ProductSpec, webshops: list[str]) -> list[str]:
-    """The webshops a product is sold in: 18+ products only in ADULT_WEBSHOPS."""
-    return [w for w in webshops if w in ADULT_WEBSHOPS] if spec.adult_only else list(webshops)
-
-
 def fingerprint(spec: catalog.ProductSpec, webshops: list[str]) -> str:
     return f"{IMPORTER_VERSION}:{','.join(webshops) or '-'}:{spec.fingerprint()}"
 
@@ -430,7 +425,7 @@ def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], websh
     if "status" in fields:
         payload["status"] = spec.status
     if "webshops" in fields:
-        payload["webshops"] = shops_for(spec, webshops)
+        payload["webshops"] = catalog.shops_for(spec, webshops)
     if "stock" in fields:
         payload.update(manage_stock=False, stock_status="instock")
     return payload
@@ -778,29 +773,44 @@ def run_names(args) -> int:
 
 
 def run_adult(args) -> int:
-    """Keep products for adults only as drafts (the owner's decision, 16-10-2026): the 18+
-    category and the crude jokes Guirca files elsewhere (see catalog.adult_changes)."""
+    """Sell the products for adults only in Halloweenkostumer.dk only (the owner's decision,
+    16-10-2026): the 18+ category and the crude jokes Guirca files elsewhere (see
+    catalog.adult_changes). Only their webshops are written; status and categories stay."""
     woo = Woo.from_env()
     slug = rules.slugify(rules.ADULT_ONLY[-1])
     adult_category = next((c for c in woo.get_all("wc/v3/products/categories", _fields="id,name,slug,parent") if c["slug"] == slug), None)
     if adult_category is None:
         raise SystemExit(f"Kategorien {rules.ADULT_ONLY[-1]} ({slug}) findes ikke i WooCommerce.")
     products = read_products(woo, "any", "id,name,sku,status,categories,description,webshops")
-    changes = catalog.adult_changes(products, adult_category, ADULT_WEBSHOPS)
-    crude = [c for c in changes if "categories" in c.update]
-    print(f"Varer kun for voksne: {len(changes)} ({len(changes) - len(crude)} i {rules.ADULT_ONLY[-1]}, {len(crude)} grove varer uden for den)")
-    print(f"Status nu: {', '.join(f'{s} {n}' for s, n in collections.Counter(c.product.get('status') for c in changes).most_common())}")
-    print(f"Bliver kladde: {sum('status' in c.update for c in changes)} · får kun kategorien {rules.ADULT_ONLY[-1]}: {len(crude)} · får kun webshoppen {', '.join(ADULT_WEBSHOPS)}: {sum('webshops' in c.update for c in changes)}")
-    for title, group in (("I 18+-kategorien", [c for c in changes if c not in crude]), ("Grove varer, der får 18+-kategorien", crude)):
-        print(f"\n{title} ({len(group)}):")
-        print("  id\tstatus\tnavn\tkategorier nu\twebshops nu\thvorfor\tændring")
+    if products and not any("webshops" in p for p in products):
+        raise SystemExit("WooCommerce svarer uden webshops: det kræver Headless Checkout Bridge 1.2 eller nyere.")
+    changes = catalog.adult_changes(products, adult_category, rules.ADULT_WEBSHOPS)
+    target = ",".join(sorted(rules.ADULT_WEBSHOPS))
+
+    def shops(product: dict) -> str:
+        return ",".join(sorted(product.get("webshops") or [])) or "-"
+
+    kinds = collections.Counter(c.kind for c in changes)
+    print(
+        f"Varer kun for voksne: {len(changes)} ({kinds['18+-kategorien']} i {rules.ADULT_ONLY[-1]}, "
+        f"{len(changes) - kinds['18+-kategorien']} grove varer i deres egne kategorier: "
+        f"{kinds['navn']} efter navnet, {kinds['indhold']} efter indholdet, {kinds['varenr.']} efter varenummeret)"
+    )
+    print(f"Status: {', '.join(f'{s} {n}' for s, n in collections.Counter(c.product.get('status') for c in changes).most_common())} (ændres ikke)")
+    print(f"Webshops nu: {', '.join(f'{s} {n}' for s, n in collections.Counter(shops(c.product) for c in changes).most_common())}")
+    moving = [c for c in changes if "webshops" in c.update]
+    staying = [c for c in changes if "webshops" not in c.update]
+    print(f"Får kun webshoppen {target}: {len(moving)} · allerede kun i den: {sum(shops(c.product) == target for c in staying)} · uden webshop (sælges ingen steder, røres ikke): {sum(shops(c.product) == '-' for c in staying)}")
+    for title, group, column in ((f"Ændres ({len(moving)})", moving, "webshops nu → efter"), (f"Uændrede ({len(staying)})", staying, "webshops")):
+        print(f"\n{title}:")
+        print(f"  id\tstatus\tnavn\tkategorier\t{column}\thvorfor")
         for change in sorted(group, key=lambda c: c.product["id"]):
-            p, update = change.product, change.update
+            p = change.product
             categories = ", ".join(text(c.get("name", "")) for c in p.get("categories") or [])
-            planned = ", ".join(f"{k} → {'18+' if k == 'categories' else ','.join(v) if isinstance(v, list) else v}" for k, v in update.items() if k != "id") or "ingen"
-            print(f"  {p['id']}\t{p.get('status')}\t{text(p.get('name', ''))}\t{categories}\t{','.join(p.get('webshops') or []) or '-'}\t{change.reason}\t{planned}")
-    updates = [c.update for c in changes if len(c.update) > 1]
-    print(f"\nÆndres: {len(updates)} af {len(products)} produkter (kun status, kategorier og webshops)")
+            webshops = f"{shops(p)} → {','.join(change.update['webshops'])}" if "webshops" in change.update else shops(p)
+            print(f"  {p['id']}\t{p.get('status')}\t{text(p.get('name', ''))}\t{categories}\t{webshops}\t{change.reason}")
+    updates = [c.update for c in moving]
+    print(f"\nÆndres: {len(updates)} af {len(products)} produkter (kun webshops; status og kategorier røres ikke)")
     return finish(woo, updates, catalog.adult_saved, args)
 
 
@@ -836,7 +846,7 @@ def main(argv=None) -> int:
     p.add_argument("--settle", type=int, default=60, help="Sekunder at vente efter en afbrudt forespørgsel, før der tjekkes, hvad der blev gemt")
     sub.add_parser("order", help="Sæt rækkefølgen ved 'Anbefalet' (menu_order): kostumer først, nyeste først")
     sub.add_parser("names", help="Gør navne, som flere udgivne varer har, unikke (kun navnet, ikke adressen)")
-    sub.add_parser("adult", help="Gør alle varer kun for voksne (18+ og grove varer) til kladder")
+    sub.add_parser("adult", help="Sælg varer kun for voksne (18+ og grove varer) kun i Halloweenkostumer.dk (kun webshops skrives)")
     for name in ("order", "names", "adult"):
         p = sub.choices[name]
         mode = p.add_mutually_exclusive_group()
