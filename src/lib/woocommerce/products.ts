@@ -230,19 +230,22 @@ export async function collectionQuery(collection: Collection): Promise<Loadable<
   return { ok: true, data: { categoryIds, alsoInCategoryIds, notInCategoryIds, tagIds, hideAdult: true } };
 }
 
-/** Slugs of all this shop's published products (for the sitemap); refreshed every hour. */
-export async function getAllProductSlugs(): Promise<Loadable<string[]>> {
+/**
+ * All this shop's published products, with their category IDs (the sitemap lists those whose
+ * home is this shop, see lib/home-store.ts); refreshed every hour.
+ */
+export async function getAllProductSlugs(): Promise<Loadable<{ slug: string; categoryIds: number[] }[]>> {
   return loadable(await readAllProductSlugs().catch(orFailure));
 }
 
-async function readAllProductSlugs(): Promise<Read<string[]>> {
+async function readAllProductSlugs(): Promise<Read<{ slug: string; categoryIds: number[] }[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
   return fetched("getAllProductSlugs", HOURS, async () => {
     const read = (page: number) =>
       wooRequest("wc/v3/products", {
-        query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug" },
-        schema: z.array(z.object({ slug: z.string() })),
+        query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug,categories" },
+        schema: z.array(z.object({ slug: z.string(), categories: z.array(z.object({ id: z.number() })).default([]) })),
         timeoutMs: 30_000,
       });
     // Page 1 tells how many pages there are (about 90); the others are read a few at a time,
@@ -250,7 +253,7 @@ async function readAllProductSlugs(): Promise<Read<string[]>> {
     const first = await read(1);
     const pages = Math.min(Number(first.headers.get("x-wp-totalpages") ?? 1), 200);
     const rest = await mapWithLimit(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => i + 2), 3, read);
-    return [first, ...rest].flatMap((response) => response.data.map((p) => p.slug));
+    return [first, ...rest].flatMap((response) => response.data.map((p) => ({ slug: p.slug, categoryIds: p.categories.map((c) => c.id) })));
   });
 }
 

@@ -40,6 +40,17 @@ Begge sælger hele Guircas sortiment. Det er fremhævningen, der er forskellig:
 
 Temasider med "også i" og sæsonsorteringen bruger plugin 1.4's kategorifiltre. Med en ældre plugin falder de tilbage til temaer (tags) og almindelig sortering.
 
+### Søgemaskiner: hvert produkt har ét hjem
+
+Begge webshops har de samme ~8.600 produktsider med samme navn, tekst og billeder. Uden hjælp vælger Google selv én kopi pr. produkt, og så kan et heksekostume ende med at rangere som en side på Fastelavnskostumer.dk. Derfor har hvert produkt én **hjemme-webshop** (`homeCategories` i `src/config/store.ts`, `src/lib/home-store.ts`):
+
+- Produkter i **Halloween** (og dens underkategorier) og **18+**-varerne hører hjemme på Halloweenkostumer.dk. Alt andet, også jul, hører hjemme på Fastelavnskostumer.dk.
+- Produktsiden peger i begge webshops på hjemme-webshoppens side som den kanoniske (`<link rel="canonical">` og adressen i produktets strukturerede data), og kun hjemme-webshoppens `sitemap.xml` har produktet med.
+- En kategori, som en webshop skjuler (`hidden` i `merchandising.ts`), peger på hjemme-webshoppens kategoriside, f.eks. `/kategori/halloween` i Fastelavnsshoppen → `https://halloweenkostumer.dk/kategori/halloween` og `/kategori/jul-og-nytaar` i Halloweenshoppen → Fastelavnskostumer.dk. Den står kun i hjemme-webshoppens sitemap.
+- Produkterne kan stadig købes i begge webshops; det ændrer kun, hvilken side Google viser.
+
+Den anden webshops adresse er `siteUrl` i `src/config/store.ts` (de rigtige domæner). Webshoppens egne sider bruger `NEXT_PUBLIC_SITE_URL`. Indtil domænerne er koblet på, peger kanoniske adresser altså på domæner, der endnu ikke svarer; kobl begge domæner på samtidig.
+
 | Produkt | Fastelavnskostumer.dk | Halloweenkostumer.dk |
 | --- | --- | --- |
 | Guircas sortiment (8.569 varer, se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md)) | ✓ | ✓ |
@@ -49,7 +60,7 @@ De fem testprodukter fra opsætningen og en tom kladde ligger i papirkurven i Wo
 
 ## Ny webshop – trin for trin
 
-1. **Brand:** Tilføj et brand under det nye butiks-ID i `src/config/store.ts` (navn, logo, tekster, farver, skrift, e-mail, sæson). Farverne er designtokens fra `src/app/globals.css`. Tilføj webshoppens menu, forside og temaer i `src/config/merchandising.ts` (ellers bruges sæsonens).
+1. **Brand:** Tilføj et brand under det nye butiks-ID i `src/config/store.ts` (navn, domæne (`siteUrl`), logo, tekster, farver, skrift, e-mail, sæson, og evt. de kategorier, hvis produkter hører hjemme her (`homeCategories`)). Farverne er designtokens fra `src/app/globals.css`. Tilføj webshoppens menu, forside og temaer i `src/config/merchandising.ts` (ellers bruges sæsonens).
 2. **WooCommerce:** Opret webshoppen under **Produkter → Webshops** med butiks-ID'et som slug, og kryds den af på de produkter, den skal sælge. Det kan også gøres via API'et: `PUT /wp-json/wc-headless/v1/shops/{butiks-id}` med `{"name": "…"}` og `PUT /wp-json/wc/v3/products/{id}` med `{"webshops": ["…"]}`.
 3. **Vercel:** **Add New → Project** → importér repoet. Sæt miljøvariablerne (se [DEPLOY.md](DEPLOY.md)) med webshoppens egne `NEXT_PUBLIC_STORE_ID`, `NEXT_PUBLIC_SITE_URL` og `STRIPE_WEBHOOK_SECRET`. WooCommerce- og Stripe-nøglerne kan være de samme som de andre webshops'.
 4. **Stripe:** Opret et webhook-endpoint til `https://<domæne>/api/stripe/webhook` (samme fire hændelser som i [STRIPE.md](STRIPE.md)) og registrér domænet under **Payment method domains**, så Apple Pay virker. Hvert endpoint får alle kontoens betalinger, men frontend ignorerer betalinger fra andre webshops (`metadata.store_id`).

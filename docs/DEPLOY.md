@@ -39,7 +39,7 @@ Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet
 - **Juridiske tekster** (`src/content/info-pages.ts`) er udkast efter de almindelige danske regler. Få dem læst igennem af en jurist.
 - **Kortbetaling:** I dag trækkes betalingen, når ordren lægges. Efter danske regler må et betalingskort som udgangspunkt først debiteres, når varen sendes. Overvej at reservere ved køb og trække beløbet ved afsendelse (Stripe "manual capture").
 - **Stripe live-nøgler** og et live-webhook i stedet for test.
-- **Domæner** (fastelavnskostumer.dk, halloweenkostumer.dk): tilføj dem i Vercel-projekterne, sæt `NEXT_PUBLIC_SITE_URL` til dem, og registrér dem i Stripe under **Payment method domains** (Apple Pay/Google Pay) og som webhook-endpoints.
+- **Domæner** (fastelavnskostumer.dk, halloweenkostumer.dk): tilføj dem i Vercel-projekterne, sæt `NEXT_PUBLIC_SITE_URL` til dem, og registrér dem i Stripe under **Payment method domains** (Apple Pay/Google Pay) og som webhook-endpoints. Kobl begge på samtidig: produktsiderne peger allerede på hinandens domæner (`siteUrl` i `src/config/store.ts`, se [MULTISHOP.md](MULTISHOP.md)). Får en webshop et andet domæne, så ret også `siteUrl`.
 - **Kundeservice-e-mails:** sørg for, at brandenes adresser findes, eller sæt `NEXT_PUBLIC_SUPPORT_EMAIL`.
 
 ## 5. Efter deploy

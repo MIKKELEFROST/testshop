@@ -68,10 +68,12 @@ describe("getAllProductSlugs", () => {
       // Later pages answer first, to show the order does not depend on timing.
       await new Promise((resolve) => setTimeout(resolve, 20 - Number(query.page)));
       active--;
-      return { body: [{ slug: `p${query.page}a` }, { slug: `p${query.page}b` }], totalPages: 8 };
+      return { body: [{ slug: `p${query.page}a`, categories: [{ id: 5, name: "Halloween", slug: "halloween" }] }, { slug: `p${query.page}b` }], totalPages: 8 };
     };
-    const slugs = await getAllProductSlugs();
-    expect(slugs).toEqual({ ok: true, data: Array.from({ length: 8 }, (_, i) => [`p${i + 1}a`, `p${i + 1}b`]).flat() });
+    const products = await getAllProductSlugs();
+    expect(products.ok && products.data.map((p) => p.slug)).toEqual(Array.from({ length: 8 }, (_, i) => [`p${i + 1}a`, `p${i + 1}b`]).flat());
+    expect(products.ok && products.data.slice(0, 2)).toEqual([{ slug: "p1a", categoryIds: [5] }, { slug: "p1b", categoryIds: [] }]);
+    expect(requests[0]?.query._fields).toBe("slug,categories");
     expect(most).toBeLessThanOrEqual(3);
   });
 

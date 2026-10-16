@@ -55,6 +55,19 @@ export type DisplayFont = { family: string; weight: number; tracking: string; up
 export type StoreBrand = {
   /** The shop's name as customers see it, e.g. "Halloweenkostumer.dk". */
   name: string;
+  /**
+   * The shop's public address (its domain). The other shops point search engines to it, e.g.
+   * for the products it is the home of (see `homeCategories`); its own pages use
+   * NEXT_PUBLIC_SITE_URL when that is set.
+   */
+  siteUrl: string;
+  /**
+   * Categories (slugs, with their subcategories) whose products search engines should find in
+   * this shop. Every shop sells every product with the same name, text and photos, so each
+   * product page names one shop as the original (its canonical address) and only that shop's
+   * sitemap lists it. Products in none of these belong to the default shop (DEFAULT_STORE_ID).
+   */
+  homeCategories?: string[];
   /** Customer service email (NEXT_PUBLIC_SUPPORT_EMAIL overrides it). */
   email: string;
   /** The logo: a drawn mark and the name in two lines ("Halloween" over "kostumer.dk"). */
@@ -95,6 +108,7 @@ export const brands: Record<string, StoreBrand> = {
   // Fastelavn all year: colourful, playful and for the whole family.
   "piece-dk": {
     name: "Fastelavnskostumer.dk",
+    siteUrl: "https://fastelavnskostumer.dk",
     email: "kundeservice@fastelavnskostumer.dk",
     logo: { mark: "barrel-cat", word: "Fastelavns", suffix: "kostumer.dk" },
     tagline: "Kostumer til fastelavn – til hele familien",
@@ -140,6 +154,9 @@ export const brands: Record<string, StoreBrand> = {
   // Halloween all year: dark header and footer, light pages, so photos, prices and the checkout stay clear.
   "halloween-kostumer-dk": {
     name: "Halloweenkostumer.dk",
+    siteUrl: "https://halloweenkostumer.dk",
+    // Halloween, and the adult-only (18+) products that only this shop sells.
+    homeCategories: ["halloween", "polterabend-18"],
     email: "kundeservice@halloweenkostumer.dk",
     logo: { mark: "pumpkin", word: "Halloween", suffix: "kostumer.dk" },
     tagline: "Halloweenkostumer, masker og alt det uhyggelige",
