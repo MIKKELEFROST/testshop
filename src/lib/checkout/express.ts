@@ -79,6 +79,26 @@ export function walletOpeningQuote(formQuote: ClientQuote, estimate: ClientQuote
   return null;
 }
 
+/** The estimate for ESTIMATE_ADDRESS the checkout asks for in advance, and how far it has got. */
+export type WalletEstimate = { status: "loading" | "ok" | "failed"; quote: ClientQuote | null };
+
+/** How long a tap waits for an estimate still on its way; the sheet must open within a second. */
+export const WALLET_WAIT_MS = 800;
+
+/**
+ * What a tap on a wallet button does: open the sheet with a quote, wait a moment for the
+ * estimate still on its way ("wait"), or not open and ask for the estimate again ("retry",
+ * only once it has failed: a tap never restarts an estimate under way).
+ */
+export function walletTap(
+  formQuote: ClientQuote,
+  estimate: WalletEstimate | null,
+): { action: "open"; quote: ClientQuote } | { action: "wait" } | { action: "retry" } {
+  const opening = walletOpeningQuote(formQuote, estimate?.status === "ok" ? estimate.quote : null);
+  if (opening) return { action: "open", quote: opening };
+  return estimate?.status === "loading" ? { action: "wait" } : { action: "retry" };
+}
+
 export function quoteAmount(quote: ClientQuote): number {
   return toMinorUnits(quote.totals.total, stripeCurrencyExponent(quote.currency));
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkoutRequestSchema, quoteRequestSchema } from "@/lib/validation/checkout";
-import { expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates } from "./express";
+import { expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates, walletTap } from "./express";
 import { ESTIMATE_ADDRESS, type ClientQuote } from "./quote";
 
 const quote: ClientQuote = {
@@ -113,5 +113,26 @@ describe("express checkout helpers", () => {
       shippingAddress: { name: "Ola Nordmann", address: { ...appleAddress, country: "NO", postal_code: "0150" } },
     });
     expect(checkoutRequestSchema.safeParse(request).success).toBe(false);
+  });
+});
+
+describe("a tap on a wallet button", () => {
+  const noAddress: ClientQuote = { ...quote, shippingRates: [], shippingRateId: null };
+
+  it("opens the sheet with the form's quote, or with the estimate once it is here", () => {
+    expect(walletTap(quote, null)).toEqual({ action: "open", quote });
+    expect(walletTap(noAddress, { status: "ok", quote })).toEqual({ action: "open", quote });
+  });
+
+  it("waits for an estimate still on its way instead of asking for it again", () => {
+    expect(walletTap(noAddress, { status: "loading", quote: null })).toEqual({ action: "wait" });
+  });
+
+  it("asks for the estimate again only after it failed", () => {
+    expect(walletTap(noAddress, { status: "failed", quote: null })).toEqual({ action: "retry" });
+    expect(walletTap(noAddress, null)).toEqual({ action: "retry" });
+    // An estimate with a cart problem does not open the sheet either.
+    const soldOut = { ...quote, errors: [{ code: "out_of_stock", message: "", productId: 18, variationId: 0, available: 0 }] };
+    expect(walletTap(noAddress, { status: "ok", quote: soldOut }).action).toBe("retry");
   });
 });
