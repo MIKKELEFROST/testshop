@@ -414,56 +414,76 @@ class Catalog(unittest.TestCase):
         self.assertEqual(unicorn.meta["_supplier_article_codes"], "78224,78225")
         self.assertIn("Størrelser: 3-4 år (109 cm) og 5-6 år (123 cm).", unicorn.description)
 
-    def test_products_for_adults_only_are_drafts_in_the_adult_category(self):
+    def test_products_for_adults_only_are_published_in_the_halloween_shop_only(self):
         translations = catalog.Translations(
             families={"STALLION": "Hingst"},
-            names={"PENIS APRON": "Penisforklæde", "BALL GAG, ADULT": "Ball gag til voksne", "GIANT ELF": "Kæmpenisse", "INFLATABLE BREASTS": "Oppustelige bryster"},
+            names={
+                "PENIS APRON": "Penisforklæde", "BALL GAG, ADULT": "Ball gag til voksne", "GIANT ELF": "Kæmpenisse",
+                "INFLATABLE BREASTS": "Oppustelige bryster", "INFLATABLE TESTICLES": "Oppustelige testikler",
+            },
             vocabulary={"CONTENT": {"PENIS": "penis", "HOOD": "hætte", "ONEPIECE": "heldragt"}, "MATERIALS": {}, "COLORS": {}, "FABRIC": {}, "THEME": {}},
         )
         party = {"PARENT CATEGORY": "ACCESSORIES", "USER": "ADULT UNISEX", "THEME": "Bachelor parties"}
+        stallion = {"USER": "ADULT MAN", "PARENT CATEGORY": "COSTUMES", "CATEGORY": "ADULT", "PARENT DESCRIPTION": "STALLION", "CONNECTOR SIZE": "89053", "THEME": "Halloween"}
         rows = [
             row("69080", DESCRIPTION="PENIS APRON", **{**party, "CATEGORY": "TEXTILE"}),
-            row("69040", DESCRIPTION="BALL GAG, ADULT", **{**party, "CATEGORY": "EROTIC"}),
+            row("69040", DESCRIPTION="BALL GAG, ADULT", **{**party, "CATEGORY": "EROTIC", "THEME": "Bachelor parties, Halloween"}),
             row("18070", DESCRIPTION="INFLATABLE BREASTS", **{**party, "CATEGORY": "INFLATABLES", "THEME": "Bachelor parties, Halloween"}),
+            row("18071", DESCRIPTION="INFLATABLE TESTICLES", **{**party, "CATEGORY": "INFLATABLES", "RRP AMAZON EU": ""}),
             row("40001", DESCRIPTION="GIANT ELF", **{"PARENT CATEGORY": "DECORATION", "CATEGORY": "CHRISTMAS DECORATION", "SEASON": "XMAS AND NEW YEAR"}),
-            row("89053", DESCRIPTION="STALLION, 48 – 50 (M), ADULT", CONTENT="HOOD, ONEPIECE, PENIS", **{"USER": "ADULT MAN", "PARENT CATEGORY": "COSTUMES", "CATEGORY": "ADULT", "PARENT DESCRIPTION": "STALLION", "SIZE": "48 - 50 (M)", "CONNECTOR SIZE": "89053", "THEME": "Halloween"}),
-            row("89054", DESCRIPTION="STALLION, 52 – 54 (L), ADULT", CONTENT="HOOD, ONEPIECE, PENIS", **{"USER": "ADULT MAN", "PARENT CATEGORY": "COSTUMES", "CATEGORY": "ADULT", "PARENT DESCRIPTION": "STALLION", "SIZE": "52 - 54 (L)", "CONNECTOR SIZE": "89053", "THEME": "Halloween"}),
+            row("89053", DESCRIPTION="STALLION, 48 – 50 (M), ADULT", CONTENT="HOOD, ONEPIECE, PENIS", SIZE="48 - 50 (M)", **stallion),
+            row("89054", DESCRIPTION="STALLION, 52 – 54 (L), ADULT", CONTENT="HOOD, ONEPIECE, PENIS", SIZE="52 - 54 (L)", **stallion),
         ]
         specs = {s.sku: s for s in catalog.build(rows, translations)[0]}
+        # Published like any other product, but only for the webshops that sell products for adults.
         for sku in ("GU-69080", "GU-69040", "GU-18070", "GU-89053-89054"):
             spec = specs[sku]
-            self.assertEqual((spec.adult_only, spec.categories, spec.status), (True, [rules.ADULT_ONLY], rules.ADULT_STATUS), sku)
-        # Not Halloween: the season categories are left out too. The giant elf is Christmas decoration.
+            self.assertEqual((spec.adult_only, spec.status), (True, "publish"), sku)
+            self.assertEqual(catalog.shops_for(spec, ["halloween-kostumer-dk", "piece-dk"]), ["halloween-kostumer-dk"], sku)
+            self.assertEqual(catalog.shops_for(spec, ["piece-dk"]), [], sku)
+        # Guirca's EROTIC items are only in the 18+ category, without a season.
+        self.assertEqual(specs["GU-69040"].categories, [rules.ADULT_ONLY])
+        # The crude jokes keep the categories their rules give them, seasons included.
+        self.assertEqual(specs["GU-69080"].categories, [("Tøj",)])
+        self.assertEqual(specs["GU-18070"].categories, [("Tilbehør", "Gadgets og sjov"), rules.HALLOWEEN])
+        self.assertEqual(specs["GU-89053-89054"].categories, [("Kostumer", "Herrekostumer"), rules.HALLOWEEN])
+        # A draft for another reason (no price) stays a draft.
+        self.assertEqual((specs["GU-18071"].adult_only, specs["GU-18071"].status), (True, "draft"))
+        # The giant elf is Christmas decoration, sold in both shops.
         elf = specs["GU-40001"]
         self.assertEqual((elf.adult_only, elf.status), (False, "publish"))
         self.assertIn(rules.CHRISTMAS, elf.categories)
-        self.assertEqual(catalog.status_for(True, True), rules.ADULT_STATUS)
-        self.assertEqual(catalog.status_for(False, True), "draft")
-        self.assertEqual(catalog.status_for(True, False), "publish")
+        self.assertEqual(catalog.shops_for(elf, ["halloween-kostumer-dk", "piece-dk"]), ["halloween-kostumer-dk", "piece-dk"])
 
     def test_adult_changes_for_the_products_in_woocommerce(self):
         adult = {"id": 300, "slug": "polterabend-18"}
         products = [
             {"id": 1, "name": "Ball gag til voksne", "sku": "GU-69040", "status": "publish", "categories": [{"id": 300}], "webshops": ["halloween-kostumer-dk"]},
             {"id": 2, "name": "Penisforklæde", "sku": "GU-69080", "status": "publish", "categories": [{"id": 40}], "webshops": ["halloween-kostumer-dk", "piece-dk"]},
-            {"id": 3, "name": "Hingst – kostume til herrer", "sku": "GU-89053-89054", "status": "draft", "categories": [{"id": 12}], "webshops": ["halloween-kostumer-dk"], "description": "<p>Indhold: hætte, heldragt og penis.</p>"},
+            {"id": 3, "name": "Hingst – kostume til herrer", "sku": "GU-89053-89054", "status": "draft", "categories": [{"id": 12}], "webshops": ["piece-dk", "halloween-kostumer-dk"], "description": "<p>Indhold: hætte, heldragt og penis.</p>"},
             {"id": 4, "name": "Kat – kostume til herrer", "sku": "GU-86041-86041", "status": "publish", "categories": [{"id": 12}], "webshops": ["piece-dk"]},
             {"id": 5, "name": "Kæmpenisse", "sku": "GU-40001", "status": "publish", "categories": [{"id": 50}], "webshops": ["piece-dk"]},
             {"id": 6, "name": "Sort G-streng i blonde", "sku": "GU-69046", "status": "draft", "categories": [{"id": 300}], "webshops": []},
+            {"id": 7, "name": "Pikantt spil", "sku": "GU-69050", "status": "publish", "categories": [{"id": 300}], "webshops": ["piece-dk", "halloween-kostumer-dk"]},
         ]
         changes = {c.product["id"]: c for c in catalog.adult_changes(products, adult, ("halloween-kostumer-dk",))}
-        self.assertEqual(sorted(changes), [1, 2, 3, 4, 6])
-        self.assertEqual(changes[1].update, {"id": 1, "status": "draft"})
-        self.assertEqual(changes[2].update, {"id": 2, "status": "draft", "categories": [{"id": 300}], "webshops": ["halloween-kostumer-dk"]})
-        self.assertEqual(changes[3].update, {"id": 3, "categories": [{"id": 300}]})
-        self.assertEqual((changes[4].reason[:13], changes[4].update["webshops"]), ("varenr. 86041", ["halloween-kostumer-dk"]))
-        # Already in the 18+ category and a draft: nothing to change, and its webshops are left alone.
+        self.assertEqual(sorted(changes), [1, 2, 3, 4, 6, 7])
+        # Only the webshops are written, never status or categories, whether it is crude or in 18+.
+        only_halloween = ["halloween-kostumer-dk"]
+        self.assertEqual(changes[2].update, {"id": 2, "webshops": only_halloween})
+        self.assertEqual(changes[3].update, {"id": 3, "webshops": only_halloween})
+        self.assertEqual(changes[4].update, {"id": 4, "webshops": only_halloween})
+        self.assertEqual(changes[7].update, {"id": 7, "webshops": only_halloween})
+        # Already only in the Halloween shop, or sold nowhere: nothing to change.
+        self.assertEqual(changes[1].update, {"id": 1})
         self.assertEqual(changes[6].update, {"id": 6})
-        self.assertEqual(changes[1].reason, "18+-kategorien")
-        result = {"status": "draft", "categories": [{"id": 300, "name": "Polterabend (18+)"}], "webshops": ["halloween-kostumer-dk"]}
+        self.assertEqual([changes[i].kind for i in (1, 2, 3, 4)], ["18+-kategorien", "navn", "indhold", "varenr."])
+        self.assertEqual(changes[4].reason[:13], "varenr. 86041")
+        result = {"status": "publish", "categories": [{"id": 40, "name": "Tøj"}], "webshops": ["halloween-kostumer-dk"]}
         self.assertTrue(catalog.adult_saved(changes[2].update, result))
         self.assertFalse(catalog.adult_saved(changes[2].update, {**result, "webshops": ["halloween-kostumer-dk", "piece-dk"]}))
-        self.assertFalse(catalog.adult_saved(changes[1].update, {**result, "status": "publish"}))
+        self.assertFalse(catalog.adult_saved(changes[2].update, {**result, "webshops": []}))
+        self.assertTrue(catalog.adult_saved(changes[1].update, result))
         self.assertEqual(catalog.sku_code("GU-89053-89054"), "89053")
         self.assertEqual(catalog.sku_code("TS-001"), "")
 

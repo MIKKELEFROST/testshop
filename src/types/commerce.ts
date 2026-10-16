@@ -89,6 +89,11 @@ export type Product = ProductSummary & {
   videos: string[];
   /** Can come with a hygiene seal (HYGIENE_CATEGORY_SLUGS): no return once the seal is broken. */
   hygiene: boolean;
+  /**
+   * Store IDs of the webshops that sell it (WooCommerce's "Webshops"), e.g. only
+   * "halloween-kostumer-dk" for the products for adults only. Empty when unknown.
+   */
+  webshops: string[];
 };
 
 /** One page of a product listing. */

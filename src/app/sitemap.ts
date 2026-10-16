@@ -31,7 +31,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .filter((c) => own(categoryHomeStore(c, tree)))
       .map((c) => ({ url: absoluteUrl(`/kategori/${c.slug}`), changeFrequency: "weekly" as const, priority: 0.7 })),
     ...(products.ok ? products.data : [])
-      .filter((p) => own(homeStoreFor(p.categoryIds.map((id) => ({ id })), tree)))
+      .filter((p) => own(homeStoreFor(p.categoryIds.map((id) => ({ id })), tree, p.webshops)))
       .map((p) => ({ url: absoluteUrl(`/produkter/${p.slug}`), changeFrequency: "weekly" as const, priority: 0.5 })),
     ...INFO_LINKS.map((l) => ({ url: absoluteUrl(l.href), changeFrequency: "monthly" as const, priority: 0.3 })),
   ];

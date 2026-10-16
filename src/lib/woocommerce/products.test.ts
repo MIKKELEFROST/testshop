@@ -21,7 +21,7 @@ vi.mock("./client", () => ({
   },
 }));
 
-const { getAllProductSlugs, getCategories, getProductPhoto, getProducts, getRelatedProducts } = await import("./products");
+const { getAllProductSlugs, getCategories, getProductBySlug, getProductPhoto, getProducts, getProductsByIds, getRelatedProducts, getSearchMatches } = await import("./products");
 
 const category = (id: number, slug: string, count: number, parent = 0) => ({ id, name: slug, slug, parent, count });
 const product = (id: number, name: string, categories: number[]) => ({
@@ -66,6 +66,76 @@ describe("getProducts", () => {
   });
 });
 
+describe("this shop's products only", () => {
+  // The tests run as the Fastelavn shop (piece-dk). WooCommerce (Headless Checkout Bridge 1.2+)
+  // answers `wchc_shop` with that webshop's products only, so a product only the Halloween
+  // shop sells (the products for adults only) is never in it, nor its product page.
+  it("asks for them in listings, search, favourites, the sitemap, product pages, photos and recommendations", async () => {
+    route = (path, query) => {
+      if (path === "wc-headless/v1/status") return { body: { version: "1.4.0" } };
+      if (path === "wc/v3/products/categories") return { body: [category(7, "babykostumer", 5)], totalPages: 1 };
+      if (path.endsWith("/category-counts")) return { body: { "7": 5 } };
+      if (query.slug) return { body: [{ ...product(1, "Dino – kostume til baby", [7]), webshops: ["halloween-kostumer-dk", "piece-dk"] }] };
+      return { body: [product(2, "Krokodille – kostume til baby", [7])], total: 1, totalPages: 1 };
+    };
+    await getProducts({ hideAdult: true });
+    await getSearchMatches("krokodille");
+    await getProductsByIds([2]);
+    await getAllProductSlugs();
+    const page = await getProductBySlug("p1");
+    await getProductPhoto("p1");
+    await getRelatedProducts({ id: 1, name: "Dino – kostume til baby", tags: [{ id: 114, name: "Dyr" }], audience: [], categories: [{ id: 7, name: "Babykostumer", slug: "babykostumer" }] });
+    const reads = requests.filter((r) => r.path === "wc/v3/products");
+    expect(reads.length).toBeGreaterThanOrEqual(7);
+    for (const read of reads) expect(read.query.wchc_shop, JSON.stringify(read.query)).toBe("piece-dk");
+    // The product page knows which webshops sell it (for its home shop, see lib/home-store.ts).
+    expect(page.ok && page.data?.webshops).toEqual(["halloween-kostumer-dk", "piece-dk"]);
+  });
+});
+
+describe("leaving out the 18+ products", () => {
+  /** `count` products in "Polterabend (18+)" (category 8), IDs 1 … count, 100 per page. */
+  const adult = (count: number): Route => (path, query) => {
+    if (path === "wc-headless/v1/status") return { body: { version: "1.4.0" } };
+    if (path === "wc/v3/products/categories") return { body: [category(8, "polterabend-18", count), category(1, "kostumer", 500)], totalPages: 1 };
+    if (path.endsWith("/category-counts")) return { body: { "8": count, "1": 500 } };
+    if (query.category === "8") {
+      const page = Number(query.page);
+      const ids = Array.from({ length: count }, (_, i) => i + 1).slice((page - 1) * 100, page * 100);
+      return { body: ids.map((id) => ({ id })), total: count, totalPages: Math.ceil(count / 100) };
+    }
+    return { body: [], total: 0, totalPages: 0 };
+  };
+  const adultReads = () => requests.filter((r) => r.path === "wc/v3/products" && r.query.category === "8");
+  const listing = () => requests.find((r) => r.path === "wc/v3/products" && r.query.category === undefined);
+
+  it("leaves every one of them out of a listing, also more than a page of 100", async () => {
+    route = adult(150);
+    expect((await getProducts({ hideAdult: true })).ok).toBe(true);
+    expect(adultReads().map((r) => r.query.page)).toEqual([1, 2]);
+    expect(adultReads().every((r) => r.query.orderby === "id" && r.query.status === "publish" && r.query.wchc_shop === "piece-dk")).toBe(true);
+    expect(String(listing()?.query.exclude).split(",").map(Number)).toEqual(Array.from({ length: 150 }, (_, i) => i + 1));
+  });
+
+  it("reads one page for up to 100 of them, and none where they are shown (their category, search)", async () => {
+    route = adult(37);
+    await getProducts({ hideAdult: true });
+    expect(adultReads()).toHaveLength(1);
+    requests.length = 0;
+    await getProducts({ categoryIds: [8] });
+    await getSearchMatches("penis");
+    expect(requests).toHaveLength(2);
+    expect(requests.every((r) => r.query.exclude === undefined)).toBe(true);
+  });
+
+  it("fails the listing (which keeps its last version) rather than show those past 1,000", async () => {
+    route = adult(1001);
+    expect((await getProducts({ hideAdult: true })).ok).toBe(false);
+    expect(adultReads()).toHaveLength(10);
+    expect(listing()).toBeUndefined();
+  });
+});
+
 describe("getAllProductSlugs", () => {
   it("reads every page, a few at a time, and keeps the products in page order", async () => {
     let active = 0;
@@ -76,12 +146,19 @@ describe("getAllProductSlugs", () => {
       // Later pages answer first, to show the order does not depend on timing.
       await new Promise((resolve) => setTimeout(resolve, 20 - Number(query.page)));
       active--;
-      return { body: [{ slug: `p${query.page}a`, categories: [{ id: 5, name: "Halloween", slug: "halloween" }] }, { slug: `p${query.page}b` }], totalPages: 8 };
+      return {
+        body: [{ slug: `p${query.page}a`, categories: [{ id: 5, name: "Halloween", slug: "halloween" }], webshops: ["halloween-kostumer-dk"] }, { slug: `p${query.page}b` }],
+        totalPages: 8,
+      };
     };
     const products = await getAllProductSlugs();
     expect(products.ok && products.data.map((p) => p.slug)).toEqual(Array.from({ length: 8 }, (_, i) => [`p${i + 1}a`, `p${i + 1}b`]).flat());
-    expect(products.ok && products.data.slice(0, 2)).toEqual([{ slug: "p1a", categoryIds: [5] }, { slug: "p1b", categoryIds: [] }]);
-    expect(requests[0]?.query._fields).toBe("slug,categories");
+    // The webshops that sell it (none known without plugin 1.2), for its home shop.
+    expect(products.ok && products.data.slice(0, 2)).toEqual([
+      { slug: "p1a", categoryIds: [5], webshops: ["halloween-kostumer-dk"] },
+      { slug: "p1b", categoryIds: [], webshops: [] },
+    ]);
+    expect(requests[0]?.query._fields).toBe("slug,categories,webshops");
     expect(most).toBeLessThanOrEqual(3);
   });
 

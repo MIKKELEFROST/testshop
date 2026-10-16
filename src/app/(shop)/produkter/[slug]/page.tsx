@@ -32,20 +32,24 @@ export async function generateMetadata(props: PageProps<"/produkter/[slug]">): P
   const image = product.images[0];
   return {
     title: product.name,
-    description: productDescription(product, { shop: storeConfig.name, season: homeSeasonFor(product.categories, tree) }),
+    description: productDescription(product, { shop: storeConfig.name, season: homeSeasonFor(product.categories, tree, product.webshops) }),
     alternates: { canonical: productUrl(product, tree) },
     openGraph: image ? { images: [{ url: image.src, alt: product.name }] } : undefined,
   };
 }
 
-/** The product page's canonical address: on its home shop (lib/home-store.ts), so the shops' copies don't compete. */
+/**
+ * The product page's canonical address: on its home shop (lib/home-store.ts), so the shops'
+ * copies don't compete; always a shop that sells it (e.g. Halloweenkostumer.dk for the
+ * products for adults only, whatever their category).
+ */
 function productUrl(product: Product, tree: ProductCategory[]): string {
-  return `${storeUrl(homeStoreFor(product.categories, tree))}/produkter/${product.slug}`;
+  return `${storeUrl(homeStoreFor(product.categories, tree, product.webshops))}/produkter/${product.slug}`;
 }
 
 /** The shop that sells the product on its canonical page (its home shop), for the structured data. */
 function productSeller(product: Product, tree: ProductCategory[]) {
-  const home = homeStoreFor(product.categories, tree);
+  const home = homeStoreFor(product.categories, tree, product.webshops);
   return { "@type": "Organization", name: storeName(home), url: storeUrl(home) };
 }
 

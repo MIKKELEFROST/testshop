@@ -78,7 +78,7 @@ class ProductSpec:
     dimensions: dict[str, str]
     meta: dict[str, object]
     status: str
-    adult_only: bool
+    adult_only: bool  # for adults only (is_adult): sold only in rules.ADULT_WEBSHOPS (see shops_for)
     intro_year: int | None
     issues: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -168,18 +168,16 @@ def is_adult(row: dict, name: str, description: str, codes: list[str]) -> bool:
     return rules.is_erotic(row) or rules.is_crude(name, description, min(codes, key=code_key))
 
 
-def status_for(sellable: bool, adult: bool) -> str:
-    """Drafts: products that can't be sold yet (no price, no Danish name) and, for now, those for adults only."""
-    if not sellable:
-        return "draft"
-    return rules.ADULT_STATUS if adult else "publish"
+def shops_for(spec: "ProductSpec", webshops: list[str]) -> list[str]:
+    """The webshops a new product is sold in (of `webshops`): products for adults only only in rules.ADULT_WEBSHOPS."""
+    return [w for w in webshops if w in rules.ADULT_WEBSHOPS] if spec.adult_only else list(webshops)
 
 
 def common_fields(row: dict, translations: Translations, images: rules.ImageStatus, groups: set[str], sized: bool, adult: bool):
-    """Categories, tags and supplier data. Products for adults only are only in the 18+ category."""
+    """Categories, tags and supplier data. `adult` (is_adult) only decides the webshops: Guirca's
+    EROTIC items are in the 18+ category (rules.main_categories), the crude jokes keep their own."""
     vocabulary = translations.vocabulary
-    categories = [rules.ADULT_ONLY] if adult else rules.main_categories(row, groups, sized)
-    adult_only = categories == [rules.ADULT_ONLY]
+    categories = rules.main_categories(row, groups, sized)
     tags = [vocabulary["THEME"].get(t, t) for t in rules.tag_themes(row)]
     meta = {
         "_supplier": "Guirca",
@@ -194,7 +192,7 @@ def common_fields(row: dict, translations: Translations, images: rules.ImageStat
     year = row.get("INTRO YEAR", "")
     return {
         "categories": categories,
-        "adult_only": adult_only,
+        "adult_only": adult,
         "tags": list(dict.fromkeys(tags)),
         "meta": meta,
         "intro_year": int(year) if year.isdigit() else None,
@@ -266,9 +264,8 @@ def variable_spec(members: list[dict], translations: Translations, images: rules
     colours = colours_of(members, translations)
     short, description = rules.describe(first, translations.vocabulary, costume=costume, groups=groups, sizes=labels, colours=colours)
     common = common_fields(first, translations, images, groups, sized=True, adult=is_adult(first, name, description, codes))
-    if not common["adult_only"]:
-        seasons = [c for r in by_code for c in rules.season_categories(r)]
-        common["categories"] = list(dict.fromkeys(common["categories"] + seasons))
+    seasons = [c for r in by_code for c in rules.season_categories(r)]
+    common["categories"] = list(dict.fromkeys(common["categories"] + seasons))
     # Each size has its own copy of the photos, and a few sizes have more than the others:
     # use the size with the most (the lowest article number if several have as many).
     common["meta"]["_wchc_external_images"] = max((rules.image_urls(row, images) for row in by_code), key=len)
@@ -296,7 +293,7 @@ def variable_spec(members: list[dict], translations: Translations, images: rules
         ean="",
         weight=weight(first),
         dimensions=dimensions(first),
-        status=status_for(sellable, common["adult_only"]),
+        status="publish" if sellable else "draft",
         issues=issues,
         notes=list(dict.fromkeys(notes)),
         variations=variations,
@@ -328,8 +325,7 @@ def simple_spec(row: dict, translations: Translations, images: rules.ImageStatus
     colours = colours_of([row], translations)
     short, text = rules.describe(row, translations.vocabulary, costume=costume, groups=groups, colours=colours)
     common = common_fields(row, translations, images, groups, sized, adult=is_adult(row, name, text, [row["ARTICLE CODE"]]))
-    if not common["adult_only"]:
-        common["categories"] = list(dict.fromkeys(common["categories"] + rules.season_categories(row)))
+    common["categories"] = list(dict.fromkeys(common["categories"] + rules.season_categories(row)))
     common["meta"]["_supplier_article_codes"] = row["ARTICLE CODE"]
 
     return ProductSpec(
@@ -349,7 +345,7 @@ def simple_spec(row: dict, translations: Translations, images: rules.ImageStatus
         ean=row.get("EAN", ""),
         weight=weight(row),
         dimensions=dimensions(row),
-        status=status_for(not issues, common["adult_only"]),
+        status="draft" if issues else "publish",
         issues=issues,
         notes=notes,
         **{k: v for k, v in common.items() if k != "meta"},
@@ -387,14 +383,20 @@ def disambiguate(specs: list[ProductSpec]) -> None:
 class AdultChange:
     product: dict  # as WooCommerce lists it (id, name, sku, status, categories, description, webshops)
     reason: str  # "18+-kategorien", or why it is crude (rules.crude_reason)
-    update: dict  # {id, status?, categories?, webshops?}; only the id when nothing changes
+    update: dict  # {id, webshops} when another webshop sells it; only the id when nothing changes
+
+    @property
+    def kind(self) -> str:
+        """Why it is for adults only, in short: "18+-kategorien", "navn", "indhold" or "varenr."."""
+        return self.reason if self.reason == "18+-kategorien" else self.reason.split(":")[0].split(" ")[0]
 
 
-def adult_changes(products: list[dict], adult_category: dict, webshops) -> list[AdultChange]:
-    """What makes every product for adults only a draft (rules.ADULT_STATUS): those in the 18+
-    category, and the crude jokes outside it (rules.is_crude), which also get the 18+ category as
-    their only category and only the webshops that sell 18+ products (`webshops`), as the import
-    gives new ones."""
+def adult_changes(products: list[dict], adult_category: dict, webshops=rules.ADULT_WEBSHOPS) -> list[AdultChange]:
+    """The products for adults only in WooCommerce: those in the 18+ category, and the crude
+    jokes outside it (rules.crude_reason). One that any other webshop sells gets only the
+    webshops that sell products for adults (`webshops`), as the import gives new ones. Only the
+    webshops change: status and categories are left as they are, and one without a webshop
+    (sold nowhere) stays so."""
     changes = []
     for product in products:
         in_category = any(c.get("id") == adult_category["id"] for c in product.get("categories") or [])
@@ -403,20 +405,12 @@ def adult_changes(products: list[dict], adult_category: dict, webshops) -> list[
         if not reason:
             continue
         update = {"id": product["id"]}
-        if product.get("status") != rules.ADULT_STATUS:
-            update["status"] = rules.ADULT_STATUS
-        if not in_category:
-            update["categories"] = [{"id": adult_category["id"]}]
-            if sorted(product.get("webshops") or []) != sorted(webshops):
-                update["webshops"] = list(webshops)
+        if any(shop not in webshops for shop in product.get("webshops") or []):
+            update["webshops"] = list(webshops)
         changes.append(AdultChange(product, reason, update))
     return changes
 
 
 def adult_saved(update: dict, result: dict) -> bool:
-    """Whether WooCommerce's answer to an update from adult_changes has what it set."""
-    return (
-        ("status" not in update or result.get("status") == update["status"])
-        and ("categories" not in update or {c["id"] for c in result.get("categories") or []} == {c["id"] for c in update["categories"]})
-        and ("webshops" not in update or sorted(result.get("webshops") or []) == sorted(update["webshops"]))
-    )
+    """Whether WooCommerce's answer to an update from adult_changes has the webshops it set."""
+    return "webshops" not in update or sorted(result.get("webshops") or []) == sorted(update["webshops"])

@@ -344,14 +344,17 @@ def unique_names(products: dict) -> dict:
 
 EROTIC = "EROTIC"
 ADULT_ONLY = ("Polterabend (18+)",)
-# The owner's decision (16-10-2026): products for adults only are drafts for now, also new ones.
-ADULT_STATUS = "draft"
+# The owner's decision (16-10-2026): products for adults only are sold only in
+# Halloweenkostumer.dk, never in Fastelavnskostumer.dk. They stay published, and only Guirca's
+# EROTIC items are in the 18+ category; the crude jokes below keep their own categories.
+ADULT_WEBSHOPS = ("halloween-kostumer-dk",)
 
 # Guirca files its sex games, lingerie and sado items under EROTIC, but most of its crude
 # bachelor-party jokes elsewhere ("Penisforklæde", "Oppustelige bryster", the "Sexlegetøj"
-# costume, a latex penis for Halloween). They are for adults only too: products whose Danish
-# name names genitals, breasts or nipples, sex, sex toys, condoms, sperm, nudity or bondage, or
-# says something crude ("Fuckman", "Dickman", "Åben gylp", the aprons "med overraskelse").
+# costume, a latex penis for Halloween). They are for adults only too (ADULT_WEBSHOPS only, in
+# their own categories): products whose Danish name names genitals, breasts or nipples, sex,
+# sex toys, condoms, sperm, nudity or bondage, or says something crude ("Fuckman", "Dickman",
+# "Åben gylp", the aprons "med overraskelse").
 # Words only where they mean that: "kæmpenisse" (a giant elf) has "penis" inside, a
 # "skjortebryst" is a shirt front, "brystplade" a breastplate, "sexet" (sexy police, sexy
 # bunny) is an ordinary adult costume, and "sex" alone is a slogan ("Sea, Sex & Sun" on a fan).
