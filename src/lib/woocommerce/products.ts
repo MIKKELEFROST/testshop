@@ -61,8 +61,11 @@ const CATEGORY_LIFE = { stale: 300, revalidate: 900, expire: 86400 };
 
 /** How a listing is sorted (the `sorter` URL parameter); the first is the default. */
 export const SORTS = {
-  // The season's products first (see getSeasonalProducts), then newest first.
-  anbefalet: { label: "Anbefalet", orderby: "date", order: "desc" },
+  // The shop's merchandising order: WooCommerce's menu order, which the Guirca importer sets
+  // by kind of product (costumes first, then masks, wigs, hats and blood, other accessories,
+  // decorations; newest first within each), then the name. On category pages and "Alle
+  // produkter" the season's products come first (see getSeasonalProducts).
+  anbefalet: { label: "Anbefalet", orderby: "menu_order", order: "asc" },
   nyeste: { label: "Nyeste", orderby: "date", order: "desc" },
   populaere: { label: "Mest populære", orderby: "popularity", order: "desc" },
   "pris-lav": { label: "Pris: lav til høj", orderby: "price", order: "asc" },
