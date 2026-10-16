@@ -173,7 +173,14 @@ export async function getSearchMatches(search: string): Promise<Loadable<Product
   return getProducts({ search, perPage: 24 });
 }
 
-/** IDs of this shop's adult-only (18+) products, to leave them out of general listings. */
+/** Pages of 100 adult-only (18+) products read at most (37 products in 2026). */
+const ADULT_PAGES = 10;
+
+/**
+ * IDs of this shop's adult-only (18+) products, to leave them out of general listings: all of
+ * them, a page of 100 at a time. More than ADULT_PAGES pages fails the read (listings keep
+ * their last version) rather than leave the rest in them.
+ */
 async function readAdultProductIds(): Promise<Read<number[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
@@ -182,11 +189,16 @@ async function readAdultProductIds(): Promise<Read<number[]>> {
     if (!categories.ok) throw new Error(categories.error);
     const adult = categories.data.filter((c) => ADULT_CATEGORY_SLUGS.includes(c.slug)).map((c) => c.id);
     if (adult.length === 0) return [];
-    const { data } = await wooRequest("wc/v3/products", {
-      query: { ...SHOP, status: "publish", category: adult.join(","), per_page: 100, _fields: "id" },
-      schema: z.array(z.object({ id: z.number() })),
-    });
-    return data.map((p) => p.id);
+    const ids: number[] = [];
+    for (let page = 1; ; page++) {
+      const { data, headers } = await wooRequest("wc/v3/products", {
+        query: { ...SHOP, status: "publish", category: adult.join(","), per_page: 100, page, orderby: "id", order: "asc", _fields: "id" },
+        schema: z.array(z.object({ id: z.number() })),
+      });
+      ids.push(...data.map((p) => p.id));
+      if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) return ids;
+      if (page >= ADULT_PAGES) throw new Error(`More than ${ADULT_PAGES * 100} adult-only products`);
+    }
   });
 }
 
@@ -258,22 +270,31 @@ export async function collectionQuery(collection: Collection): Promise<Loadable<
   return { ok: true, data: { categoryIds, alsoInCategoryIds, notInCategoryIds, tagIds, hideAdult: true } };
 }
 
+/** A product as the sitemap needs it: its address, categories and the webshops that sell it. */
+export type ProductSlug = { slug: string; categoryIds: number[]; webshops: string[] };
+
 /**
- * All this shop's published products, with their category IDs (the sitemap lists those whose
- * home is this shop, see lib/home-store.ts); refreshed every hour.
+ * All this shop's published products, with their category IDs and webshops (the sitemap
+ * lists those whose home is this shop, see lib/home-store.ts); refreshed every hour.
  */
-export async function getAllProductSlugs(): Promise<Loadable<{ slug: string; categoryIds: number[] }[]>> {
+export async function getAllProductSlugs(): Promise<Loadable<ProductSlug[]>> {
   return loadable(await readAllProductSlugs().catch(orFailure));
 }
 
-async function readAllProductSlugs(): Promise<Read<{ slug: string; categoryIds: number[] }[]>> {
+async function readAllProductSlugs(): Promise<Read<ProductSlug[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
   return fetched("getAllProductSlugs", HOURS, async () => {
     const read = (page: number) =>
       wooRequest("wc/v3/products", {
-        query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug,categories" },
-        schema: z.array(z.object({ slug: z.string(), categories: z.array(z.object({ id: z.number() })).default([]) })),
+        query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug,categories,webshops" },
+        schema: z.array(
+          z.object({
+            slug: z.string(),
+            categories: z.array(z.object({ id: z.number() })).default([]),
+            webshops: wcProductSchema.shape.webshops,
+          }),
+        ),
         timeoutMs: 30_000,
       });
     // Page 1 tells how many pages there are (about 90); the others are read a few at a time,
@@ -281,7 +302,7 @@ async function readAllProductSlugs(): Promise<Read<{ slug: string; categoryIds: 
     const first = await read(1);
     const pages = Math.min(Number(first.headers.get("x-wp-totalpages") ?? 1), 200);
     const rest = await mapWithLimit(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => i + 2), 3, read);
-    return [first, ...rest].flatMap((response) => response.data.map((p) => ({ slug: p.slug, categoryIds: p.categories.map((c) => c.id) })));
+    return [first, ...rest].flatMap((response) => response.data.map((p) => ({ slug: p.slug, categoryIds: p.categories.map((c) => c.id), webshops: p.webshops })));
   });
 }
 

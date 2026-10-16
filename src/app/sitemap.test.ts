@@ -20,10 +20,22 @@ const tree = [
   category(102, "julepynt", 94),
 ];
 
+// Products as WooCommerce lists them for a shop. In reality each shop gets only the ones it
+// sells; here both get all, so a shop must also leave out those it doesn't sell.
+const products = [
+  { slug: "pirat", categoryIds: [2], webshops: ["halloween-kostumer-dk", "piece-dk"] },
+  { slug: "heks", categoryIds: [2, 5], webshops: ["halloween-kostumer-dk", "piece-dk"] },
+  { slug: "nisse", categoryIds: [7], webshops: [] },
+  // The crude jokes for adults only, in their own categories, sold only in the Halloween shop.
+  { slug: "penisforklaede", categoryIds: [1], webshops: ["halloween-kostumer-dk"] },
+  { slug: "noegen-juleforklaede", categoryIds: [7], webshops: ["halloween-kostumer-dk"] },
+  { slug: "ball-gag", categoryIds: [8], webshops: ["halloween-kostumer-dk"] },
+];
+
 vi.mock("@/components/content/info-page", () => ({ INFO_LINKS: [{ label: "Kontakt", href: "/kontakt" }] }));
 vi.mock("@/lib/woocommerce/products", () => ({
   getCategories: async () => ({ ok: true, data: tree }),
-  getAllProductSlugs: async () => ({ ok: true, data: [] }),
+  getAllProductSlugs: async () => ({ ok: true, data: products }),
 }));
 
 const SHOPS = ["piece-dk", "halloween-kostumer-dk"];
@@ -37,6 +49,7 @@ async function shop(storeId: string) {
   return {
     urls,
     categories: urls.filter((path) => path.startsWith("/kategori/")).map((path) => path.slice("/kategori/".length)),
+    products: urls.filter((path) => path.startsWith("/produkter/")).map((path) => path.slice("/produkter/".length)),
     homes: new Map(tree.map((c) => [c.slug, categoryHomeStore(c, tree)])),
   };
 }
@@ -52,6 +65,13 @@ describe("sitemap", () => {
       for (const path of ["/", "/produkter", "/tema", "/kontakt"]) expect(urls, `${id}: ${path}`).toContain(path);
       expect(new Set(urls).size, id).toBe(urls.length);
     }
+  });
+
+  it("lists each product in one shop only, a shop that sells it: the crude jokes for adults in the Halloween shop", async () => {
+    const piece = await shop("piece-dk");
+    const halloween = await shop("halloween-kostumer-dk");
+    expect(piece.products).toEqual(["pirat", "nisse"]);
+    expect(halloween.products).toEqual(["heks", "penisforklaede", "noegen-juleforklaede", "ball-gag"]);
   });
 
   it("lists no category page whose home is the other shop, and lists each one in its home shop", async () => {

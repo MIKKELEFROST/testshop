@@ -61,6 +61,8 @@ export const wcProductSchema = z.object({
   variations: z.array(z.number()).default([]),
   headless_prices: wcHeadlessPricesSchema,
   meta_data: z.array(z.object({ key: z.string(), value: z.unknown() })).default([]),
+  /** Store IDs of the webshops that sell the product (Headless Checkout Bridge 1.2+). */
+  webshops: z.array(z.string()).default([]),
 });
 
 export const wcVariationSchema = z.object({

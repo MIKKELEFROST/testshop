@@ -7,11 +7,11 @@ import type { ProductCategory } from "@/types/commerce";
 /**
  * Which shop search engines should show a product or category in (its "home").
  *
- * Every shop sells every product, with the same name, text and photos. Left alone, Google
+ * The shops sell nearly every product, with the same name, text and photos. Left alone, Google
  * would pick one of the copies at random, so a Halloween costume could rank as a
  * Fastelavnskostumer.dk page. Instead each product page names its home shop's page as the
  * original (its canonical address), and only the home shop's sitemap lists it. The product
- * can still be bought in every shop.
+ * can still be bought in every shop that sells it; its home is always one of them.
  */
 
 /** The slugs of these categories and of all their parent categories. */
@@ -30,11 +30,17 @@ function withParents(categories: { id: number; slug?: string }[], tree: ProductC
  * first shop whose `homeCategories` include one of the categories or a parent of one, else
  * the default shop. E.g. a witch costume in "Halloween" → Halloweenkostumer.dk, a pirate
  * costume or a Santa suit → Fastelavnskostumer.dk.
+ *
+ * A product's home sells it: when `webshops` (the store IDs that sell the product) leave that
+ * shop out, its home is the first shop that does, e.g. Halloweenkostumer.dk for a crude apron
+ * in "Tøj" that only it sells (the products for adults only). Without `webshops` (unknown),
+ * the categories decide.
  */
-export function homeStoreFor(categories: { id: number; slug?: string }[], tree: ProductCategory[]): string {
+export function homeStoreFor(categories: { id: number; slug?: string }[], tree: ProductCategory[], webshops: readonly string[] = []): string {
   const slugs = withParents(categories, tree);
-  const home = Object.entries(brands).find(([, brand]) => brand.homeCategories?.some((slug) => slugs.has(slug)));
-  return home?.[0] ?? DEFAULT_STORE_ID;
+  const home = Object.entries(brands).find(([, brand]) => brand.homeCategories?.some((slug) => slugs.has(slug)))?.[0] ?? DEFAULT_STORE_ID;
+  if (webshops.length === 0 || webshops.includes(home)) return home;
+  return Object.keys(brands).find((id) => webshops.includes(id)) ?? home;
 }
 
 /**
@@ -42,8 +48,8 @@ export function homeStoreFor(categories: { id: number; slug?: string }[], tree: 
  * the product's home and the product is one of the season's (merchandising.seasonFirst). None
  * in the other shops' copies, nor e.g. for a Santa suit, whose home is the Fastelavn shop.
  */
-export function homeSeasonFor(categories: { id: number; slug?: string }[], tree: ProductCategory[]): Season | null {
-  if (homeStoreFor(categories, tree) !== storeConfig.id) return null;
+export function homeSeasonFor(categories: { id: number; slug?: string }[], tree: ProductCategory[], webshops: readonly string[] = []): Season | null {
+  if (homeStoreFor(categories, tree, webshops) !== storeConfig.id) return null;
   const { seasonFirst } = merchandising;
   const slugs = withParents(categories, tree);
   const inSeasonCategories = seasonFirst.categories.some((slug) => slugs.has(slug));

@@ -63,9 +63,10 @@ export type StoreBrand = {
   siteUrl: string;
   /**
    * Categories (slugs, with their subcategories) whose products search engines should find in
-   * this shop. Every shop sells every product with the same name, text and photos, so each
+   * this shop. The shops sell nearly every product with the same name, text and photos, so each
    * product page names one shop as the original (its canonical address) and only that shop's
-   * sitemap lists it. Products in none of these belong to the default shop (DEFAULT_STORE_ID).
+   * sitemap lists it. Products in none of these belong to the default shop (DEFAULT_STORE_ID),
+   * unless it doesn't sell them (see homeStoreFor in lib/home-store.ts).
    */
   homeCategories?: string[];
   /** Customer service email (NEXT_PUBLIC_SUPPORT_EMAIL overrides it). */
@@ -156,7 +157,8 @@ export const brands: Record<string, StoreBrand> = {
   "halloween-kostumer-dk": {
     name: "Halloweenkostumer.dk",
     siteUrl: "https://halloweenkostumer.dk",
-    // Halloween, and the adult-only (18+) products that only this shop sells.
+    // Halloween, and the adult-only (18+) products that only this shop sells. The crude jokes
+    // for adults in other categories are only sold here too, which makes this their home as well.
     homeCategories: ["halloween", "polterabend-18"],
     email: "hej@halloweenkostumer.dk",
     logo: { mark: "pumpkin", word: "Halloween", suffix: "kostumer.dk" },

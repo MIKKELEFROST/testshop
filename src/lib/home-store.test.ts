@@ -38,6 +38,21 @@ describe("homeStoreFor", () => {
     expect(homeStoreFor([{ id: 5, slug: "halloween" }], [])).toBe("halloween-kostumer-dk");
     expect(homeStoreFor([{ id: 6 }], [])).toBe("piece-dk");
   });
+
+  it("is always a shop that sells the product: the crude jokes for adults only sold in the Halloween shop belong there", () => {
+    const onlyHalloween = ["halloween-kostumer-dk"];
+    // A crude costume or apron outside Halloween, and the naked Christmas apron.
+    expect(homeStoreFor([pigekostumer], tree, onlyHalloween)).toBe("halloween-kostumer-dk");
+    expect(homeStoreFor([jul], tree, onlyHalloween)).toBe("halloween-kostumer-dk");
+    expect(homeStoreFor([], tree, onlyHalloween)).toBe("halloween-kostumer-dk");
+    // And the other way round: a Halloween product only the Fastelavn shop sells.
+    expect(homeStoreFor([halloween], tree, ["piece-dk"])).toBe("piece-dk");
+    // Sold in both, or webshops unknown (none, or none of the shops here): the categories decide.
+    for (const webshops of [["piece-dk", "halloween-kostumer-dk"], [], ["ukendt"]]) {
+      expect(homeStoreFor([pigekostumer], tree, webshops), webshops.join()).toBe("piece-dk");
+      expect(homeStoreFor([pigekostumer, halloween], tree, webshops), webshops.join()).toBe("halloween-kostumer-dk");
+    }
+  });
 });
 
 describe("homeSeasonFor", () => {
@@ -48,6 +63,8 @@ describe("homeSeasonFor", () => {
     expect(homeSeasonFor([jul], tree)).toBeNull();
     // The Halloween shop's products: none in this shop's copy.
     expect(homeSeasonFor([pigekostumer, halloween], tree)).toBeNull();
+    // Nor for a product only the Halloween shop sells.
+    expect(homeSeasonFor([pigekostumer], tree, ["halloween-kostumer-dk"])).toBeNull();
   });
 
   it("in the Halloween shop: halloween for its Halloween products, none for 18+ products and the Fastelavn shop's", async () => {
@@ -57,6 +74,9 @@ describe("homeSeasonFor", () => {
     expect(shop.homeSeasonFor([halloweenpynt], tree)).toBe("halloween");
     expect(shop.homeSeasonFor([polterabend], tree)).toBeNull();
     expect(shop.homeSeasonFor([pigekostumer], tree)).toBeNull();
+    // A crude costume only this shop sells is at home here, but is no Halloween costume.
+    expect(shop.homeSeasonFor([pigekostumer], tree, ["halloween-kostumer-dk"])).toBeNull();
+    expect(shop.homeSeasonFor([pigekostumer, halloween], tree, ["halloween-kostumer-dk"])).toBe("halloween");
     vi.unstubAllEnvs();
   });
 });

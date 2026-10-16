@@ -191,6 +191,7 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
     safetyInfo: supplierUrl(meta(product, "_wchc_safety_info"), null),
     videos: youtubeIds(meta(product, "_wchc_videos")),
     hygiene: product.categories.some((c) => HYGIENE_CATEGORY_SLUGS.includes(c.slug)),
+    webshops: product.webshops,
   };
 }
 
