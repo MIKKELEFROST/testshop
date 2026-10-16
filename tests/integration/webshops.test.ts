@@ -70,7 +70,7 @@ describe.skipIf(!enabled)("webshops", () => {
     const { body } = await plugin("shops");
     expect(body).toEqual(expect.arrayContaining([expect.objectContaining({ slug: B, name: "Testshop B", products: 2 })]));
     const status = (await plugin("status")).body as { version: string; shops: { slug: string }[] };
-    expect(status.version).toBe("1.4.0");
+    expect(status.version).toBe("1.5.0");
     expect(status.shops.map((s) => s.slug)).toEqual(expect.arrayContaining([A, B]));
   });
 

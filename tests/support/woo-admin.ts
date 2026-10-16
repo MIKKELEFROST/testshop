@@ -83,6 +83,32 @@ export async function getOrder(id: number): Promise<Order> {
   return admin<Order>(`orders/${id}`);
 }
 
+/** Change an order's status as the shop does in WooCommerce (REST API v3), e.g. "completed" when it is sent. */
+export async function setOrderStatus(id: number, status: string): Promise<Order> {
+  return admin<Order>(`orders/${id}`, { method: "PUT", body: { status } });
+}
+
+/** A refund recorded in WooCommerce only ("Refund manually"), e.g. an item that could not be sent. */
+export async function refundOrder(id: number, amount: string) {
+  return admin(`orders/${id}/refunds`, { method: "POST", body: { amount, api_refund: false } });
+}
+
+export function metaValue(order: Order, key: string): unknown {
+  return order.meta_data.find((m) => m.key === key)?.value;
+}
+
+type Mail = { to: string; subject: string; message: string; email_id: string; order_id: number };
+
+/** E-mails kept by the local test shop instead of being sent (scripts/local-woocommerce/local-test-hooks.php). */
+export async function sentMails(): Promise<Mail[]> {
+  const out = await wpEval(`echo "\n@@" . wp_json_encode( array_values( (array) get_option( 'wchc_test_mails', array() ) ) );`);
+  return JSON.parse(out.slice(out.lastIndexOf("@@") + 2)) as Mail[];
+}
+
+export async function clearMails() {
+  await wpEval("delete_option( 'wchc_test_mails' );");
+}
+
 export async function orderNotes(id: number): Promise<string[]> {
   const notes = await admin<{ note: string }[]>(`orders/${id}/notes`);
   return notes.map((n) => n.note);
@@ -127,6 +153,17 @@ export async function updateShippingMethod(instanceId: number, settings: Record<
 
 export async function getShippingMethod(instanceId: number): Promise<ShippingMethod> {
   return admin<ShippingMethod>(`shipping/zones/1/methods/${instanceId}`);
+}
+
+/** The order actions WooCommerce offers on the order page (their IDs). */
+export async function orderActions(id: number): Promise<string[]> {
+  const out = await wpEval(`echo "\n@@" . wp_json_encode( array_keys( (array) apply_filters( 'woocommerce_order_actions', array(), wc_get_order( ${Math.trunc(id)} ) ) ) );`);
+  return JSON.parse(out.slice(out.lastIndexOf("@@") + 2)) as string[];
+}
+
+/** The shop (user 1, admin) picks "Betalingen er klaret uden om webshoppen" under the order actions (plugin 1.5). */
+export async function paymentHandled(id: number) {
+  await wpEval(`wp_set_current_user( 1 ); do_action( 'woocommerce_order_action_wchc_payment_handled', wc_get_order( ${Math.trunc(id)} ) );`);
 }
 
 /** Run PHP inside the local WordPress (WP-CLI `eval`). */

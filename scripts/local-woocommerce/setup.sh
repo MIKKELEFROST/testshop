@@ -33,9 +33,12 @@ docker run -d --name "$DB" --network "$NET" \
   mariadb:11 >/dev/null
 
 echo "Waiting for database..."
+# The image's entrypoint answers on a temporary server first and restarts it: wait for the real one.
+until docker logs "$DB" 2>&1 | grep -q 'MariaDB init process done'; do sleep 1; done
 until docker exec "$DB" mariadb -uwp -pwp -e 'select 1' wp >/dev/null 2>&1; do sleep 1; done
 
-docker run -d --name "$WP" --network "$NET" -p 8080:80 \
+# host.docker.internal: the plugin reports sent and cancelled orders to the test runner (capture at shipment).
+docker run -d --name "$WP" --network "$NET" -p 8080:80 --add-host=host.docker.internal:host-gateway \
   -e WORDPRESS_DB_HOST="$DB" -e WORDPRESS_DB_USER=wp -e WORDPRESS_DB_PASSWORD=wp -e WORDPRESS_DB_NAME=wp \
   "$IMAGE" >/dev/null
 
@@ -71,6 +74,7 @@ opt woocommerce_coming_soon 'no'
 # Local only: WooCommerce accepts Basic auth only over HTTPS.
 docker exec "$WP" mkdir -p /var/www/html/wp-content/mu-plugins
 docker cp "$DIR/local-https-for-rest.php" "$WP":/var/www/html/wp-content/mu-plugins/
+docker cp "$DIR/local-test-hooks.php" "$WP":/var/www/html/wp-content/mu-plugins/
 
 docker cp "$DIR/seed.php" "$WP":/tmp/seed.php
 "${WPCLI[@]}" eval-file /tmp/seed.php

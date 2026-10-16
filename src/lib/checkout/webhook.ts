@@ -3,6 +3,8 @@ import { finalizePayment, type CheckoutDeps, type FinalizeOutcome } from "./serv
 
 /** Stripe events that can change an order. Everything else is acknowledged and ignored. */
 export const HANDLED_EVENT_TYPES = new Set([
+  // Authorized (manual capture): the order is reserved until it is sent.
+  "payment_intent.amount_capturable_updated",
   "payment_intent.succeeded",
   "payment_intent.processing",
   "payment_intent.payment_failed",

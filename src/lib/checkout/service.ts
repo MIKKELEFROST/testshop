@@ -1,6 +1,6 @@
 import { storeConfig } from "@/config/store";
 import { stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
-import { PAYABLE_STATUSES, type PaymentGateway, type PaymentIntentLike } from "@/lib/stripe/gateway";
+import { CAPTURE_METHOD, PAYABLE_STATUSES, type PaymentGateway, type PaymentIntentLike } from "@/lib/stripe/gateway";
 import { paymentMethodTitle } from "@/lib/stripe/payment-method";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
 import type {
@@ -21,10 +21,13 @@ import { storeBranding } from "./branding";
  *      saw to WooCommerce, which recalculates everything, reserves stock and creates (or
  *      idempotently returns) ONE pending order per checkout session.
  *   2. The server ensures ONE PaymentIntent per order, for exactly the WooCommerce total.
- *   3. The browser confirms the payment with Stripe (Payment Element).
+ *   3. The browser confirms the payment with Stripe (Payment Element). The amount is only
+ *      authorized (manual capture): a card may as a rule only be charged when the goods are sent.
  *   4. Stripe's webhook (and the return URL, as a fast path) call `finalizePayment`, which
- *      re-reads the PaymentIntent from Stripe and lets WooCommerce mark the order paid.
+ *      re-reads the PaymentIntent from Stripe and lets WooCommerce reserve the order (on-hold).
  *      WooCommerce core then reduces stock exactly once.
+ *   5. When the shop marks the order completed (sent), the plugin tells the storefront, which
+ *      captures the payment (./settle.ts); a cancelled order's authorization is released.
  */
 
 export type CommerceBackend = {
@@ -33,7 +36,17 @@ export type CommerceBackend = {
   sendPaymentEvent(orderId: number, orderKey: string, input: PaymentEventInput): Promise<PluginResult>;
 };
 
-export type CheckoutDeps = { backend: CommerceBackend; gateway: PaymentGateway };
+export type CheckoutDeps = {
+  backend: CommerceBackend;
+  gateway: PaymentGateway;
+  /**
+   * Where and with which token the plugin reports the order when it is sent or cancelled, sent
+   * with the authorization (see ./settle.ts). Without it the daily job settles the order.
+   */
+  settleCallback?: (orderId: number, orderKey: string) => SettleCallback | undefined;
+};
+
+export type SettleCallback = { settle_url: string; settle_token: string };
 
 export type CheckoutContext = { checkoutId: string; ip?: string; userAgent?: string };
 
@@ -112,23 +125,21 @@ async function ensurePaymentIntent(
 
   if (previous) {
     const existing = await deps.gateway.retrieve(previous);
-    if (existing.status === "succeeded" || existing.status === "processing") {
-      return { type: "already_paid", order: ref(order) };
-    }
-    if (PAYABLE_STATUSES.includes(existing.status) && existing.currency === currency) {
+    if (paidOrReserved(existing)) return { type: "already_paid", order: ref(order) };
+    if (reusable(existing, currency)) {
       const current = existing.amount === amount ? existing : await updateAmountOrNull(existing, amount, deps);
       if (current) return ready(order, current);
     }
+    // Also a PaymentIntent from before capture at shipment: Elements must match its capture method.
     const cancelled = existing.status === "canceled" ? existing : await deps.gateway.cancelIfPossible(existing.id);
-    if (cancelled.status === "succeeded" || cancelled.status === "processing") {
-      return { type: "already_paid", order: ref(order) };
-    }
+    if (paidOrReserved(cancelled)) return { type: "already_paid", order: ref(order) };
   }
 
   const created = await deps.gateway.create(
     {
       amount,
       currency,
+      captureMethod: CAPTURE_METHOD,
       description: `${storeConfig.name} ordre #${order.number}`,
       statementDescriptorSuffix: storeConfig.statementDescriptorSuffix,
       metadata: {
@@ -150,7 +161,8 @@ async function ensurePaymentIntent(
       },
     },
     // Same order + amount + predecessor => Stripe returns the same PaymentIntent (no duplicates on retries).
-    `wchc:${order.id}:${order.order_key}:${amount}:${previous ?? "none"}`,
+    // The capture method keeps keys used before capture at shipment (other parameters) from clashing.
+    `wchc:${order.id}:${order.order_key}:${amount}:${previous ?? "none"}:${CAPTURE_METHOD}`,
   );
 
   const attached = await deps.backend.attachPaymentIntent(order.id, order.order_key, created.id, previous);
@@ -161,8 +173,8 @@ async function ensurePaymentIntent(
 
   if (attached.body.code === "payment_intent_exists" && attached.body.payment_intent_id) {
     const winner = await deps.gateway.retrieve(attached.body.payment_intent_id);
-    if (winner.status === "succeeded" || winner.status === "processing") return { type: "already_paid", order: ref(order) };
-    if (PAYABLE_STATUSES.includes(winner.status)) {
+    if (paidOrReserved(winner)) return { type: "already_paid", order: ref(order) };
+    if (reusable(winner, currency)) {
       const current = winner.amount === amount ? winner : await updateAmountOrNull(winner, amount, deps);
       if (current) return ready(order, current);
     }
@@ -174,6 +186,16 @@ async function ensurePaymentIntent(
   }
 
   throw new CheckoutError(`Could not attach payment (${attached.status} ${attached.body.code ?? ""})`);
+}
+
+/** Paid, on its way (async methods) or authorized: the order has its payment, never cancel it. */
+function paidOrReserved(pi: PaymentIntentLike): boolean {
+  return pi.status === "succeeded" || pi.status === "processing" || pi.status === "requires_capture";
+}
+
+/** The customer can (re)submit a payment on it, as the checkout's Elements are set up. */
+function reusable(pi: PaymentIntentLike, currency: string): boolean {
+  return PAYABLE_STATUSES.includes(pi.status) && pi.currency === currency && pi.capture_method === CAPTURE_METHOD;
 }
 
 async function updateAmountOrNull(pi: PaymentIntentLike, amount: number, deps: CheckoutDeps) {
@@ -257,6 +279,8 @@ function toAddress(address: CheckoutRequest["shipping"]): AddressInput {
 export type FinalizeOutcome =
   | { type: "applied"; result: string; order?: WcOrderSummary }
   | { type: "refunded"; order?: WcOrderSummary }
+  /** An authorization the order cannot keep (e.g. a second one) was cancelled. */
+  | { type: "released"; order?: WcOrderSummary }
   | { type: "needs_review"; reason: string }
   | { type: "ignored"; reason: string };
 
@@ -275,19 +299,36 @@ export async function finalizePayment(pi: PaymentIntentLike, deps: CheckoutDeps)
   if (!event) return { type: "ignored", reason: `status_${pi.status}` };
 
   const failure = event === "failed" ? pi.last_payment_error : null;
-  const { status, body } = await deps.backend.sendPaymentEvent(orderId, orderKey, {
-    event,
-    payment_intent_id: pi.id,
-    amount_minor: event === "succeeded" ? pi.amount_received : pi.amount,
-    currency: pi.currency,
-    currency_exponent: stripeCurrencyExponent(pi.currency),
-    message: failure ? (failure.code ?? failure.message ?? undefined) : undefined,
-    attempt_id: failure ? (failure.charge ?? failure.payment_method_id ?? undefined) : undefined,
-    payment_method_title:
-      event === "succeeded" || event === "processing" ? paymentMethodTitle(pi.payment_method) : undefined,
-  });
+  let answer: PluginResult;
+  try {
+    answer = await deps.backend.sendPaymentEvent(orderId, orderKey, {
+      event,
+      payment_intent_id: pi.id,
+      amount_minor: event === "succeeded" ? pi.amount_received : event === "authorized" ? pi.amount_capturable : pi.amount,
+      currency: pi.currency,
+      currency_exponent: stripeCurrencyExponent(pi.currency),
+      message: failure ? (failure.code ?? failure.message ?? undefined) : event === "canceled" ? (pi.cancellation_reason ?? undefined) : undefined,
+      attempt_id: failure ? (failure.charge ?? failure.payment_method_id ?? undefined) : undefined,
+      payment_method_title: event === "failed" || event === "canceled" ? undefined : paymentMethodTitle(pi.payment_method),
+      ...(event === "authorized" ? deps.settleCallback?.(orderId, orderKey) : undefined),
+    });
+  } catch (error) {
+    if (event === "authorized" && (error as { code?: unknown } | null)?.code === "invalid_payment_event") {
+      // A plugin before 1.5 cannot keep a reservation: charge now, as before, rather than leave
+      // money reserved for an order it would cancel as unpaid.
+      const amount = pi.amount_capturable;
+      return finalizePayment(await deps.gateway.capture(pi.id, amount, `wchc-capture:${pi.id}:${amount}:at-once`), deps);
+    }
+    throw error;
+  }
+  const { status, body } = answer;
 
   if (status === 200) {
+    // An authorization is cancelled, never refunded: nothing was charged.
+    if (body.result === "release_required" || (body.result === "refund_required" && pi.status === "requires_capture")) {
+      await deps.gateway.cancelIfPossible(pi.id);
+      return { type: "released", order: body.order };
+    }
     if (body.result === "refund_required") {
       await deps.gateway.refund(pi.id, `wchc-refund:${pi.id}`);
       return { type: "refunded", order: body.order };
@@ -315,6 +356,8 @@ export function paymentEventFor(pi: PaymentIntentLike): PaymentEventInput["event
       return "succeeded";
     case "processing":
       return "processing";
+    case "requires_capture":
+      return "authorized";
     case "canceled":
       return "canceled";
     case "requires_payment_method":

@@ -4,7 +4,9 @@ import {
   orderDetailsSchema,
   pluginResponseSchema,
   quoteSchema,
+  sweepSchema,
   type PluginResponse,
+  type PaymentSweep,
   type WcOrderDetails,
   type WcQuote,
 } from "./schemas";
@@ -86,7 +88,11 @@ export type CreateOrderInput = {
 };
 
 export type PaymentEventInput = {
-  event: "succeeded" | "processing" | "failed" | "canceled";
+  /**
+   * authorized: reserved, captured when the order is sent (plugin 1.5). succeeded: paid or captured.
+   * capture_failed: Stripe refused to capture an authorization (plugin 1.5).
+   */
+  event: "succeeded" | "authorized" | "processing" | "failed" | "canceled" | "capture_failed";
   payment_intent_id: string;
   amount_minor: number;
   currency: string;
@@ -96,6 +102,9 @@ export type PaymentEventInput = {
   attempt_id?: string;
   /** The payment method actually used, e.g. "MobilePay (Stripe)". */
   payment_method_title?: string;
+  /** With `authorized`: where the plugin reports the order when it is sent or cancelled, and the order's token. */
+  settle_url?: string;
+  settle_token?: string;
 };
 
 export type PluginResult = { status: number; body: PluginResponse };
@@ -171,4 +180,18 @@ export async function getOrderDetails(orderId: number, orderKey: string): Promis
   if (status === 404) return null;
   const parsed = orderDetailsSchema.safeParse(data);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The storefront's daily job (plugin 1.5): this webshop's orders whose reservation is to be
+ * captured (sent) or released (cancelled). The plugin warns the shop about old reservations.
+ */
+export async function sweepPayments(storeId: string): Promise<PaymentSweep> {
+  const { data } = await wooRequest("wc-headless/v1/payments/sweep", {
+    method: "POST",
+    body: { store_id: storeId },
+    schema: sweepSchema,
+    timeoutMs: 30000,
+  });
+  return data;
 }

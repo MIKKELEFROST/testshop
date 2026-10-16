@@ -4,7 +4,7 @@ Proof of concept for en headless webshop:
 
 - **WooCommerce** (`test.piece.dk`) står for produkter, varianter, priser, moms, fragt, lager, kunder og ordrer.
 - **Next.js 16** (App Router, TypeScript strict, Tailwind CSS 4) står for hele kundeoplevelsen: forside, kategorier, produktsider, kurv, en specialbygget checkout på én side og ordrebekræftelse.
-- **Stripe** (Payment Intents + Payment Element + webhooks) står for betalingen.
+- **Stripe** (Payment Intents + Payment Element + webhooks) står for betalingen. Beløbet reserveres, når kunden bestiller, og trækkes, når ordren markeres *Gennemført* (sendt) i WooCommerce. Se [docs/STRIPE.md](docs/STRIPE.md#reservation-og-træk-ved-afsendelse).
 - Et lille **WordPress-plugin** ([`wordpress-plugin/headless-checkout-bridge`](wordpress-plugin/headless-checkout-bridge)) giver sikre server-til-server-endpoints. Det bruger WooCommerces egen kurv, moms, fragt, ordreoprettelse og lagerreservation.
 
 Der kører to webshops på samme WooCommerce: **Fastelavnskostumer.dk** (`piece-dk`) og **Halloweenkostumer.dk** (`halloween-kostumer-dk`). De sælger begge hele Guircas sortiment, men har hver sit DNA: logo, farver, skrift, menu, forside, temaer og den sæson, de viser først. Se [docs/MULTISHOP.md](docs/MULTISHOP.md).
@@ -23,6 +23,7 @@ npm run dev                    # http://localhost:3000
 | `WOOCOMMERCE_CONSUMER_KEY` / `_SECRET` | WooCommerce → Indstillinger → Avanceret → REST API. Nøglen skal have **Read/Write** og tilhøre en administrator eller butiksbestyrer. |
 | `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe Dashboard → Developers → API keys. Brug **kun `sk_test_`/`pk_test_`** uden for produktion. |
 | `STRIPE_WEBHOOK_SECRET` | Webhookens signing secret (`whsec_…`). Se [docs/STRIPE.md](docs/STRIPE.md). |
+| `CRON_SECRET` | Tilfældig streng på mindst 16 tegn. Vercel sender den til det daglige job, der trækker eller frigiver betalinger, WordPress ikke kunne melde (se [docs/DEPLOY.md](docs/DEPLOY.md)). |
 | `NEXT_PUBLIC_SITE_URL` | Butikkens offentlige URL |
 | `NEXT_PUBLIC_STORE_ID` | Webshoppens butiks-ID: vælger brand og de produkter, webshoppen sælger, og mærker ordrer og betalinger |
 | `WOOCOMMERCE_WEBHOOK_SECRET` | Valgfri. Lader WooCommerce invalidere produktcachen med det samme. |
@@ -59,6 +60,8 @@ src/
   app/                       Sider og API-routes (App Router)
     api/checkout/            POST: opret ordre + PaymentIntent · quote/: priser, moms, fragt · session/
     api/stripe/webhook/      Stripe → WooCommerce betalingsstatus
+    api/payments/settle/     WordPress → shoppen: ordren er sendt (træk betalingen) eller annulleret (frigiv den)
+    api/cron/settle-payments/ Dagligt sikkerhedsnet (Vercel Cron) for det samme
     api/revalidate/          WooCommerce-produktwebhooks → cache-invalidering
     produkter/ kategori/ kurv/ checkout/ ordre/bekraeftelse/
   components/                UI: layout, products, cart, checkout, ui

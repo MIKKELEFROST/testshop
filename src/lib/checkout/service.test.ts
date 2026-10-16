@@ -90,6 +90,43 @@ describe("startCheckout", () => {
     expect(pi.metadata).toMatchObject({ wc_order_id: "101", wc_order_key: "wc_order_abc123", store_id: "piece-dk" });
   });
 
+  it("only reserves the amount: the PaymentIntent is captured when the order is sent", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const outcome = await startCheckout(request, ctx, { backend: woo.backend, gateway: stripe });
+    if (outcome.type !== "ready") throw new Error("expected ready");
+    expect(stripe.createParams.get(outcome.paymentIntentId)?.captureMethod).toBe("manual");
+    expect((await stripe.retrieve(outcome.paymentIntentId)).capture_method).toBe("manual");
+  });
+
+  it("treats an authorized PaymentIntent as paid and never cancels the reservation", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const deps = { backend: woo.backend, gateway: stripe };
+    const first = await startCheckout(request, ctx, deps);
+    if (first.type !== "ready") throw new Error("expected ready");
+    stripe.confirm(first.paymentIntentId);
+
+    expect((await startCheckout(request, ctx, deps)).type).toBe("already_paid");
+    expect((await stripe.retrieve(first.paymentIntentId)).status).toBe("requires_capture");
+    expect(stripe.calls).toMatchObject({ create: 1, cancel: 0 });
+  });
+
+  it("replaces an unpaid PaymentIntent from before capture at shipment, which the checkout cannot confirm", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    // Created by the previous version: charged at once.
+    const old = await stripe.create({ amount: 54700, currency: "dkk", metadata: {}, description: "old" }, "wchc:101:wc_order_abc123:54700:none");
+    woo.order = order({ payment_intent_id: old.id });
+
+    const outcome = await startCheckout(request, ctx, { backend: woo.backend, gateway: stripe });
+    if (outcome.type !== "ready") throw new Error("expected ready");
+    expect(outcome.paymentIntentId).not.toBe(old.id);
+    expect((await stripe.retrieve(old.id)).status).toBe("canceled");
+    expect((await stripe.retrieve(outcome.paymentIntentId)).capture_method).toBe("manual");
+    expect(woo.order.payment_intent_id).toBe(outcome.paymentIntentId);
+  });
+
   it("names the shop on the card statement and leaves the receipt to WooCommerce", async () => {
     const woo = fakeBackend();
     const stripe = new FakeStripe();
@@ -168,7 +205,7 @@ describe("startCheckout", () => {
     const woo = fakeBackend();
     const stripe = new FakeStripe();
     // The order still shows no PaymentIntent (read before the parallel request attached one).
-    const winner = await stripe.create({ amount: 54700, currency: "dkk", metadata: {}, description: "x" }, "winner");
+    const winner = await stripe.create({ amount: 54700, currency: "dkk", captureMethod: "manual", metadata: {}, description: "x" }, "winner");
     woo.backend.attachPaymentIntent = async (_id, _key, intentId) =>
       intentId === winner.id
         ? { status: 200, body: { result: "attached" } }
@@ -300,6 +337,66 @@ describe("finalizePayment", () => {
     expect(stripe.refunds).toEqual([{ paymentIntentId: pi.id, idempotencyKey: `wchc-refund:${pi.id}` }]);
   });
 
+  it("reports an authorization with the amount Stripe can capture and the order's settle callback", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const pi = await stripe.create({ amount: 54700, currency: "dkk", captureMethod: "manual", metadata: meta, description: "x" }, "authorized");
+    stripe.confirm(pi.id, { type: "mobilepay" });
+    const settleCallback = (orderId: number, orderKey: string) => ({ settle_url: "https://shop.example/api/payments/settle", settle_token: `${orderId}:${orderKey}` });
+
+    const outcome = await finalizePayment(await stripe.retrieve(pi.id), { backend: woo.backend, gateway: stripe, settleCallback });
+    expect(outcome.type).toBe("applied");
+    expect(woo.calls.events[0]).toEqual({
+      event: "authorized",
+      payment_intent_id: pi.id,
+      amount_minor: 54700,
+      currency: "dkk",
+      currency_exponent: 2,
+      payment_method_title: "MobilePay (Stripe)",
+      settle_url: "https://shop.example/api/payments/settle",
+      settle_token: "101:wc_order_abc123",
+    });
+  });
+
+  it("releases an authorization WooCommerce cannot keep instead of refunding it", async () => {
+    const woo = fakeBackend();
+    woo.backend.sendPaymentEvent = async () => ({ status: 200, body: { result: "release_required" } });
+    const stripe = new FakeStripe();
+    const pi = await stripe.create({ amount: 54700, currency: "dkk", captureMethod: "manual", metadata: meta, description: "x" }, "second");
+    stripe.confirm(pi.id);
+
+    expect(await finalizePayment(await stripe.retrieve(pi.id), { backend: woo.backend, gateway: stripe })).toMatchObject({ type: "released" });
+    expect((await stripe.retrieve(pi.id)).status).toBe("canceled");
+    expect(stripe.refunds).toEqual([]);
+  });
+
+  it("tells WooCommerce why Stripe cancelled a PaymentIntent, e.g. an expired reservation", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    const pi = await stripe.create({ amount: 54700, currency: "dkk", captureMethod: "manual", metadata: meta, description: "x" }, "expired");
+    stripe.confirm(pi.id);
+    stripe.expire(pi.id);
+    await finalizePayment(await stripe.retrieve(pi.id), { backend: woo.backend, gateway: stripe });
+    expect(woo.calls.events[0]).toMatchObject({ event: "canceled", message: "automatic", amount_minor: 54700 });
+  });
+
+  it("charges at once, as before, when the plugin is older than 1.5 and cannot keep a reservation", async () => {
+    const woo = fakeBackend();
+    const send = woo.backend.sendPaymentEvent;
+    woo.backend.sendPaymentEvent = async (id, key, input) => {
+      if (input.event === "authorized") throw Object.assign(new Error("WooCommerce request failed (400 invalid_payment_event)"), { code: "invalid_payment_event" });
+      return send(id, key, input);
+    };
+    const stripe = new FakeStripe();
+    const pi = await stripe.create({ amount: 54700, currency: "dkk", captureMethod: "manual", metadata: meta, description: "x" }, "old-plugin");
+    stripe.confirm(pi.id);
+
+    const outcome = await finalizePayment(await stripe.retrieve(pi.id), { backend: woo.backend, gateway: stripe });
+    expect(outcome).toMatchObject({ type: "applied", result: "paid" });
+    expect(await stripe.retrieve(pi.id)).toMatchObject({ status: "succeeded", amount_received: 54700 });
+    expect(woo.calls.events).toEqual([expect.objectContaining({ event: "succeeded", amount_minor: 54700 })]);
+  });
+
   it("throws (so Stripe retries) when the order is locked", async () => {
     const woo = fakeBackend();
     woo.backend.sendPaymentEvent = async () => ({ status: 409, body: { code: "busy" } });
@@ -308,8 +405,9 @@ describe("finalizePayment", () => {
   });
 
   it("maps PaymentIntent states to order events", () => {
-    const base = { id: "pi_x", amount: 1, amount_received: 0, currency: "dkk", client_secret: null, metadata: {} };
+    const base = { id: "pi_x", amount: 1, amount_capturable: 0, amount_received: 0, currency: "dkk", capture_method: "manual", client_secret: null, metadata: {} };
     expect(paymentEventFor({ ...base, status: "succeeded" })).toBe("succeeded");
+    expect(paymentEventFor({ ...base, status: "requires_capture", amount_capturable: 1 })).toBe("authorized");
     expect(paymentEventFor({ ...base, status: "processing" })).toBe("processing");
     expect(paymentEventFor({ ...base, status: "canceled" })).toBe("canceled");
     expect(paymentEventFor({ ...base, status: "requires_payment_method", last_payment_error: { code: "card_declined" } })).toBe("failed");

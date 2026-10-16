@@ -61,8 +61,9 @@ Alle routes ligger under `/wp-json/wc-headless/v1` og kræver API-nøglen. De ka
 | `POST /quote` | Kurv → priser, lager (inkl. andres reservationer), rabatkoder, moms, fragtmetoder, total. Opretter intet. |
 | `POST /orders` | Opret, genoptag eller gentag (idempotent) ordren for en checkout-session. Reserverer lager og rabatkoder. Afviser, hvis totalen afviger fra den, kunden så, eller hvis en rabatkode ikke længere kan bruges. Gemmer webshoppens brand, sælger og returregler til ordremailene (afsnit 11). |
 | `POST /orders/{id}/payment-intent` | Tilknyt Stripe PaymentIntent (compare-and-set) |
-| `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus (succeeded/processing/failed/canceled) og den betalingsmetode, kunden brugte |
-| `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden |
+| `POST /orders/{id}/payment` | Anvend verificeret betalingsstatus og den betalingsmetode, kunden brugte: `authorized` (1.5: beløbet er reserveret, med shoppens callback-adresse og ordrens token), `succeeded` (betalt eller trukket), `processing`, `failed`, `canceled` (annulleret, frigivet eller udløbet) og `capture_failed` (1.5: Stripe afviste trækket) |
+| `POST /payments/sweep` | (1.5) Shoppens daglige job: webshoppens ordrer, hvis reservation skal trækkes (*Gennemført*) eller frigives (annulleret, refunderet, mislykket), og advarsel (note og mail) om reservationer ældre end 5 dage og om sendte ordrer, der et døgn senere ikke er trukket. Se afsnit 12. |
+| `GET /orders/{id}?order_key=…` | Ordreoversigt til bekræftelsessiden (fra 1.5 med `capture`: reservationens status og det beløb, der trækkes) |
 | `GET /shops` · `PUT /shops/{butiks-id}` | Webshops: list, opret eller omdøb |
 | `GET /shops/{butiks-id}/category-counts` | (1.4) Antal udgivne produkter pr. kategori i webshoppen, underkategorier medregnet, i ét kald: `{"<kategori-id>": antal, …}`. Caches, til et produkt, en kategori eller en webshop ændres (også papirkurv, gendannelse og planlagt udgivelse). En optælling, som en ændring overlappede, gemmes ikke. Frontenden bruger det til menuen i stedet for ét kald pr. kategori. |
 
@@ -82,6 +83,7 @@ WooCommerce afgør alt: rabattype, minimumsbeløb, produkter og kategorier, udl�
 
 ## 7. Ubetalte ordrer
 
+- En ordre med reserveret betaling (*Afventer*) er ikke ubetalt i denne forstand: den annulleres aldrig automatisk (afsnit 12).
 - En ubetalt ordre genbruges, når kunden trykker Betal igen i samme browser, men kun i butikkens "Hold lager"-tid (60 minutter, hvis feltet er tomt). Kommer kunden senere, annulleres den gamle ordre, og kunden får en ny med dagens dato og nyt nummer.
 - Pluginet annullerer selv ubetalte headless-ordrer, når "Hold lager"-tiden er gået. Det sker hvert kvarter via WP-Cron og desuden, når shoppen kalder pluginet (højst hvert 5. minut). Oprydningen virker derfor også, når ingen besøger WordPress-siden. Lager og reserverede rabatkoder frigives.
 - Ordren viser den betalingsmetode, kunden faktisk brugte, f.eks. "MobilePay (Stripe)" eller "Visa-kort (Stripe)". Indtil betalingen står der "Stripe".
@@ -146,6 +148,33 @@ Et felt, der mangler eller er ugyldigt, bruger WooCommerces egen indstilling. Ma
 Sæt `NEXT_PUBLIC_SUPPORT_EMAIL` i hver webshops Vercel-projekt, hvis kundeservice skal have en anden adresse end brandets i `src/config/store.ts`.
 
 **Til ejeren – Fra-adressen:** pluginet ændrer ikke WooCommerces indstillinger. Fra-adressen (**WooCommerce → Indstillinger → E-mails → Fra-adresse**) er afsender på alle mails fra begge webshops. Sæt den til en neutral butiksadresse (f.eks. `ordre@fastelavnskostumer.dk`) i stedet for en personlig postkasse, og send mails fra WordPress gennem en godkendt SMTP-server med SPF og DKIM for domænet, så de ikke ender som spam.
+
+## 12. Reservation og træk ved afsendelse
+
+Fra plugin 1.5 trækkes kundens betaling først, når ordren sendes (et betalingskort må som udgangspunkt først debiteres, når varen sendes). Kræver shoppen fra samme version (se [STRIPE.md](STRIPE.md#reservation-og-træk-ved-afsendelse)).
+
+**Sådan ser det ud i WooCommerce:**
+
+1. Kunden betaler: beløbet **reserveres**. Ordren står som **Afventer** (on-hold) med noten "Betalingen er reserveret og trækkes, når ordren sendes", lageret er trukket, og kunden får ordrebekræftelsen (*Afventer*, med fortrydelsesretten og teksten "Vi har reserveret … Beløbet trækkes først, når vi sender din ordre"). Butikken får *Ny ordre* med "Betalingen … er reserveret, ikke trukket". Ordren har endnu intet transaktions-ID og ingen betalingsdato.
+2. **Når pakken sendes, markeres ordren som Gennemført** (enkeltvis eller med masseredigering i ordrelisten). Pluginet beder straks shoppen om at trække beløbet. Få sekunder senere står noten "Betalingen er trukket: … (pi_…)", og ordren har transaktions-ID og betalingsdato (tidspunktet for trækket). Kunden får *Gennemført*-mailen med "Vi trækker nu det reserverede beløb".
+3. **Kan en vare ikke sendes:** refundér den i WooCommerce (**Refunder** → **Refunder manuelt**), før ordren markeres *Gennemført*. Så trækkes kun resten, og resten af reservationen frigives. Kundens refunderingsmail fra WooCommerce får teksten "Beløbet er ikke trukket endnu, så der er intet at betale tilbage …", da intet er trukket.
+4. **Skal ordren ikke sendes:** sæt den til **Annulleret**. Reservationen frigives (noten "Reservationen på … er frigivet"), kunden betaler ingenting, og WooCommerce lægger varerne tilbage på lager. (Refunderet frigiver også reservationen, men lægger ikke varerne på lager.)
+5. Ordren kan godt stå som *Behandler* (fx mens den pakkes). Det er *Gennemført*, der trækker beløbet. Indtil da har ordren ingen betalingsdato, heller ikke som *Behandler*.
+
+**Når noget går galt:**
+
+- **Trækket afvises:** ordren sættes tilbage til **Afventer** med noten "Betalingen kunne ikke trækkes: …", og butikken får en mail. Kontakt kunden om betalingen. Markér ordren *Gennemført* igen for et nyt forsøg.
+- **Reservationen udløber** i Stripe, før ordren er sendt (normalt efter 7 dage): note og mail. Beløbet kan ikke længere trækkes, og en ordre markeret *Gennemført* går tilbage til *Afventer* med en ny note og mail. Få betalingen fra kunden på anden vis (fx et betalingslink fra Stripe Dashboard eller en bankoverførsel), vælg så **Betalingen er klaret uden om webshoppen** under **Ordrehandlinger** og tryk **Opdater**, og markér derefter ordren *Gennemført*. Det samme gælder en annulleret ordre, der genåbnes og sendes, og et træk, der bliver ved med at blive afvist. Handlingen vises kun, når reservationen ikke kan trækkes.
+- **Efter 5 dage** uden afsendelse: shoppens daglige job noterer det på ordren og sender én mail med de ordrer, der snart udløber.
+- **Sendt, men ikke trukket et døgn senere** (fx fordi Stripe eller WordPress fejlede, da shoppen prøvede): det daglige job noterer "Ordren er sendt, men betalingen er endnu ikke trukket" og sender én mail pr. forsøg. Jobbet prøver igen hver morgen; vælg **Træk eller frigiv betalingen nu**, eller kontakt udvikleren, før reservationen udløber.
+- **Shoppen kunne ikke nås** (fx en preview bag Vercels beskyttelse, eller nede): noten "Webshoppen kunne ikke få besked om betalingen …". Det daglige job trækker eller frigiver beløbet næste morgen. Vil du ikke vente, så vælg **Træk eller frigiv betalingen nu** under **Ordrehandlinger** på ordren og tryk **Opdater**.
+- Ordren må aldrig trækkes to gange: shoppen læser altid ordren og betalingen igen, før den trækker, og Stripe accepterer kun ét træk pr. reservation. Gentagne beskeder, en ordre markeret *Gennemført* to gange og det daglige job ændrer intet, når beløbet er trukket.
+
+**Teknisk:**
+
+- Ordremeta: `_wchc_capture_status` (`authorized`, `captured`, `failed`, `expired`, `released`, `manual` = klaret uden om webshoppen), `_wchc_authorized_at`, `_wchc_settle_callback` (shoppens adresse og ordrens token), `_wchc_reservation_warned`, `_wchc_capture_attempt`, `_wchc_capture_late_warned`. Ordrer uden `_wchc_capture_status` (betalt før 1.5) røres ikke.
+- Ved statusskiftet sender pluginet, når WordPress er færdig med ordren, `POST <shop>/api/payments/settle` med `{"orders":[{"id","order_key","token"}]}` (højst 10 ordrer pr. forespørgsel, timeout 10 sek., kun https, højst to omdirigeringer med 301/307/308). Tokenet er shoppens HMAC af webshop, ordre-ID og ordrenøgle (med `STRIPE_SECRET_KEY`): kun shoppen kan lave det, og WordPress skal ikke have en ny hemmelighed. Shoppen svarer med det samme og trækker bagefter; resultatet kommer tilbage som en betalingshændelse under ordrelåsen.
+- Advarslen efter 5 dage kan ændres med filteret `wchc_reservation_warn_days`. Mails til butikken går til modtagerne af *Ny ordre* (ellers sidens administrator-e-mail).
 
 ## Kendte begrænsninger
 

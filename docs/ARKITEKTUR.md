@@ -6,6 +6,8 @@
    │           │  /api/checkout/quote ─────────► • wc-headless/v1 (pluginet):
    │           │  /api/checkout ───────────────►     quote, ordrer, betalingsstatus
    │           │  /api/stripe/webhook ─────────►
+   │           │  /api/payments/settle ◄──────── ordren er sendt / annulleret (træk / frigiv)
+   │           │  /api/cron/settle-payments ───► dagligt sikkerhedsnet (Vercel Cron)
    │           ▼
    └──► Stripe.js (Payment Element) ◄──► Stripe ──webhook──► /api/stripe/webhook
 ```
@@ -54,19 +56,33 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
    • tilknyttes ordren med compare-and-set (parallelle klik giver samme betaling)
    ▼
  Browser: stripe.confirmPayment() (kortdata går direkte til Stripe, 3-D Secure)
+   │  capture_method "manual": beløbet RESERVERES kun (requires_capture)
    ▼
  Stripe webhook  ──►  /api/stripe/webhook (signatur verificeres på rå body)
  Retur-URL       ──►  /ordre/bekraeftelse (hurtig vej, samme kode)
    • PaymentIntent hentes FRISK fra Stripe (event-data og URL stoles ikke på)
    • Plugin: POST /orders/{id}/payment (lås pr. ordre, ordrenøgle kræves)
-       succeeded → beløb + valuta tjekkes mod ordren → betalingsmetode (f.eks. MobilePay)
-                   gemmes → payment_complete()
+       authorized → beløb + valuta tjekkes → betalingsmetode gemmes → "on-hold"
                    → WooCommerce trækker lager én gang, frigiver reservation, sender mails
+                   (intet betalt endnu; shoppens callback-adresse + ordrens token gemmes)
+       succeeded  → betalt (trukket, eller en ordre fra før reservationen: payment_complete())
        processing → "on-hold" (lager trækkes, async betalingsmetoder)
        failed     → note på ordren (én gang pr. forsøg), ordren forbliver betalbar
        canceled   → "cancelled" → reservation frigives / lager gendannes
    ▼
- Bekræftelsesside: ordrenummer, status, varer, levering. Kurven tømmes, ny session.
+ Bekræftelsesside: ordrenummer, "beløbet er reserveret", varer, levering. Kurven tømmes, ny session.
+   ▼
+ Butikken markerer ordren "Gennemført" (sendt) · eller "Annulleret"
+   ▼
+ Plugin → POST /api/payments/settle {ordre, nøgle, token}   (eller det daglige /api/cron/settle-payments)
+   • token = HMAC(STRIPE_SECRET_KEY, webshop + ordre + nøgle) tjekkes; svar 202, arbejdet sker bagefter
+   • ordren læses igen i WooCommerce og PaymentIntent i Stripe
+       Gennemført → capture(ordrens beløb − refunderinger), idempotency key pr. forsøg
+                    → succeeded → transaktions-ID, betalingsdato, "Betalingen er trukket"
+                    → afvist/udløbet → capture_failed/canceled → "on-hold", note, mail til butikken
+                      (betalt på anden vis: ordrehandling → "manual", ordren kan forblive Gennemført)
+       Annulleret → PaymentIntent annulleres → canceled → "Reservationen er frigivet"
+   • dagligt job: advarer også om sendte ordrer, der et døgn senere ikke er trukket
 ```
 
 \* Bruger WooCommerces indstilling "Hold lager (minutter)". Er den tom, reserverer pluginet i 15 minutter. Pluginet annullerer selv ubetalte headless-ordrer efter "Hold lager"-tiden (60 minutter, hvis den er tom), og en ordre ældre end det genoptages ikke, men erstattes af en ny.
@@ -76,9 +92,10 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 | Krav | Mekanisme |
 | --- | --- |
 | Ingen dobbeltordrer | Checkout-session-ID (httpOnly-cookie) → én ordre pr. session. Lås + fingerprint giver idempotent replay. |
-| Ingen dobbeltbetalinger | Én PaymentIntent pr. ordre (Stripe idempotency key + compare-and-set i WooCommerce). Klientside dobbeltklik-spærre. En betaling, der alligevel ankommer til en allerede betalt eller erstattet ordre, **refunderes automatisk**. |
+| Ingen dobbeltbetalinger | Én PaymentIntent pr. ordre (Stripe idempotency key + compare-and-set i WooCommerce). Klientside dobbeltklik-spærre. En betaling, der alligevel ankommer til en allerede betalt eller erstattet ordre, **refunderes automatisk** (en reservation frigives). |
 | Intet dobbelt lagertræk | Kun WooCommerce core trækker lager (`_order_stock_reduced`). Betalingshændelser behandles under ordrelås, og ordren genindlæses fra databasen efter låsen. |
 | Idempotente webhooks | PaymentIntent hentes frisk. Statusmaskinen i pluginet gør gentagelser til no-ops. Rækkefølgen af events er ligegyldig. |
+| Trukket ved afsendelse, aldrig to gange | Beløbet reserveres ved køb (`capture_method: manual`) og trækkes, når ordren er *Gennemført*. Callback og dagligt job er kun et signal: ordre og PaymentIntent læses igen, Stripe accepterer ét træk pr. reservation, og idempotency key pr. PaymentIntent, beløb og forsøg. Kun shoppen kan lave ordrens token. Annulleret før afsendelse → reservationen frigives. |
 | Samtidige køb af sidste vare | WooCommerce `ReserveStock` (atomisk). Testet med 4 parallelle købere: præcis én får varen. |
 | Pris ændret under checkout | Serveren sammenligner WooCommerces nye total med den, kunden så. Ved forskel → ny quote, og kunden skal trykke Betal igen. |
 | Manipulation af priser | Klienten sender ingen priser. Zod fjerner ukendte felter. Beløbet til Stripe = WooCommerce-ordrens total. Webhook tjekker beløb og valuta. |
@@ -91,6 +108,7 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 - Plugin-endpoints kræver WooCommerce-API-nøgle (read/write) for en bruger med `manage_woocommerce`. Ordre-endpoints kræver desuden ordrenøglen.
 - API-routes: same-origin-tjek (CSRF), kun `application/json`, maks. body-størrelse, Zod-validering og rate limiting pr. IP (in-memory pr. instans; brug Vercel Firewall eller Upstash ved rigtig trafik).
 - Stripe-webhooks verificeres med `constructEvent` på den rå body.
+- `/api/payments/settle` (WordPress → shoppen) kræver ordrens token: HMAC-SHA256 med `STRIPE_SECRET_KEY` af webshop, ordre-ID og ordrenøgle, sammenlignet i konstant tid. Kaldet trækker eller frigiver aldrig ud fra sit eget indhold: ordren læses igen i WooCommerce og betalingen i Stripe. `/api/cron/settle-payments` kræver `Authorization: Bearer $CRON_SECRET`.
 - Sikkerhedsheaders: HSTS, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`. En Content-Security-Policy med nonces er ikke slået til i prototypen.
 - Produktbeskrivelser fra WordPress vises som ren tekst. Der injiceres ingen HTML.
 

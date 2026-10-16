@@ -13,12 +13,26 @@ export type PaymentIntentStatus =
   | "succeeded"
   | (string & {});
 
+/**
+ * The shop reserves (authorizes) the amount when the customer pays and captures it when the
+ * order is sent: a card may as a rule only be charged when the goods are sent. Stripe then only
+ * offers payment methods that support it (cards, Apple Pay, Google Pay, MobilePay, Klarna …),
+ * and the browser's Elements must say the same (`captureMethod`).
+ */
+export const CAPTURE_METHOD = "manual" as const;
+
 export type PaymentIntentLike = {
   id: string;
   status: PaymentIntentStatus;
   amount: number;
+  /** What can still be captured (`requires_capture`). */
+  amount_capturable: number;
   amount_received: number;
   currency: string;
+  /** "manual": authorized, captured when the order is sent. "automatic": charged at once (orders from before). */
+  capture_method: "manual" | "automatic" | "automatic_async" | (string & {});
+  /** Why Stripe cancelled it, e.g. "automatic" when an uncaptured authorization expired. */
+  cancellation_reason?: string | null;
   client_secret: string | null;
   metadata: Record<string, string>;
   last_payment_error?: {
@@ -40,6 +54,8 @@ export type PaymentMethodLike = {
 export type CreatePaymentIntentParams = {
   amount: number;
   currency: string;
+  /** Omitted: Stripe's default, charged at once. */
+  captureMethod?: typeof CAPTURE_METHOD;
   metadata: Record<string, string>;
   description: string;
   /** The shop on the card statement (see StoreBrand.statementDescriptorSuffix). */
@@ -56,8 +72,10 @@ export interface PaymentGateway {
   retrieve(id: string): Promise<PaymentIntentLike>;
   create(params: CreatePaymentIntentParams, idempotencyKey: string): Promise<PaymentIntentLike>;
   updateAmount(id: string, amount: number): Promise<PaymentIntentLike>;
-  /** Cancels if still cancelable; returns the latest state either way. */
+  /** Cancels if still cancelable (also releases an authorization); returns the latest state either way. */
   cancelIfPossible(id: string): Promise<PaymentIntentLike>;
+  /** Captures an authorization (at most `amount_capturable`; the rest is released). Throws when Stripe refuses. */
+  capture(id: string, amount: number, idempotencyKey: string): Promise<PaymentIntentLike>;
   refund(paymentIntentId: string, idempotencyKey: string): Promise<void>;
 }
 

@@ -66,17 +66,33 @@ async function Confirmation({ searchParams }: { searchParams: Promise<Record<str
 
   if (!order) return <NotFound />;
 
-  const paid = order.status === "processing" || order.status === "completed";
-  const processing = order.status === "on-hold";
+  // Capture at shipment: the amount is reserved now and charged when the order is sent, so an
+  // order is paid only once it is captured (or the shop collected the payment another way).
+  const settled = !order.capture || order.capture.status === "captured" || order.capture.status === "manual";
+  const paid = (order.status === "processing" || order.status === "completed") && settled;
+  const reserved = (order.status === "on-hold" || order.status === "processing") && order.capture?.status === "authorized";
+  const sent = order.status === "completed" && !settled;
+  const processing = (order.status === "on-hold" || order.status === "processing") && !paid && !reserved;
   const failedRedirect = single(params.redirect_status) === "failed";
 
   return (
     <div>
-      <ConfirmationEffects completed={paid || processing} pending={order.status === "pending" && !failedRedirect} />
+      <ConfirmationEffects completed={paid || reserved || sent || processing} pending={order.status === "pending" && !failedRedirect} />
 
       {paid && (
         <Header icon="success" eyebrow={`Ordre #${order.number}`} title="Tak for din ordre!">
           Vi har modtaget din betaling. En bekræftelse er sendt til <strong>{order.email}</strong>.
+        </Header>
+      )}
+      {reserved && (
+        <Header icon="success" eyebrow={`Ordre #${order.number}`} title="Tak for din ordre!">
+          Vi har reserveret {formatPrice(order.total, order.currency)} på dit betalingsmiddel. Beløbet trækkes først, når vi sender din ordre.
+          En bekræftelse er sendt til <strong>{order.email}</strong>.
+        </Header>
+      )}
+      {sent && (
+        <Header icon="success" eyebrow={`Ordre #${order.number}`} title="Tak for din ordre!">
+          Din ordre er sendt. En bekræftelse er sendt til <strong>{order.email}</strong>.
         </Header>
       )}
       {processing && (
@@ -108,7 +124,9 @@ async function Confirmation({ searchParams }: { searchParams: Promise<Record<str
           <h2 id="ordre-detaljer" className="text-lg font-semibold">
             Ordre #{order.number}
           </h2>
-          <p className="text-sm text-muted">Status: {statusLabel(order.status)}</p>
+          <p className="text-sm text-muted">
+            Status: {reserved ? "Modtaget – beløbet er reserveret" : processing && order.status === "processing" ? "Behandles" : statusLabel(order.status)}
+          </p>
         </div>
         <ul className="mt-5 divide-y divide-line border-y border-line">
           {order.items.map((item, i) => (
@@ -140,6 +158,7 @@ async function Confirmation({ searchParams }: { searchParams: Promise<Record<str
             <dd className="tabular-nums">{formatPrice(order.total, order.currency)}</dd>
           </div>
           <p className="text-right text-xs text-muted">Heraf moms {formatPrice(order.total_tax, order.currency)}</p>
+          {reserved && <p className="text-right text-xs text-muted">Reserveret nu – trækkes, når vi sender varerne</p>}
         </dl>
       </section>
 
