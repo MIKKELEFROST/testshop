@@ -146,7 +146,8 @@ export const brands: Record<string, StoreBrand> = {
       hero: "#ffd84d",
       "hero-blob": "#ff9ec2",
       sale: "#e11d48",
-      price: "#d9480f",
+      // Dark enough for small prices too (5.2:1 on white, 5.0:1 on the paper).
+      price: "#c2410c",
       canvas: "#fcf3e4",
       video: "#2446c8",
     },

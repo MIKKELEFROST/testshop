@@ -27,6 +27,9 @@ final class WCHC_Shops {
 	/** Cached category counts per store ID (see category_counts). */
 	const COUNTS_TRANSIENT = 'wchc_category_counts';
 
+	/** Option raised on every change that can alter the counts, so a recount that overlapped one is not cached. */
+	const COUNTS_GENERATION = 'wchc_counts_gen';
+
 	/** Webshop slugs are store IDs as the storefront sends them (see sanitize_key). */
 	const SLUG_PATTERN = '[a-z0-9_\-]{1,50}';
 
@@ -42,10 +45,13 @@ final class WCHC_Shops {
 		add_filter( 'woocommerce_rest_pre_insert_product_object', array( __CLASS__, 'validate_request' ), 10, 2 );
 		add_action( 'woocommerce_rest_insert_product_object', array( __CLASS__, 'save_from_request' ), 10, 2 );
 
-		// Category counts (category_counts) are recounted after changes to products or categories.
-		foreach ( array( 'woocommerce_new_product', 'woocommerce_update_product', 'woocommerce_delete_product', 'woocommerce_trash_product', 'set_object_terms', 'created_product_cat', 'edited_product_cat', 'delete_product_cat' ) as $hook ) {
+		// Category counts (category_counts) are recounted after changes to products, categories or webshops.
+		foreach ( array( 'woocommerce_new_product', 'woocommerce_update_product', 'woocommerce_delete_product', 'woocommerce_trash_product', 'created_product_cat', 'edited_product_cat', 'delete_product_cat', 'created_' . self::TAXONOMY, 'edited_' . self::TAXONOMY, 'delete_' . self::TAXONOMY ) as $hook ) {
 			add_action( $hook, array( __CLASS__, 'forget_category_counts' ) );
 		}
+		add_action( 'set_object_terms', array( __CLASS__, 'forget_counts_on_terms' ), 10, 4 );
+		// Also what WooCommerce's product hooks miss: trash and restore in the products list, scheduled publishing.
+		add_action( 'transition_post_status', array( __CLASS__, 'forget_counts_on_status' ), 10, 3 );
 
 		// Orders list: "Webshop" column (HPOS and legacy posts storage).
 		add_filter( 'manage_woocommerce_page_wc-orders_columns', array( __CLASS__, 'add_order_column' ) );
@@ -129,16 +135,19 @@ final class WCHC_Shops {
 	 * Number of published products per product category in a webshop, in one query instead
 	 * of one REST request per category. A category counts its subcategories' products too
 	 * (each product once), like the REST API's `category` filter. A store ID that is not a
-	 * webshop counts every published product. Cached until a product or category changes.
+	 * webshop counts every published product. Cached until a product, category or webshop
+	 * changes; a recount that a change overlapped is not cached.
 	 *
 	 * @param string $store_id Store ID / webshop slug.
 	 * @return array<int,int> Category term ID => number of products (categories without products are left out).
 	 */
 	public static function category_counts( string $store_id ): array {
-		$cached = get_transient( self::COUNTS_TRANSIENT );
-		$cached = is_array( $cached ) ? $cached : array();
-		if ( isset( $cached[ $store_id ] ) && is_array( $cached[ $store_id ] ) ) {
-			return $cached[ $store_id ];
+		// Read before counting: a change from here on raises it, and the result is then not cached.
+		$generation = self::counts_generation();
+		$cached     = get_transient( self::COUNTS_TRANSIENT );
+		$shops      = is_array( $cached ) && ( $cached['generation'] ?? null ) === $generation && is_array( $cached['shops'] ?? null ) ? $cached['shops'] : array();
+		if ( isset( $shops[ $store_id ] ) && is_array( $shops[ $store_id ] ) ) {
+			return $shops[ $store_id ];
 		}
 
 		global $wpdb;
@@ -180,16 +189,64 @@ final class WCHC_Shops {
 			}
 		}
 
-		$cached[ $store_id ] = $counts;
-		set_transient( self::COUNTS_TRANSIENT, $cached, HOUR_IN_SECONDS );
+		if ( self::counts_generation() === $generation ) {
+			$shops[ $store_id ] = $counts;
+			set_transient(
+				self::COUNTS_TRANSIENT,
+				array(
+					'generation' => $generation,
+					'shops'      => $shops,
+				),
+				HOUR_IN_SECONDS
+			);
+		}
 		return $counts;
 	}
 
 	/**
-	 * Drop the cached category counts (a product or category changed).
+	 * Drop the cached category counts (a product, category or webshop changed), also those a
+	 * recount running right now would store.
 	 */
 	public static function forget_category_counts(): void {
+		update_option( self::COUNTS_GENERATION, self::counts_generation() + 1, false );
 		delete_transient( self::COUNTS_TRANSIENT );
+	}
+
+	/**
+	 * Terms were set on an object: the counts change with a product's categories or webshops.
+	 *
+	 * @param int    $object_id Object ID.
+	 * @param array  $terms     Terms.
+	 * @param array  $tt_ids    Term taxonomy IDs.
+	 * @param string $taxonomy  Taxonomy.
+	 */
+	public static function forget_counts_on_terms( $object_id, $terms, $tt_ids, $taxonomy ): void {
+		if ( in_array( $taxonomy, array( 'product_cat', self::TAXONOMY ), true ) ) {
+			self::forget_category_counts();
+		}
+	}
+
+	/**
+	 * A post's status changed: the counts change when a product is published or stops being.
+	 *
+	 * @param string $new_status New status.
+	 * @param string $old_status Old status.
+	 * @param mixed  $post       Post.
+	 */
+	public static function forget_counts_on_status( $new_status, $old_status, $post ): void {
+		if ( $new_status !== $old_status && $post instanceof WP_Post && 'product' === $post->post_type && ( 'publish' === $new_status || 'publish' === $old_status ) ) {
+			self::forget_category_counts();
+		}
+	}
+
+	/**
+	 * The generation of the category counts, read from the database: another request may have
+	 * raised it after this one cached its options.
+	 */
+	private static function counts_generation(): int {
+		global $wpdb;
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- must bypass the option cache, see above.
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::COUNTS_GENERATION ) );
 	}
 
 	/**

@@ -64,6 +64,15 @@ describe("mapProduct", () => {
     expect(p.variations.map((v) => v.gtin)).toEqual(["8434077865255", ""]);
     expect(mapProduct(product(), []).gtin).toBe("");
   });
+
+  it("knows the products that can come with a hygiene seal from their category", () => {
+    const inCategory = (slug: string) => product({ categories: [{ id: 1, name: slug, slug }] });
+    expect(mapProduct(inCategory("blod-og-effekter"), []).hygiene).toBe(true);
+    expect(mapProduct(inCategory("sminke-og-ansigtsmaling"), []).hygiene).toBe(true);
+    expect(mapProduct(inCategory("negle-og-oejenvipper"), []).hygiene).toBe(true);
+    expect(mapProduct(inCategory("masker"), []).hygiene).toBe(false);
+    expect(mapProduct(product(), []).hygiene).toBe(false);
+  });
 });
 
 describe("product card facts", () => {

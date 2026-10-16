@@ -45,12 +45,16 @@ wchc_in_any_category=<id>[,<id>…] requires one of its categories. All combine 
 `category`, `tag` and `wchc_shop`.
 
 Order e-mails show the webshop the order came from. The storefront sends its brand with
-the order (`store`: name, url, email, color, logo), stored as order meta
-`_wchc_store_branding` (invalid fields are dropped). WooCommerce's e-mails for that order
-then use the webshop's name as From name and its e-mail as Reply-To (customer e-mails),
-put its name and address into {site_title}, {site_url} and {store_url}, and use its logo
-as header image and its colour as base colour. The "New order" subject names the webshop.
-Orders without it get the normal e-mails.
+the order (`store`: name, url, email, color, logo, and the seller and return rules
+company_name, company_address, cvr, return_address, return_shipping, return_days), stored
+as order meta `_wchc_store_branding` (invalid fields are dropped). WooCommerce's e-mails
+for that order then use the webshop's name as From name and its e-mail as Reply-To
+(customer e-mails), put its name, address and e-mail into {site_title}, {site_url},
+{store_url} and {store_email}, and use its logo as header image and its colour as base
+colour. The "New order" subject names the webshop. The customer's order confirmation
+("Processing order", "Order on-hold") carries the withdrawal information and the standard
+withdrawal form (Danish forbrugeraftaleloven: on a durable medium, at the latest on
+delivery). Orders without a brand get the normal e-mails.
 
 Unpaid headless orders are cancelled after the shop's "Hold stock (minutes)" (60 when
 empty), by WP-Cron every 15 minutes and, throttled, from the storefront's own API calls,
@@ -76,6 +80,18 @@ Check: GET /wp-json/wc-headless/v1/status with the API key.
   From name, Reply-To, {site_title}, {site_url} and {store_url}, header image and base colour.
   The storefront sends its brand with the order (`store`), stored as `_wchc_store_branding`.
   Orders without it, e.g. from older storefronts, get the e-mails as before.
+* E-mails: {store_email} in a branded e-mail is the webshop's e-mail, not WooCommerce's From
+  address, which all webshops share.
+* E-mails: the customer's order confirmation ("Processing order" and "Order on-hold", HTML and
+  plain text) of a branded order carries the withdrawal information and the standard withdrawal
+  form after the addresses: 14 days' withdrawal right and the shop's longer return period
+  (`return_days`), notice to the webshop's e-mail, the return address, who pays the return
+  shipping, the refund within 14 days, the hygiene exception and the seller (company name, CVR,
+  address). WordPress does not have these details, so the storefront sends them in `store`;
+  details it does not send are left out.
+* Category counts are also recounted after a product is trashed or restored in the products
+  list, published by WP-Cron (scheduled) and after a webshop is created, renamed or deleted.
+  A recount that overlapped such a change is not cached, so it cannot keep stale counts.
 * REST: `wchc_in_category=<id>[,<id>…]` lists only products that are also in each of these
   categories, e.g. category=Damekostumer&wchc_in_category=Halloween. Works with `wchc_shop`.
 * REST: `wchc_not_in_category=<id>[,<id>…]` leaves out products in any of these categories

@@ -1,9 +1,10 @@
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
-import { DELIVERY_FACTS, resolveTexts } from "@/config/usps";
+import { DELIVERY_FACTS, RETURN_PROMISE, resolveTexts } from "@/config/usps";
 import type { ProductText } from "@/lib/product-text";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 import type { Product } from "@/types/commerce";
+import { HygieneReturn } from "./hygiene-return";
 
 /** Description, sizes, delivery and product safety as sections that fold out. */
 export async function ProductInfo({ product, text }: { product: Product; text: ProductText }) {
@@ -32,7 +33,7 @@ export async function ProductInfo({ product, text }: { product: Product; text: P
       <Section title="Levering og retur">
         <ul className="list-disc space-y-1 pl-5">
           {resolveTexts(DELIVERY_FACTS, freeShippingFrom).map((fact) => (
-            <li key={fact}>{fact}</li>
+            <li key={fact}>{product.hygiene && fact === RETURN_PROMISE ? <HygieneReturn /> : fact}</li>
           ))}
         </ul>
       </Section>

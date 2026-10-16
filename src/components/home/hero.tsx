@@ -15,11 +15,17 @@ export function Hero({ hero, products }: { hero: HomePage["hero"]; products: Pro
   const halloween = storeConfig.season === "halloween";
   return (
     <section className="container-shop pt-4 sm:pt-6">
-      <div className={`relative isolate overflow-hidden rounded-[1.75rem] bg-hero ${halloween ? "text-white" : "text-ink"}`}>
+      {/* On the dark night sky the focus ring is white. */}
+      <div className={`relative isolate overflow-hidden rounded-[1.75rem] bg-hero ${halloween ? "text-white [--color-focus:#ffffff]" : "text-ink"}`}>
         {halloween ? <NightSky /> : <Confetti />}
         <div className="relative grid items-center gap-8 px-6 py-10 sm:px-10 sm:py-14 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:px-14 lg:py-16">
           <div>
-            <EventCountdown season={storeConfig.season} className={halloween ? "bg-white/10 text-action ring-1 ring-white/15" : "bg-white text-highlight shadow-sm"} />
+            {/* Fastelavn: the brand pink only on the icon; as small text it is too light on white. */}
+            <EventCountdown
+              season={storeConfig.season}
+              className={halloween ? "bg-white/10 text-action ring-1 ring-white/15" : "bg-white text-ink shadow-sm"}
+              iconClassName={halloween ? "" : "text-highlight"}
+            />
             <h1 className={`heading mt-5 text-balance ${halloween ? "text-[52px] leading-[0.95] sm:text-[72px] lg:text-[84px]" : "text-[40px] sm:text-[56px] lg:text-[64px]"}`}>
               {hero.title}
             </h1>
@@ -67,7 +73,7 @@ function HeroPhotos({ products, halloween }: { products: ProductSummary[]; hallo
             }`}
           >
             <span className="relative block aspect-[3/4] overflow-hidden rounded-xl">
-              <ProductImage image={product.image} name={product.name} sizes="(min-width: 1024px) 15vw, 30vw" priority={i === 0} />
+              <ProductImage image={product.image} name={product.name} sizes="(min-width: 1024px) 15vw, 30vw" priority={i === 0} decorative />
             </span>
             <span className="sr-only">{product.name}</span>
           </a>

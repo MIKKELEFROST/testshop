@@ -6,11 +6,12 @@ decided here.
 """
 from __future__ import annotations
 
+import collections
 import html
 import math
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 EUR_TO_DKK = 7.46
 # Prices in the sheet above this are errors (e.g. 1,455,985.44 EUR for a toy gun).
@@ -235,6 +236,105 @@ def costume_name(family: str, groups: set[str]) -> str:
 def family_name(family: str, groups: set[str]) -> str:
     """Sized non-costume families (sweaters, corsets, …): 'Julesweater' + kids -> 'Julesweater til børn'."""
     return f"{family} {audience(groups)}".strip()
+
+
+# ---------------------------------------------------------------- unique names
+
+
+@dataclass(frozen=True)
+class NameFacts:
+    """What can tell apart products with the same name, in the order the facts are tried."""
+    size: str = ""  # 'ca. 23,5 cm'
+    audience: str = ""  # 'til voksne'
+    pack: str = ""  # '12 stk.'
+    colour: str = ""  # 'hvid og rød'
+    model: str = ""  # 'model 20113' (always tells them apart)
+
+
+def measure(text: str) -> str:
+    """The largest measure in a description: 'Mål: ca. 23,5 × 17,8 × 7,8 cm.' -> 'ca. 23,5 cm'."""
+    m = re.search(r"Mål: ca\. (\d+(?:,\d+)?(?: × \d+(?:,\d+)?)*) cm", html.unescape(text or ""))
+    if not m:
+        return ""
+    return f"ca. {number_da(max(float(v.replace(',', '.')) for v in m[1].split(' × ')))} cm"
+
+
+def pack_size(text: str) -> str:
+    """A pack size the text states: 'sæt med 12 …', '12 stk.', '2 ark' -> '12 stk.'."""
+    text = html.unescape(text or "")
+    m = re.search(r"\b(\d+) ?(?:stk\b|stykker\b|par\b|ark\b|pakker\b)|\bsæt med (\d+)\b", text, re.I)
+    return f"{m[1] or m[2]} stk." if m else ""
+
+
+def name_facts(*, text: str = "", groups=(), colours=(), code: str = "") -> NameFacts:
+    """Facts from what the shop shows: the description, Målgruppe and Farve values, Guirca's number."""
+    keys = {key for key, label in GROUP_NAMES.items() if label in groups}
+    return NameFacts(
+        size=measure(text),
+        audience=audience(keys),
+        pack=pack_size(text),
+        colour=join_da(c.lower() for c in colours),
+        model=f"model {code}" if code else "",
+    )
+
+
+def name_key(name: str) -> str:
+    """Names that look the same in the shop get the same key (case, spacing and entities ignored)."""
+    return re.sub(r"\s+", " ", html.unescape(name or "")).strip().casefold()
+
+
+def name_states(name: str, kind: str, value: str) -> bool:
+    """Whether the name already says this kind of fact ('Segl 47 cm' has a size, 'Cowboyvest
+    til børn' an audience), so adding another one would only confuse."""
+    name = name_key(name)
+    if kind == "size":
+        return bool(re.search(r"\d ?cm\b", name))
+    if kind == "audience":
+        return bool(re.search(r"\btil (?:damer|herrer|voksne|børn|piger|drenge|baby|hunde)\b", name))
+    if kind == "pack":
+        return bool(pack_size(name))
+    if kind == "colour":
+        return any(re.search(rf"\b{re.escape(colour)}", name) for colour in value.split(" og "))
+    return value.casefold() in name
+
+
+def unique_names(products: dict) -> dict:
+    """New names for products that share their name with another product.
+
+    `products` maps a key to (name, NameFacts). Each product with a shared name gets the first
+    of its facts that none of the others with that name has and that the name does not already
+    state ('Kraniemaske, PVC, hvid, ca. 23,5 cm'), and its model when no fact does. Only
+    renamed products are returned.
+    """
+    groups = collections.defaultdict(list)
+    for key, (name, _) in products.items():
+        groups[name_key(name)].append(key)
+    kinds = [f.name for f in fields(NameFacts)]
+    renamed = {}
+    for keys in groups.values():
+        if len(keys) < 2:
+            continue
+        for key in keys:
+            name, facts = products[key]
+            suffix = next(
+                (
+                    value
+                    for kind in kinds
+                    if (value := getattr(facts, kind))
+                    and not name_states(name, kind, value)
+                    and sum(getattr(products[other][1], kind) == value for other in keys) == 1
+                ),
+                facts.model,
+            )
+            if suffix:
+                renamed[key] = f"{name.strip()}, {suffix}"
+    # A new name can be one another product already has: then the model tells them apart.
+    taken = collections.Counter(name_key(renamed.get(key, name)) for key, (name, _) in products.items())
+    for key, new in renamed.items():
+        name, facts = products[key]
+        if taken[name_key(new)] > 1 and facts.model and not new.endswith(facts.model):
+            renamed[key] = f"{name.strip()}, {facts.model}"
+    return renamed
 
 
 # ---------------------------------------------------------------- categories
@@ -464,6 +564,78 @@ SKIPPED_THEMES = {"Halloween", "Christmas", "Party Decoration", "Facial Jewels",
 
 def tag_themes(row: dict) -> list[str]:
     return [t for t in themes(row) if t not in SKIPPED_THEMES and not re.search(r"col+our$", t, re.I)]
+
+
+# ---------------------------------------------------------------- merchandising order
+
+# The shop's "Anbefalet" sort is WooCommerce's menu_order (lowest first). It is set from what a
+# product is, then newest first: menu_order = tier × TIER_STEP + the product's place in its tier.
+TIER_STEP = 100_000
+MERCHANDISING_TIERS = {
+    ("Kostumer",): 0,
+    ("Tilbehør", "Masker"): 1,
+    ("Tilbehør", "Parykker"): 1,
+    ("Tilbehør", "Skæg og overskæg"): 1,
+    ("Tilbehør", "Hatte og hjelme"): 1,
+    ("Make-up",): 1,
+    ("Tilbehør",): 2,
+    ("Tøj",): 2,
+    ("Pynt og fest",): 3,
+}
+OTHER_TIER = 4  # the season categories, Polterabend (18+) and products without a category
+TIER_NAMES = {
+    0: "Kostumer",
+    1: "Masker, parykker, hatte og make-up",
+    2: "Andet tilbehør og tøj",
+    3: "Pynt og fest",
+    4: "Øvrige",
+}
+
+
+def slug_path(path: tuple[str, ...]) -> tuple[str, ...]:
+    """('Tilbehør', 'Masker') -> ('tilbehoer', 'masker'), the slugs the import gives the categories."""
+    return tuple(slugify(name) for name in path)
+
+
+TIERS_BY_SLUGS = {slug_path(path): tier for path, tier in MERCHANDISING_TIERS.items()}
+
+
+def category_slug_paths(categories: list[dict]) -> dict[int, tuple[str, ...]]:
+    """WooCommerce categories ({id, slug, parent}) -> each one's slug path from the top."""
+    by_id = {c["id"]: c for c in categories}
+    paths: dict[int, tuple[str, ...]] = {}
+    for category in categories:
+        path, current, seen = [], category, set()
+        while current and current["id"] not in seen:
+            seen.add(current["id"])
+            path.insert(0, current["slug"])
+            current = by_id.get(current.get("parent"))
+        paths[category["id"]] = tuple(path)
+    return paths
+
+
+def merchandising_tier(paths) -> int:
+    """The tier of a product in these categories (slug paths): the best of them. A category
+    without a tier of its own has its parent's ('tilbehoer/briller' is 'tilbehoer')."""
+    tiers = [OTHER_TIER]
+    for path in paths:
+        for depth in range(len(path), 0, -1):
+            if path[:depth] in TIERS_BY_SLUGS:
+                tiers.append(TIERS_BY_SLUGS[path[:depth]])
+                break
+    return min(tiers)
+
+
+def menu_orders(products) -> dict[int, int]:
+    """menu_order for (id, date_created, tier) products: newest first within a tier, then highest id."""
+    by_tier = collections.defaultdict(list)
+    for product_id, created, tier in products:
+        by_tier[tier].append((created or "", product_id))
+    orders = {}
+    for tier, members in by_tier.items():
+        for rank, (_, product_id) in enumerate(sorted(members, reverse=True)):
+            orders[product_id] = tier * TIER_STEP + rank
+    return orders
 
 
 # ---------------------------------------------------------------- descriptions

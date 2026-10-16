@@ -1,11 +1,12 @@
 import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { INFO_LINKS } from "@/components/content/info-page";
-import { INFO_PAGES, OM_OS, type InfoPage } from "./info-pages";
+import { fillTokens } from "@/lib/info-text";
+import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoPage } from "./info-pages";
 
 // Pages that exist under app/(shop) (each information page is its own folder).
 const routes = new Set(readdirSync(new URL("../app/(shop)", import.meta.url), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => `/${d.name}`));
-const TOKENS = new Set(["firma", "cvr", "adresse", "telefon", "email", "åbningstider", "shop", "fri_fragt", "returadresse", "returfragt", "uafhentede_pakker", "prismatch_dage", "svartid"]);
+const TOKENS = new Set(["firma", "cvr", "adresse", "telefon", "email", "åbningstider", "shop", "fri_fragt", "returadresse", "returfragt", "uafhentede_pakker", "prismatch_dage", "svartid", "højtid", "åben_ild"]);
 
 function texts(page: InfoPage): string[] {
   return [
@@ -20,6 +21,16 @@ function texts(page: InfoPage): string[] {
 }
 
 const pages = [...INFO_PAGES, ...Object.values(OM_OS)];
+
+function page(slug: string): InfoPage {
+  return INFO_PAGES.find((p) => p.slug === slug)!;
+}
+
+function section(slug: string, heading: string): string[] {
+  const found = page(slug).sections.find((s) => s.heading === heading);
+  expect(found, `${slug}: ${heading}`).toBeDefined();
+  return texts({ ...page(slug), title: "", description: "", intro: "", sections: [found!] }).filter(Boolean);
+}
 
 describe("information pages", () => {
   it("has a page for every link in the footer and side menu, and a route for every page", () => {
@@ -47,5 +58,46 @@ describe("information pages", () => {
 
   it("has an Om os page for each shop", () => {
     expect(Object.keys(OM_OS).sort()).toEqual(["halloween-kostumer-dk", "piece-dk"]);
+  });
+
+  it("leaves the shop's season to tokens in the shared pages", () => {
+    for (const p of INFO_PAGES) for (const text of texts(p)) expect(text, `${p.slug}: ${text}`).not.toMatch(/halloween|fastelavn|græskar/i);
+    expect(Object.keys(SEASON_WORDS.fastelavn)).toEqual(Object.keys(SEASON_WORDS.halloween));
+    expect(Object.values(SEASON_WORDS.fastelavn).join(" ")).not.toMatch(/halloween|græskar/i);
+    expect(Object.values(SEASON_WORDS.halloween).join(" ")).not.toMatch(/fastelavn/i);
+  });
+
+  it("promises free shipping to a parcel shop only, and writes the amount without a double period", () => {
+    for (const p of pages) {
+      for (const text of texts(p)) {
+        if (text.includes("{fri_fragt}")) expect(text, text).toMatch(/pakkeshop/i);
+        expect(fillTokens(text, { fri_fragt: "599 kr." }), text).not.toContain("..");
+        expect(text, text).not.toMatch(/\b1 dags\b/);
+      }
+    }
+  });
+
+  it("states the delivery time like the selling points: same-day dispatch, normally the next weekday, no date", () => {
+    const terms = section("handelsbetingelser", "Levering").join(" ");
+    expect(terms).toContain("før kl. 19, sender vi din ordre samme dag");
+    expect(terms).toContain("normalt pakken hverdagen efter");
+    expect(terms).toContain("Vi kan ikke love en bestemt leveringsdato");
+    expect(terms).toContain("senest 30 dage");
+    const shipping = section("fragt-og-levering", "Lynhurtig 1-dags levering – bestil før kl. 19").join(" ");
+    expect(shipping).toContain("normalt hverdagen efter");
+    expect(shipping).toContain("Vi kan ikke love en bestemt leveringsdato");
+  });
+
+  // Forbrugeraftaleloven § 18, stk. 2, nr. 5: only sealed hygiene goods whose seal is broken after delivery.
+  it("limits the hygiene exception to sealed goods", () => {
+    const exception = section("fortrydelsesret", "Undtagelser: hygiejnevarer");
+    expect(exception.join(" ")).toContain("hvis forseglingen er brudt efter levering");
+    expect(exception.join(" ")).toContain("Det står på produktsiden");
+    expect(exception.join(" ")).not.toContain("emballagen er brudt");
+    expect(exception.filter((t) => /^Masker/.test(t))).toEqual([]);
+  });
+
+  it("lists the checkout form kept in sessionStorage in the cookie policy", () => {
+    expect(section("cookiepolitik", "Det gemmes i din browser").some((t) => t.includes("sessionStorage"))).toBe(true);
   });
 });

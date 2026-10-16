@@ -22,6 +22,7 @@ import {
   productBySku,
   saveWebshop,
   updateProduct,
+  wpEval,
 } from "../support/woo-admin";
 
 const enabled = Boolean(process.env.WC_INTEGRATION);
@@ -201,6 +202,59 @@ describe.skipIf(!enabled)("webshops", () => {
       // A store ID that is not a webshop counts every published product.
       expect(await counts("ikke-en-webshop")).toEqual([3, 2, 1]);
     });
+  });
+
+  it("recounts after changes WooCommerce's product hooks miss: trash, restore, scheduled publishing, webshops", async () => {
+    await withCategories(async ({ women }) => {
+      const count = async (shop: string) => ((await plugin(`shops/${shop}/category-counts`)).body as Record<string, number>)[String(women)] ?? 0;
+      const C = `it-shop-c-${Date.now().toString(36)}`;
+      try {
+        expect(await count(A)).toBe(2); // shared and onlyA
+        // Trash from the products list, then restore (WooCommerce restores the product's status).
+        await wpEval(`wp_trash_post( ${ids.onlyA} );`);
+        expect(await count(A)).toBe(1);
+        await wpEval(`wp_untrash_post( ${ids.onlyA} );`);
+        expect(await count(A)).toBe(2);
+        // Unpublished, then published as WP-Cron publishes a scheduled product (wp_publish_post).
+        await wpEval(`wp_update_post( array( 'ID' => ${ids.onlyA}, 'post_status' => 'draft' ) );`);
+        expect(await count(A)).toBe(1);
+        await wpEval(`wp_publish_post( ${ids.onlyA} );`);
+        expect(await count(A)).toBe(2);
+
+        // A store ID counts every product until it becomes a webshop, and again once that is deleted.
+        expect(await count(C)).toBe(3);
+        await saveWebshop(C, "Testshop C");
+        expect(await count(C)).toBe(0);
+        await wpEval(`wp_delete_term( get_term_by( 'slug', '${C}', 'wchc_shop' )->term_id, 'wchc_shop' );`);
+        expect(await count(C)).toBe(3);
+      } finally {
+        // Restoring from the trash also restores the slug.
+        await wpEval(`if ( 'trash' === get_post_status( ${ids.onlyA} ) ) { wp_untrash_post( ${ids.onlyA} ); } if ( 'publish' !== get_post_status( ${ids.onlyA} ) ) { wp_publish_post( ${ids.onlyA} ); }`);
+        await wpEval(`$term = get_term_by( 'slug', '${C}', 'wchc_shop' ); if ( $term ) { wp_delete_term( $term->term_id, 'wchc_shop' ); }`);
+      }
+      expect((await getProduct(ids.onlyA)).slug).toBe(slugs.onlyA);
+    });
+  });
+
+  it("does not cache a recount that a product change overlapped", async () => {
+    const out = await wpEval(`
+      $changed = false;
+      // A product is saved while the recount's query runs.
+      add_filter( 'query', function ( $query ) use ( &$changed ) {
+        if ( ! $changed && false !== strpos( $query, "tt.taxonomy = 'product_cat'" ) ) {
+          $changed = true;
+          WCHC_Shops::forget_category_counts();
+        }
+        return $query;
+      } );
+      delete_transient( WCHC_Shops::COUNTS_TRANSIENT );
+      WCHC_Shops::category_counts( '${A}' );
+      $overlapped = get_transient( WCHC_Shops::COUNTS_TRANSIENT );
+      WCHC_Shops::category_counts( '${A}' );
+      $next = get_transient( WCHC_Shops::COUNTS_TRANSIENT );
+      echo "\\n@@" . wp_json_encode( array( 'changed' => $changed, 'overlapped' => $overlapped, 'next' => is_array( $next ) ? array_keys( $next['shops'] ) : $next ) );
+    `);
+    expect(JSON.parse(out.slice(out.lastIndexOf("@@") + 2))).toEqual({ changed: true, overlapped: false, next: [A] });
   });
 
   it("a store ID that is not a webshop sees every product, as before", async () => {

@@ -4,7 +4,7 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { company } from "@/config/company";
 import { storeConfig } from "@/config/store";
 import { formatThreshold } from "@/config/usps";
-import { INFO_PAGES, OM_OS, type InfoBlock, type InfoPage } from "@/content/info-pages";
+import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoBlock, type InfoPage } from "@/content/info-pages";
 import { fillTokens, parseText, safeHref } from "@/lib/info-text";
 import { JsonLd, plainText } from "@/lib/seo";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
@@ -32,6 +32,7 @@ async function tokenValues(): Promise<Record<string, string>> {
     svartid: company.answerTime,
     shop: storeConfig.name,
     fri_fragt: freeFrom ? formatThreshold(freeFrom) : "et vist beløb",
+    ...SEASON_WORDS[storeConfig.season],
   };
 }
 
@@ -50,8 +51,9 @@ export async function InfoPageView({ slug }: { slug: string }) {
     <div className="container-shop pt-8 pb-8 sm:pt-10">
       {slug === "faq" && <JsonLd data={faqData(page, fill)} />}
       <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: fill(page.title) }]} />
-      <div className="mt-2 grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-16">
-        <article className="max-w-3xl">
+      {/* grid-cols-1 and min-w-0: a wide table scrolls in its own box instead of widening the page on phones. */}
+      <div className="mt-2 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-16">
+        <article className="min-w-0 max-w-3xl">
           <h1 className="heading text-[34px] text-ink sm:text-5xl">{fill(page.title)}</h1>
           <p className="mt-4 text-lg leading-relaxed text-ink-soft">
             <RichText text={fill(page.intro)} />
@@ -68,7 +70,7 @@ export async function InfoPageView({ slug }: { slug: string }) {
           ))}
         </article>
         <aside className="lg:pt-20">
-          <nav aria-label="Kundeservice" className="rounded-2xl bg-surface p-5 ring-1 ring-line lg:sticky lg:top-40">
+          <nav aria-label="Kundeservicesider" className="rounded-2xl bg-surface p-5 ring-1 ring-line lg:sticky lg:top-40">
             <p className="text-xs font-bold tracking-[0.12em] text-muted uppercase">Kundeservice</p>
             <ul className="mt-3 space-y-1">
               {INFO_LINKS.map((link) => (

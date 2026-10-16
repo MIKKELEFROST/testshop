@@ -9,7 +9,8 @@ export async function UspStrip() {
   if (usps.length === 0) return null;
   return (
     <section aria-label="Derfor handler du hos os" className="mt-20 border-t border-line bg-surface">
-      <ul className="container-shop flex snap-x gap-6 overflow-x-auto py-10 sm:grid sm:grid-cols-3 sm:gap-y-10 lg:grid-cols-5">
+      {/* Scrolls sideways on phones: focusable, so the keyboard can scroll it too (arrow keys). */}
+      <ul tabIndex={0} aria-label="Fordele" className="container-shop flex snap-x gap-6 overflow-x-auto py-10 sm:grid sm:grid-cols-3 sm:gap-y-10 lg:grid-cols-5">
         {usps.map((usp) => (
           <li key={usp.title} className="flex w-36 shrink-0 snap-start flex-col items-center text-center sm:w-auto">
             <UspIcon name={usp.icon} className="size-14 text-price" strokeWidth={1.4} />

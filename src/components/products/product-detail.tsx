@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, Ruler, ShoppingBag } from "lucide-react";
+import { CircleCheck, RotateCcw, Ruler, ShoppingBag } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { FavoriteButton } from "@/components/favorites/favorite-button";
@@ -10,6 +10,7 @@ import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { formatAmount, fromMinorUnits, toMinorUnits } from "@/lib/money";
 import { discountPercent } from "@/lib/pricing";
 import type { Product, ProductImage as ProductImageType, ProductVariation, StockStatus } from "@/types/commerce";
+import { HygieneReturn } from "./hygiene-return";
 import { ProductGallery } from "./product-gallery";
 import { ProductImage } from "./product-image";
 import { stockLabel } from "./stock-badge";
@@ -18,7 +19,7 @@ import { stockLabel } from "./stock-badge";
  * Gallery and purchase panel: price with savings, stock, size buttons (with body height when
  * the description gives it), add to cart, the shop's promises (`promises`) and the product
  * details (`details`). On phones a bar with the price and the button stays at the bottom once
- * the main button has scrolled out of view.
+ * the main button has scrolled out of view, until the footer comes into view.
  */
 export function ProductDetail({
   product,
@@ -42,6 +43,7 @@ export function ProductDetail({
   const buyRef = useRef<HTMLDivElement>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
   const buyPassed = usePassed(buyRef);
+  const footerInView = useFooterInView();
 
   const variation = useMemo(() => findVariation(product, selection), [product, selection]);
   const missing = product.attributes.find((a) => !selection[a.slug]);
@@ -200,13 +202,21 @@ export function ProductDetail({
         </div>
         {inCart > 0 && <p className="mt-3 text-sm text-muted">Du har {inCart} i kurven.</p>}
         {!soldOut && <DispatchCountdown className="mt-4" />}
+        {product.hygiene && (
+          <p className="mt-3 flex items-start gap-2.5 px-3.5 text-sm text-ink-soft">
+            <RotateCcw className="mt-px size-5 shrink-0 text-muted" aria-hidden="true" />
+            <span>
+              <HygieneReturn />
+            </span>
+          </p>
+        )}
 
         {promises && <div className="mt-7">{promises}</div>}
         {details && <div className="mt-2">{details}</div>}
       </div>
 
       <StickyBuyBar
-        visible={buyPassed}
+        visible={buyPassed && !footerInView}
         image={images[0] ?? null}
         name={product.name}
         price={price ?? product.priceRange?.min ?? product.price}
@@ -254,7 +264,10 @@ function StockLine({ status, quantity }: { status: StockStatus; quantity: number
   );
 }
 
-/** Phones: price and button at the bottom once the main button is out of view. */
+/**
+ * Phones: price and button at the bottom once the main button is out of view. It makes way for
+ * the footer, so it never covers the company line; globals.css keeps focus clear of it.
+ */
 function StickyBuyBar({
   visible,
   image,
@@ -279,10 +292,11 @@ function StickyBuyBar({
       }`}
       aria-hidden={!visible}
       inert={!visible}
+      data-buy-bar={visible ? "shown" : "hidden"}
     >
       <div className="flex items-center gap-3">
         <div className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-white ring-1 ring-line">
-          <ProductImage image={image} name={name} sizes="48px" />
+          <ProductImage image={image} name={name} sizes="48px" decorative />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-ink">{name}</p>
@@ -302,13 +316,31 @@ function usePassed(ref: React.RefObject<HTMLElement | null>): boolean {
   useEffect(() => {
     const element = ref.current;
     if (!element || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry) setPassed(!entry.isIntersecting && entry.boundingClientRect.top < 0);
-    });
+    // The area watched reaches far below the screen, so the element can only leave it upwards,
+    // and a jump straight past it (scroll restoration, a long fling) counts too.
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry) setPassed(!entry.isIntersecting && entry.boundingClientRect.top < 0);
+      },
+      { rootMargin: "0px 0px 100000px 0px" },
+    );
     observer.observe(element);
     return () => observer.disconnect();
   }, [ref]);
   return passed;
+}
+
+/** Whether the page's footer is on screen. */
+function useFooterInView(): boolean {
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    const footer = document.querySelector("footer");
+    if (!footer || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setInView(Boolean(entry?.isIntersecting)));
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, []);
+  return inView;
 }
 
 function initialSelection(product: Product): Record<string, string> {

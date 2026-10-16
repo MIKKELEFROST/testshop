@@ -14,5 +14,15 @@ export const RELATED_LIMIT = 10;
  */
 export const ADULT_CATEGORY_SLUGS = ["polterabend-18"];
 
+/**
+ * Categories whose products can come with a hygiene seal: the Make-up subcategories (make-up
+ * and face paint, blood and effects with the false teeth, glitter, nails and lashes). Products
+ * carry the subcategory, not "make-up" itself; it is listed for products filed there directly.
+ * Their product pages say that the 30-day return right ends once the seal is broken, as
+ * /fortrydelsesret promises. Masks are not here: they are not sold sealed, so they can be
+ * returned like any other product.
+ */
+export const HYGIENE_CATEGORY_SLUGS = ["make-up", "sminke-og-ansigtsmaling", "blod-og-effekter", "glimmer-og-ansigtssmykker", "negle-og-oejenvipper"];
+
 /** Costume categories: a theme's tile shows a costume (someone wearing it) when it has one. */
 export const COSTUME_CATEGORY_SLUGS = ["damekostumer", "herrekostumer", "pigekostumer", "drengekostumer", "babykostumer"];

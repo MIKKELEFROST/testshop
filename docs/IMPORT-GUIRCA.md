@@ -23,7 +23,17 @@ python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --samp
 
 # 4. Det hele (ca. 15 minutter på test.piece.dk); --log skriver én linje pr. vare
 python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --image-status images.tsv --log import.jsonl
+
+# 5. Rækkefølgen ved "Anbefalet" (menu_order): først en prøvekørsel, der kun læser, så --apply
+python3 scripts/guirca/import_guirca.py order
+python3 scripts/guirca/import_guirca.py order --apply
+
+# 6. Unikke navne til varer, der hedder det samme (kun navnet, adresserne bliver)
+python3 scripts/guirca/import_guirca.py names --out /tmp/guirca/navne.csv
+python3 scripts/guirca/import_guirca.py names --apply
 ```
+
+`order` og `names` skal ikke bruge arket. De læser alle varer i WooCommerce (100 ad gangen, én forespørgsel ad gangen) og skriver intet uden `--apply`. Se "Rækkefølge og ens navne" nedenfor.
 
 Andre valg: `--codes 78224,19000` (kun bestemte Guirca-numre), `--webshop SLUG,SLUG` (webshops til nye varer, standard `halloween-kostumer-dk,piece-dk`), `--workers` og `--batch` (samtidige forespørgsler og varer pr. forespørgsel), `--image-status FIL` (svarene fra billedtjekket: døde links udelades, og fotos på Guircas server, som arket ikke nævner, kommer med).
 
@@ -35,7 +45,8 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 | --- | --- |
 | Størrelser | Rækker med samme `CONNECTOR SIZE` (Guircas egen nøgle) bliver ét variabelt produkt med en variant pr. størrelse. Resten bliver simple produkter. |
 | Varenumre | Varianter og simple produkter: `GU-` + Guircas varenummer (f.eks. `GU-78225`). Variable produkter: `GU-første-sidste` (f.eks. `GU-78224-78227`). EAN gemmes som GTIN. |
-| Navne | Oversat til dansk (`translations/`). Kostumer får målgruppen på: "Mørk enhjørning – kostume til piger". Har to varer samme navn, får de farven på ("…, rød og gul"). |
+| Navne | Oversat til dansk (`translations/`). Kostumer får målgruppen på: "Mørk enhjørning – kostume til piger". Har to varer samme navn, får de farven på ("…, rød og gul"). Hedder de stadig det samme, får hver den første oplysning, der skiller den ud (se "Ens navne"). |
+| Rækkefølge | Nye varer får `menu_order` efter, hvad de er (kostumer først, se "Rækkefølge ved Anbefalet"). `order` placerer dem endeligt. |
 | Størrelsesnavne | `7 - 9 YEARS` → "7-9 år", `12 - 18 MONTHS` → "12-18 mdr.", `42 - 44 (L)` → "L (42-44)". Sorteres fra baby til voksen. |
 | Pris | Amazons vejledende pris i euro × 7,46, afrundet til nærmeste pris der ender på 9 (mindst 9 kr.). Displays i julearket (GUIRMA) er prissat pr. display og deles med antal stk. |
 | Kategorier | Dansk træ: Kostumer (Dame/Herre/Pige/Drenge/Baby/Hunde), Tøj, Tilbehør, Make-up, Pynt og fest, plus sæsonkategorierne Halloween og Jul og nytår. Unisex-kostumer ligger i begge køn. Se `CATEGORY_ORDER` i `rules.py`. |
@@ -56,6 +67,42 @@ Arket skal ikke i Git. Det er Guircas forhandlerdata.
 - Navn, tekster, kategorier, tags, status, webshops og lagerindstillinger sættes kun, når varen oprettes. Rettelser i WooCommerce overskrives derfor ikke. Med `--overwrite texts,categories` (eller `all`) sættes de igen.
 - Bliver en kørsel afbrudt, startes den bare igen. WooCommerce afviser dobbelte varenumre, og importen tjekker, hvad der nåede at blive gemt. Efter en afbrudt forespørgsel venter den først et minut (`--settle`), fordi WooCommerce kan være i gang med at gemme.
 - En vare med størrelser, der mangler nogle af sine størrelser i WooCommerce, gennemgås igen, også selvom resten er uændret.
+- `menu_order` sættes kun på nye varer; `order` sætter den for alle. Eksisterende varer får nye navne med `names`, ikke med importen.
+
+## Rækkefølge og ens navne
+
+### Rækkefølge ved Anbefalet (`order`)
+
+Shoppens sortering "Anbefalet" følger WooCommerces `menu_order` (laveste først). `order` sætter den for alle varer ud fra deres kategorier (`MERCHANDISING_TIERS` i `rules.py`), og inden for hver gruppe kommer de nyeste først (WooCommerces oprettelsesdato, som importen sætter til Guircas introduktionsår, og ved samme dato det højeste id):
+
+| Gruppe | Kategorier | `menu_order` |
+| --- | --- | --- |
+| 0 | Kostumer (alle målgrupper) | 0 … |
+| 1 | Masker, parykker, skæg og overskæg, hatte og hjelme, al make-up (også blod og effekter) | 100.000 … |
+| 2 | Andet tilbehør og tøj | 200.000 … |
+| 3 | Pynt og fest (Halloweenpynt, figurer, julepynt …) | 300.000 … |
+| 4 | Alt andet: kun Halloween/Jul og nytår, Polterabend (18+), uden kategori | 400.000 … |
+
+En vare i flere kategorier får den bedste gruppe. Sæsonkategorierne tæller ikke, så en maske i både Masker og Halloween er i gruppe 1. Underkategorier uden egen gruppe arver forælderens (Tilbehør › Briller er gruppe 2).
+
+- Kun `menu_order` skrives, med `wc/v3/products/batch` i portioner på højst 50 (`--batch`), én ad gangen og med 2 sekunders pause (`--pause`). En portion, der fejler, sendes igen efter et minut (`--settle`), fordi WooCommerce kan være i gang med at gemme den. Varianter røres ikke.
+- Nye varer fra importen får gruppens første nummer (f.eks. 100.000) og står derfor øverst i deres gruppe, indtil `order` køres igen. Kør `order` efter større importer. Den nummererer hele gruppen om, så de fleste varer får et nyt tal.
+- Prøvekørslen 15-10-2026: 8.623 varer, heraf 1.952 kostumer, 1.981 masker/parykker/hatte/make-up, 3.256 andet tilbehør og tøj, 1.397 pynt og 37 øvrige. 8.622 ville få ny `menu_order`, fordi ingen havde en endnu.
+
+### Ens navne (`names`)
+
+643 udgivne varer hed det samme som en anden vare (f.eks. tre gange "Kraniemaske, PVC, hvid" til 29, 39 og 49 kr.). Det ligner en prisfejl, og kunden kan ikke se forskel. `names` (og importens navngivning af nye varer) giver hver vare med et delt navn den første oplysning, som ingen af de andre med samme navn har, og som navnet ikke allerede siger:
+
+1. størrelse fra beskrivelsens "Mål: ca. …" (det største mål): "Kraniemaske, PVC, hvid, ca. 23,5 cm"
+2. målgruppe: "Mellemlang grøn paryk (i æske), til damer"
+3. antal, når teksten nævner det: "…, 12 stk."
+4. farve: "…, hvid og sort"
+5. ellers Guircas varenummer: "Kraniemaske, PVC, hvid, model 20113"
+
+- Kun udgivne varer sammenlignes (store og små bogstaver tæller ikke). Kun navnet skrives; adressen (slug) og dermed links og Google bliver, som de er. Et nyt navn tager aldrig navnet fra en anden vare; så bruges varenummeret.
+- Oplysningerne læses fra det, WooCommerce viser (beskrivelse, Målgruppe, Farve og varenummeret i SKU'en), så rettelser i WooCommerce tæller med. Det giver de samme navne, som importen giver nye varer.
+- `--out navne.csv` skriver alle omdøbninger (id, varenr., navn nu, nyt navn), så de kan tjekkes i Excel før `--apply`. Kør `names` igen, når kladder er blevet udgivet.
+- Prøvekørslen 15-10-2026: 283 navne delt af 643 udgivne varer. 132 får størrelsen, 17 målgruppen og 494 Guircas varenummer (især kostumer og parykker, hvor arket ikke har andre forskelle).
 
 ## Oversættelser
 
@@ -77,4 +124,4 @@ I WooCommerce-admin har varerne ingen udvalgt billede, fordi billederne ligger h
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/guirca` (kører også i CI) tester størrelser, priser, navne, kategorier, beskrivelser, samling af størrelser og billedtjekkets regler (fotos, arket ikke nævner, koder med mellemrum, svar uden status).
+`python3 -m unittest discover -s scripts/guirca` (kører også i CI; `python3 -m pytest scripts/guirca` virker også) tester størrelser, priser, navne og unikke navne, kategorier, rækkefølgen ved Anbefalet, beskrivelser, samling af størrelser og billedtjekkets regler (fotos, arket ikke nævner, koder med mellemrum, svar uden status).

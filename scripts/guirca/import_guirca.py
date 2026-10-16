@@ -6,8 +6,11 @@
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx> --dry-run # plan against WooCommerce, no writes
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx> --sample 100
     python3 scripts/guirca/import_guirca.py import <sheet.xlsx>           # everything
+    python3 scripts/guirca/import_guirca.py order [--apply]   # "Anbefalet" order (menu_order) of all products
+    python3 scripts/guirca/import_guirca.py names [--apply]   # unique names for products that share one
 
 Pass --image-status images.tsv to report and import to use the photos the check found.
+order and names only read WooCommerce unless --apply is given.
 WooCommerce credentials come from WOOCOMMERCE_URL, WOOCOMMERCE_CONSUMER_KEY and
 WOOCOMMERCE_CONSUMER_SECRET (e.g. `set -a; . ./.env.local; set +a`).
 
@@ -340,6 +343,8 @@ def product_payload(spec: catalog.ProductSpec, ids: Ids, fields: set[str], websh
     }
     if creating:
         payload["type"] = spec.kind
+        # First in its tier until the next `order` run places it (menu_order is "Anbefalet").
+        payload["menu_order"] = rules.merchandising_tier([rules.slug_path(c) for c in spec.categories]) * rules.TIER_STEP
         if spec.intro_year:
             payload["date_created"] = f"{min(spec.intro_year, dt.date.today().year)}-01-01T00:00:00"
     if spec.kind == "simple":
@@ -569,6 +574,132 @@ def run_import(args) -> int:
     return Importer(woo, ids, args).run(specs, by_code, by_sku)
 
 
+# ---------------------------------------------------------------- order and names
+
+MAX_BATCH = 50
+
+
+def read_products(woo: Woo, status: str, fields: str) -> list[dict]:
+    """Every product, 100 per request and one request at a time (reads are retried)."""
+    print("Læser produkterne i WooCommerce …", flush=True)
+    products = woo.get_all("wc/v3/products", status=status, _fields=fields)
+    print(f"  {len(products)} produkter")
+    return products
+
+
+def write_products(woo: Woo, updates: list[dict], field: str, args) -> int:
+    """Save one field ({id, field}) in batches of at most 50, one batch at a time with a pause.
+
+    The updates only set a value, so a batch that fails is sent again after --settle seconds
+    (WooCommerce may still be saving it). Returns how many products were not saved.
+    """
+    size = max(1, min(args.batch, MAX_BATCH))
+    batches = [updates[start:start + size] for start in range(0, len(updates), size)]
+    saved = failed = 0
+    for number, chunk in enumerate(batches, 1):
+        results = []
+        for attempt in range(3):
+            try:
+                results = woo.post("wc/v3/products/batch", {"update": chunk}, safe_to_repeat=True).get("update", [])
+                break
+            except WooError as error:
+                if attempt == 2:
+                    print(f"  batch-fejl ({error}); springer portionen over", flush=True)
+                else:
+                    print(f"  batch-fejl ({error}); prøver igen om {args.settle} s …", flush=True)
+                    time.sleep(args.settle)
+        by_id = {r.get("id"): r for r in results if not r.get("error")}
+        for update in chunk:
+            result = by_id.get(update["id"])
+            if result is not None and text(str(result.get(field))) == text(str(update[field])):
+                saved += 1
+            else:
+                failed += 1
+                error = next((r["error"].get("message") for r in results if r.get("error") and r.get("id") == update["id"]), "ikke gemt")
+                print(f"  FEJL produkt {update['id']}: {error}")
+        print(f"[{number}/{len(batches)}] gemt {saved}, fejl {failed}", flush=True)
+        if number < len(batches):
+            time.sleep(args.pause)
+    return failed
+
+
+def finish(woo: Woo, updates: list[dict], field: str, args) -> int:
+    if not args.apply:
+        print("Prøvekørsel: intet er gemt. Kør igen med --apply for at gemme.")
+        return 0
+    failed = write_products(woo, updates, field, args)
+    print(f"Færdig: gemt {len(updates) - failed}, fejl {failed}")
+    return 1 if failed else 0
+
+
+def run_order(args) -> int:
+    """Set every product's menu_order, which the shop's "Anbefalet" sort follows: costumes
+    first, then masks, wigs, hats and make-up, other accessories, decorations and the rest
+    (rules.MERCHANDISING_TIERS), newest first within each."""
+    woo = Woo.from_env()
+    paths = rules.category_slug_paths(woo.get_all("wc/v3/products/categories", _fields="id,slug,parent"))
+    products = read_products(woo, "any", "id,name,status,date_created,menu_order,categories")
+    tiers = {p["id"]: rules.merchandising_tier(paths.get(c["id"], (c.get("slug", ""),)) for c in p.get("categories") or []) for p in products}
+    orders = rules.menu_orders((p["id"], p.get("date_created"), tiers[p["id"]]) for p in products)
+    print("Rækkefølge ved Anbefalet:")
+    for tier, label in rules.TIER_NAMES.items():
+        members = sorted((p for p in products if tiers[p["id"]] == tier), key=lambda p: orders[p["id"]])
+        published = sum(p.get("status") == "publish" for p in members)
+        first = ", ".join(text(p["name"]) for p in members[:3])
+        print(f"  {tier}  {label}: {len(members)} ({published} udgivne){' · først: ' + first if first else ''}")
+    updates = [{"id": p["id"], "menu_order": orders[p["id"]]} for p in products if p.get("menu_order") != orders[p["id"]]]
+    print(f"menu_order ændres på {len(updates)} af {len(products)} produkter (kun menu_order)")
+    return finish(woo, updates, "menu_order", args)
+
+
+def product_name_facts(product: dict) -> rules.NameFacts:
+    """NameFacts from what WooCommerce shows: description, Målgruppe, Farve and the Guirca number in the SKU."""
+    options = {text(a.get("name", "")): a.get("options") or [] for a in product.get("attributes") or []}
+    sku = product.get("sku") or ""
+    code = sku[len(catalog.SKU_PREFIX):].split("-")[0] if sku.startswith(catalog.SKU_PREFIX) else sku or str(product["id"])
+    description = f"{product.get('description', '')} {product.get('short_description', '')}"
+    return rules.name_facts(text=description, groups=options.get(GROUP, []), colours=options.get(COLOUR, []), code=code)
+
+
+def run_names(args) -> int:
+    """Give published products that share their name the first fact that tells them apart
+    (rules.unique_names). Only the name changes: slugs, and with them the URLs, are kept."""
+    woo = Woo.from_env()
+    products = read_products(woo, "publish", "id,name,sku,description,short_description,attributes")
+    current = {p["id"]: text(p["name"]) for p in products}
+    facts = {p["id"]: product_name_facts(p) for p in products}
+    renamed = rules.unique_names({i: (current[i], facts[i]) for i in current})
+    groups = collections.defaultdict(list)
+    for product_id in current:
+        groups[rules.name_key(current[product_id])].append(product_id)
+    shared = [ids for ids in groups.values() if len(ids) > 1]
+    print(f"Navne, som flere udgivne produkter har: {len(shared)} (i alt {sum(len(ids) for ids in shared)} produkter)")
+    kinds = collections.Counter()
+    for product_id, name in renamed.items():
+        suffix = name[len(current[product_id].strip()) + 2:]
+        kinds[next((k for k, v in vars(facts[product_id]).items() if v == suffix), "?")] += 1
+    labels = {"size": "mål", "audience": "målgruppe", "pack": "antal", "colour": "farve", "model": "Guirca-model"}
+    print(f"Omdøbes: {len(renamed)} (kun navnet; adresserne ændres ikke) · " + ", ".join(f"{labels.get(k, k)} {n}" for k, n in kinds.most_common()))
+    # Examples: whole groups, spread over the alphabet.
+    examples = sorted((ids for ids in shared if any(i in renamed for i in ids)), key=lambda ids: rules.name_key(current[ids[0]]))
+    needed = -(-args.examples * len(examples) // max(1, sum(map(len, examples))))  # groups, rounded up
+    shown = 0
+    for ids in examples[:: max(1, len(examples) // max(1, needed))]:
+        for product_id in sorted(ids):
+            if shown < args.examples and product_id in renamed:
+                print(f"  {product_id}: {current[product_id]}  →  {renamed[product_id]}")
+                shown += 1
+    if args.out:
+        with Path(args.out).open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(["ID", "Varenr.", "Navn nu", "Nyt navn"])
+            skus = {p["id"]: p.get("sku", "") for p in products}
+            for product_id in sorted(renamed, key=lambda i: (rules.name_key(current[i]), i)):
+                writer.writerow([product_id, skus[product_id], current[product_id], renamed[product_id]])
+        print(f"Alle omdøbninger: {args.out}")
+    return finish(woo, [{"id": i, "name": n} for i, n in sorted(renamed.items())], "name", args)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Importér Guircas produktark i WooCommerce.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -594,8 +725,20 @@ def main(argv=None) -> int:
     p.add_argument("--batch", type=int, default=20, help="Produkter pr. forespørgsel (standard 20)")
     p.add_argument("--log", help="JSONL-log over hvert produkt")
     p.add_argument("--settle", type=int, default=60, help="Sekunder at vente efter en afbrudt forespørgsel, før der tjekkes, hvad der blev gemt")
+    sub.add_parser("order", help="Sæt rækkefølgen ved 'Anbefalet' (menu_order): kostumer først, nyeste først")
+    sub.add_parser("names", help="Gør navne, som flere udgivne varer har, unikke (kun navnet, ikke adressen)")
+    for name in ("order", "names"):
+        p = sub.choices[name]
+        mode = p.add_mutually_exclusive_group()
+        mode.add_argument("--dry-run", action="store_true", help="Vis kun, hvad der ville ændres (standard)")
+        mode.add_argument("--apply", action="store_true", help="Gem ændringerne i WooCommerce")
+        p.add_argument("--batch", type=int, default=MAX_BATCH, help=f"Produkter pr. forespørgsel (højst {MAX_BATCH})")
+        p.add_argument("--pause", type=float, default=2, help="Sekunder mellem forespørgslerne (standard 2)")
+        p.add_argument("--settle", type=int, default=60, help="Sekunder at vente efter en fejlet forespørgsel, før den sendes igen")
+    sub.choices["names"].add_argument("--examples", type=int, default=20, help="Antal eksempler, der vises (standard 20)")
+    sub.choices["names"].add_argument("--out", help="CSV med alle omdøbninger")
     args = parser.parse_args(argv)
-    commands = {"images": check_images, "report": report, "import": run_import}
+    commands = {"images": check_images, "report": report, "import": run_import, "order": run_order, "names": run_names}
     return commands[args.command](args)
 
 
