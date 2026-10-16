@@ -39,6 +39,8 @@ Forbindelsen bruger HTTP Basic auth over **HTTPS**. WooCommerce afviser Basic au
 
 Storefronten beregner **ingen** moms eller fragt selv. Den viser WooCommerces tal, så andre opsætninger (priser ekskl. moms, gratis fragt over X kr., afhentning, flere zoner) virker automatisk.
 
+**Udsalgspris og førpris – læs før du bruger udsalgspris:** Har et produkt eller en variant en **Udsalgspris**, viser shoppen den normale pris som overstreget "Før"-pris, et "-X%"-mærke på produktkort og produktbillede og "Spar X kr." på produktsiden. Efter prisoplysningsbekendtgørelsen (EU's Omnibus-regler) skal førprisen ved en prisnedsættelse være den laveste pris, varen er solgt til i de 30 dage før nedsættelsen. Shoppen og pluginet gemmer ingen prishistorik og kan ikke kontrollere det. Brug derfor kun Udsalgspris, når normalprisen har været uændret i mindst de 30 dage før, og hæv aldrig normalprisen op til et udsalg. Ellers skal du rette normalprisen i stedet. Priserne er fælles, så en udsalgspris gælder i alle webshops, der sælger varen. Leverandørimporten sætter kun normalprisen.
+
 ## 4. Valgfrit: øjeblikkelig opdatering af produkter
 
 Produktsider caches i op til et minut. For at opdatere dem med det samme ved ændringer:
@@ -111,7 +113,7 @@ Fragtmetoderne oprettes under **WooCommerce → Indstillinger → Forsendelse** 
 
 - **Pris:** "Fast sats" indtastes **ekskl. moms**. 39 kr. inkl. moms skrives som 31,20 (39 / 1,25).
 - **Fri fragt fra** (plugin 1.3): feltet på en Fast sats-metode. Når varerne koster mindst beløbet (inkl. moms og efter rabat, som i kurven), viser kassen metoden som "Gratis", og ordren får 0 kr. i fragt. Kunden vælger stadig selv fragtfirma. Lad feltet stå tomt på metoder, der altid koster det samme, f.eks. levering til døren.
-- Shoppen læser det laveste "Fri fragt fra"-beløb og viser det i sine løfter ("Fri fragt v/ 599 kr.") og i kurven ("Køb for 120 kr. mere …"). Teksterne følger derfor med, når beløbet ændres i WooCommerce (inden for en time).
+- Shoppen læser det laveste "Fri fragt fra"-beløb og viser det i sine løfter ("Fri fragt til pakkeshop v/ 599 kr.") og i kurven ("Køb for 120 kr. mere …"). Teksterne følger derfor med, når beløbet ændres i WooCommerce (inden for en time).
 - WooCommerces egen metode **Gratis forsendelse** virker også, men den vises som et ekstra valg ved siden af de betalte metoder. Den skal bruges, hvis en rabatkode skal give fri fragt (kuponens afkrydsning for gratis forsendelse). "Fri fragt fra" reagerer ikke på sådanne rabatkoder.
 
 ## 11. Ordremails i webshoppens navn
