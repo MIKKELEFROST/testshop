@@ -34,7 +34,7 @@ Begge sælger hele Guircas sortiment. Det er fremhævningen, der er forskellig:
 
 - **Menu og forside:** hver sin menu, hero, målgruppe-fliser, temaer ("Prinsesser og prinser", "Superhelte" … / "Hekse", "Zombier" …) og produktrækker.
 - **Temasider** (`/tema/<slug>`) samler produkter fra kategorier og temaer (WooCommerce-tags), f.eks. "Halloweenkostumer til damer" = Damekostumer, der også ligger i Halloween.
-- **Den anden sæson holdes væk** fra forsiden og temasiderne: Fastelavnsshoppen viser ikke Halloween og jul dér, Halloweenshoppen ikke jul. Produkterne findes stadig i kategorierne og i søgningen.
+- **Den anden sæson holdes væk** fra forsiden, temasiderne og produktsidernes anbefalinger: Fastelavnsshoppen viser ikke Halloween og jul dér (heller ikke tilbehør med f.eks. flagermus, kranier eller nisser), Halloweenshoppen ikke jul. Produkterne findes stadig i kategorierne og i søgningen.
 - **Kategorisider og "Alle produkter"** viser med sorteringen "Anbefalet" shoppens sæson først og resten bagefter (Fastelavn: det, der ikke er Halloween eller jul; Halloween: Halloween først). Ingen varer skjules.
 - **18+:** Guircas 37 varer til voksne ("Polterabend (18+)") sælges kun i Halloweenkostumer.dk. De vises med et 18+-mærke og kun i deres kategori og i søgningen, aldrig på forsiden, i anbefalinger eller under "Alle produkter".
 

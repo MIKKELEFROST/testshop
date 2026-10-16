@@ -77,6 +77,13 @@ export type Merchandising = {
    */
   navHidden: string[];
   /**
+   * Product-page recommendations ("Relevant tilbehør", "Lignende produkter") leave out products
+   * named like this, besides the hidden categories: Guirca files many bat, skull and Santa
+   * items under neutral themes such as "Dyr", outside the Halloween and Christmas categories.
+   * Not for products that are off-season themselves (a skeleton costume keeps its skulls).
+   */
+  offSeasonWords?: RegExp;
+  /**
    * The order of category pages and "Alle produkter" (with the default sorting): the
    * season's products first, then the rest. "in": products in these categories first;
    * "out": products outside them first. Nothing is left out. Needs plugin 1.4.
@@ -111,6 +118,8 @@ const ADULTS = ["damekostumer", "herrekostumer"];
 const fastelavn: Merchandising = {
   hidden: ["halloween", "jul-og-nytaar"],
   navHidden: ["halloweenpynt", "figurer-og-animatronics", "slik-eller-ballade", "julepynt", "blod-og-effekter"],
+  // "\bjul": Christmas words (jul, julemand, juletræ …) but not "hjul" or "skjult".
+  offSeasonWords: /halloween|flagermus|edderkop|kranie|skelet|zombie|spindelv|nisse|\bjul/i,
   seasonFirst: { categories: ["halloween", "jul-og-nytaar"], prefer: "out" },
   nav: [
     {

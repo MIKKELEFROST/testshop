@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { merchandisingByStore } from "@/config/merchandising";
 import type { ProductSummary } from "@/types/commerce";
-import { rankAccessories, rankSimilar, relevance } from "./related";
+import { rankAccessories, rankSimilar, relevance, seasonFilter } from "./related";
 
 function item(id: number, tags: number[], audience: string[] = [], kind = "x", stock: ProductSummary["stockStatus"] = "instock"): ProductSummary {
   return {
@@ -63,5 +64,45 @@ describe("rankSimilar", () => {
   it("ranks by relevance, keeps WooCommerce's order on ties and skips excluded products", () => {
     const candidates = [item(1, []), item(2, [1]), item(3, [1, 2], ["Piger"]), item(4, [])];
     expect(rankSimilar(costume, candidates, 3, new Set([2])).map((p) => p.id)).toEqual([3, 1, 4]);
+  });
+});
+
+describe("seasonFilter (Fastelavn: no Halloween or Christmas)", () => {
+  const HALLOWEEN = 103;
+  const CHRISTMAS = 104;
+  const ANIMALS = 20; // An accessory category; Guirca's bat items are tagged "Dyr" like the animal costumes.
+  const words = merchandisingByStore["piece-dk"]!.offSeasonWords;
+  const named = (id: number, name: string, categories: number[]): ProductSummary => ({
+    ...item(id, []),
+    name,
+    categories: categories.map((c) => ({ id: c, name: `C${c}`, slug: `c${c}` })),
+  });
+  const dino = { name: "Dino – kostume til baby", categories: [{ id: 7 }] };
+
+  it("leaves out the hidden categories and products named like the other seasons", () => {
+    const { fits, hiddenCategoryIds } = seasonFilter(dino, [HALLOWEEN, CHRISTMAS], words);
+    expect(hiddenCategoryIds).toEqual([HALLOWEEN, CHRISTMAS]);
+    expect(fits(named(1, "Ring med edderkop", [ANIMALS, HALLOWEEN]))).toBe(false);
+    expect(fits(named(2, "Nissehue", [ANIMALS, CHRISTMAS]))).toBe(false);
+    expect(fits(named(3, "Sorte flagermusvinger", [ANIMALS]))).toBe(false);
+    expect(fits(named(4, "Hårspænde med kranie", [ANIMALS]))).toBe(false);
+    expect(fits(named(5, "Julemandshue", [ANIMALS]))).toBe(false);
+    expect(fits(named(6, "Dinosaurhale", [ANIMALS]))).toBe(true);
+    expect(fits(named(7, "Hjul til bil", [ANIMALS]))).toBe(true);
+  });
+
+  it("lets a product that is off-season itself keep its own kind", () => {
+    const witch = seasonFilter({ name: "Heks – kostume til piger", categories: [{ id: 50 }, { id: HALLOWEEN }] }, [HALLOWEEN, CHRISTMAS], words);
+    expect(witch.hiddenCategoryIds).toEqual([CHRISTMAS]);
+    expect(witch.fits(named(1, "Edderkoppehalskæde", [ANIMALS, HALLOWEEN]))).toBe(true);
+    expect(witch.fits(named(2, "Nissehue", [ANIMALS, CHRISTMAS]))).toBe(false);
+    const skeleton = seasonFilter({ name: "Skeletkostume til drenge", categories: [{ id: 51 }] }, [HALLOWEEN, CHRISTMAS], words);
+    expect(skeleton.fits(named(3, "Kraniemaske", [ANIMALS]))).toBe(true);
+  });
+
+  it("filters only by category in a shop without off-season words", () => {
+    const { fits } = seasonFilter(dino, [CHRISTMAS], merchandisingByStore["halloween-kostumer-dk"]!.offSeasonWords);
+    expect(fits(named(1, "Sorte flagermusvinger", [ANIMALS]))).toBe(true);
+    expect(fits(named(2, "Nissehue", [ANIMALS, CHRISTMAS]))).toBe(false);
   });
 });

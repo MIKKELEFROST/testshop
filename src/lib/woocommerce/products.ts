@@ -10,7 +10,7 @@ import { HOURS, MINUTES, fetched, orFailure, type CacheLife, type Read } from ".
 import { wooRequest } from "./client";
 import { categoryPath, primaryCategory } from "./category-tree";
 import { decodeEntities, mapCategory, mapProduct, mapProductSummary } from "./mappers";
-import { rankAccessories, rankSimilar } from "./related";
+import { rankAccessories, rankSimilar, seasonFilter } from "./related";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 /**
@@ -297,23 +297,28 @@ export type RelatedProducts = { accessories: ProductSummary[]; similar: ProductS
  *
  * - Accessories: products in the accessory categories (ACCESSORY_CATEGORY_SLUGS) with one of
  *   the product's themes; if there are too few, accessories from the product's other
- *   categories (e.g. Halloween). One of each kind first (see rankAccessories).
+ *   categories. One of each kind first (see rankAccessories).
  * - Similar: products in the product's most specific category, those with its themes first.
  *
- * Both prefer the product's target group. A failure only hides the rows.
+ * Both prefer the product's target group and leave out the other season (the shop's hidden
+ * categories and off-season names, see seasonFilter). A failure only hides the rows.
  */
-export async function getRelatedProducts(product: Pick<Product, "id" | "tags" | "audience" | "categories">): Promise<RelatedProducts> {
+export async function getRelatedProducts(product: Pick<Product, "id" | "name" | "tags" | "audience" | "categories">): Promise<RelatedProducts> {
   const result = await readRelatedProducts(product).catch(orFailure);
   return result.ok ? result.data : { accessories: [], similar: [] };
 }
 
-async function readRelatedProducts(product: Pick<Product, "id" | "tags" | "audience" | "categories">): Promise<Read<RelatedProducts>> {
+async function readRelatedProducts(product: Pick<Product, "id" | "name" | "tags" | "audience" | "categories">): Promise<Read<RelatedProducts>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG, productTag(product.id));
   return fetched("getRelatedProducts", HOURS, async () => {
-    const categories = await getCategories();
+    const [categories, plugin] = await Promise.all([getCategories(), getPluginFeatures()]);
     if (!categories.ok) throw new Error(categories.error);
     const tree = categories.data;
+    const season = seasonFilter(product, tree.filter((c) => merchandising.hidden.includes(c.slug)).map((c) => c.id), merchandising.offSeasonWords);
+    // Plugin 1.4 leaves the hidden categories out in WooCommerce already (more candidates that fit).
+    const notIn: Record<string, string> = plugin.categoryFilters && season.hiddenCategoryIds.length > 0 ? { wchc_not_in_category: season.hiddenCategoryIds.join(",") } : {};
+    const candidates = async (query: Record<string, string | number>) => (await relatedQuery({ ...query, ...notIn }, product.id)).filter(season.fits);
     const roots = tree.filter((c) => c.parent === 0 && ACCESSORY_CATEGORY_SLUGS.includes(c.slug));
     const rootIds = new Set(roots.map((c) => c.id));
     // Accessory category -> its kind (the subcategory directly below the accessory root).
@@ -328,13 +333,14 @@ async function readRelatedProducts(product: Pick<Product, "id" | "tags" | "audie
 
     let accessories: ProductSummary[] = [];
     if (roots.length > 0) {
-      const byTheme = tagIds ? await relatedQuery({ category: [...rootIds].join(","), tag: tagIds, per_page: 48 }, product.id) : [];
+      const byTheme = tagIds ? await candidates({ category: [...rootIds].join(","), tag: tagIds, per_page: 48 }) : [];
       accessories = rankAccessories(product, byTheme, accessoryKind, RELATED_LIMIT);
       if (accessories.length < RELATED_LIMIT / 2) {
-        // Too few with the same themes: accessories from the product's other categories (e.g. Halloween).
+        // Too few with the same themes: accessories from the product's other categories (e.g. its
+        // costume category), with the same season filter.
         const others = product.categories.filter((c) => !kindOf.has(c.id)).map((c) => c.id);
         if (others.length > 0) {
-          const nearby = (await relatedQuery({ category: others.join(","), per_page: 100 }, product.id)).filter(isAccessory);
+          const nearby = (await candidates({ category: others.join(","), per_page: 100 })).filter(isAccessory);
           accessories = rankAccessories(product, [...byTheme, ...nearby], accessoryKind, RELATED_LIMIT);
         }
       }
@@ -344,10 +350,10 @@ async function readRelatedProducts(product: Pick<Product, "id" | "tags" | "audie
     let similar: ProductSummary[] = [];
     if (primary) {
       const shown = new Set(accessories.map((p) => p.id));
-      const byTheme = tagIds ? await relatedQuery({ category: primary.id, tag: tagIds, per_page: 24 }, product.id) : [];
+      const byTheme = tagIds ? await candidates({ category: primary.id, tag: tagIds, per_page: 24 }) : [];
       similar = rankSimilar(product, byTheme, RELATED_LIMIT, shown);
       if (similar.length < RELATED_LIMIT) {
-        const sameCategory = await relatedQuery({ category: primary.id, per_page: 24 }, product.id);
+        const sameCategory = await candidates({ category: primary.id, per_page: 24 });
         similar = rankSimilar(product, [...byTheme, ...sameCategory], RELATED_LIMIT, shown);
       }
     }

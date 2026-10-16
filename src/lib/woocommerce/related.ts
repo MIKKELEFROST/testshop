@@ -30,6 +30,28 @@ export function relevance(product: Profile, candidate: ProductSummary): number {
   return score;
 }
 
+/**
+ * Which candidates fit the shop's season: none in the shop's hidden categories (e.g. Halloween
+ * and Christmas in the Fastelavn shop) and none named like an off-season item (`offSeasonWords`,
+ * e.g. "flagermus" or "nisse"). A product that is off-season itself (in a hidden category, or
+ * named like one: a skeleton costume) keeps its own kind. `hiddenCategoryIds` returns the
+ * categories still left out.
+ */
+export function seasonFilter(
+  product: { name: string; categories: { id: number }[] },
+  hiddenCategoryIds: number[],
+  offSeasonWords?: RegExp,
+): { hiddenCategoryIds: number[]; fits: (candidate: ProductSummary) => boolean } {
+  const own = new Set(product.categories.map((c) => c.id));
+  const hidden = hiddenCategoryIds.filter((id) => !own.has(id));
+  const offSeason = hidden.length < hiddenCategoryIds.length || Boolean(offSeasonWords?.test(product.name));
+  const words = offSeason ? undefined : offSeasonWords;
+  return {
+    hiddenCategoryIds: hidden,
+    fits: (candidate) => !candidate.categories.some((c) => hidden.includes(c.id)) && !words?.test(candidate.name),
+  };
+}
+
 /** Candidates worth showing: not the product itself, not sold out, each product once. */
 function usable(product: Profile, candidates: ProductSummary[], exclude: ReadonlySet<number>): ProductSummary[] {
   const seen = new Set<number>([product.id, ...exclude]);

@@ -112,7 +112,8 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
   - Under knappen står webshoppens løfter og foldbare afsnit med beskrivelse, størrelser, levering og retur samt produktsikkerhed.
   - På mobil kommer en købsbjælke frem, når man har scrollet forbi knappen. Uden valgt størrelse ruller bjælken op til størrelserne.
 - **Relevant tilbehør og Lignende produkter** (`getRelatedProducts`, `lib/woocommerce/related.ts`):
-  - Tilbehør er varer i kategorierne fra `ACCESSORY_CATEGORY_SLUGS` (Tilbehør og Make-up) med et af produktets temaer (tags). Er der for få, bruges tilbehør fra produktets øvrige kategorier, f.eks. Halloween.
+  - Tilbehør er varer i kategorierne fra `ACCESSORY_CATEGORY_SLUGS` (Tilbehør og Make-up) med et af produktets temaer (tags). Er der for få, bruges tilbehør fra produktets øvrige kategorier.
+  - Den anden sæson holdes ude: ingen varer fra webshoppens skjulte kategorier og, i Fastelavnsshoppen, ingen med f.eks. "flagermus", "kranie" eller "nisse" i navnet (`offSeasonWords` i `config/merchandising.ts`; Guirca giver mange af dem temaet "Dyr"). Er produktet selv fra den anden sæson (et halloweenkostume, et skelet), får det sin egen slags.
   - Rækken viser én af hver slags (hat, paryk, maske …), før der kommer to af samme slags.
   - Lignende produkter er produkter fra produktets mest specifikke kategori, og dem med samme temaer kommer først.
   - Begge foretrækker produktets målgruppe. Børnevarer til voksenkostumer og omvendt kommer sidst.

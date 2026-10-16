@@ -21,9 +21,18 @@ vi.mock("./client", () => ({
   },
 }));
 
-const { getAllProductSlugs, getCategories, getProducts } = await import("./products");
+const { getAllProductSlugs, getCategories, getProducts, getRelatedProducts } = await import("./products");
 
-const category = (id: number, slug: string, count: number) => ({ id, name: slug, slug, parent: 0, count });
+const category = (id: number, slug: string, count: number, parent = 0) => ({ id, name: slug, slug, parent, count });
+const product = (id: number, name: string, categories: number[]) => ({
+  id,
+  name,
+  slug: `p${id}`,
+  type: "simple",
+  status: "publish",
+  categories: categories.map((c) => ({ id: c, name: `C${c}`, slug: `c${c}` })),
+  tags: [{ id: 114, name: "Dyr", slug: "dyr" }],
+});
 
 beforeEach(() => {
   requests.length = 0;
@@ -86,5 +95,42 @@ describe("getCategories", () => {
       ["damekostumer", 420],
       ["hatte", 90],
     ]);
+  });
+});
+
+describe("getRelatedProducts (Fastelavn shop)", () => {
+  // Babykostumer 7; Tilbehør 10 with Hatte 11; Halloween 103 and Jul og nytår 104 are hidden in this shop.
+  const tree = [category(7, "babykostumer", 50), category(10, "tilbehoer", 90), category(11, "hatte", 40, 10), category(103, "halloween", 30), category(104, "jul-og-nytaar", 20)];
+  const answer = (plugin: string): Route => (path, query) => {
+    if (path === "wc-headless/v1/status") return { body: { version: plugin } };
+    if (path === "wc/v3/products/categories") return { body: tree, totalPages: 1 };
+    if (path.endsWith("/category-counts")) return { body: Object.fromEntries(tree.map((c) => [String(c.id), c.count])) };
+    if (query.per_page === 1) return { body: [{ id: 1 }], total: 10 };
+    if (query.category === "10") {
+      // Accessories with the costume's theme ("Dyr"), the way Guirca tags them.
+      return { body: [product(21, "Ring med edderkop", [11, 103]), product(22, "Nissehue", [11, 104]), product(23, "Sorte flagermusvinger", [11]), product(24, "Dinohue", [11])] };
+    }
+    if (query.category === "7" && query.tag === undefined && query.per_page === 100) {
+      // The fallback: accessories from the costume's own category.
+      return { body: [product(31, "Flagermus-hårbøjle", [11, 7]), product(32, "Løvemanke", [11, 7])] };
+    }
+    return { body: [product(41, "Krokodille – kostume til baby", [7]), product(42, "Skelet – kostume til baby", [7]), product(43, "Rensdyr til jul", [7, 104])] };
+  };
+  const dino = { id: 1, name: "Dino – kostume til baby", tags: [{ id: 114, name: "Dyr" }], audience: [], categories: [{ id: 7, name: "Babykostumer", slug: "babykostumer" }] };
+
+  it("leaves out Halloween, Christmas and off-season names, also in the fallback", async () => {
+    route = answer("1.3.1");
+    const { accessories, similar } = await getRelatedProducts(dino);
+    expect(accessories.map((p) => p.id)).toEqual([24, 32]);
+    expect(similar.map((p) => p.id)).toEqual([41]);
+    expect(requests.filter((r) => r.path === "wc/v3/products" && r.query.per_page !== 1).every((r) => r.query.wchc_not_in_category === undefined)).toBe(true);
+  });
+
+  it("asks WooCommerce to leave the hidden categories out with plugin 1.4", async () => {
+    route = answer("1.4.0");
+    await getRelatedProducts(dino);
+    const reads = requests.filter((r) => r.path === "wc/v3/products");
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.every((r) => r.query.wchc_not_in_category === "103,104")).toBe(true);
   });
 });

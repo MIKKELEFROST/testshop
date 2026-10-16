@@ -7,6 +7,7 @@ import { ProductCard } from "./product-card";
 export async function RelatedProducts({ product }: { product: Product }) {
   const { accessories, similar } = await getRelatedProducts({
     id: product.id,
+    name: product.name,
     tags: product.tags,
     audience: product.audience,
     categories: product.categories,
