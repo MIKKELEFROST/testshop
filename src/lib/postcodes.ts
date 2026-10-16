@@ -631,3 +631,13 @@ export function cityForPostcode(input: { country: string; postcode: string; city
   if (town && (input.city.trim() === "" || input.city === input.filled)) return { city: town, filled: town };
   return { city: input.city, filled: input.filled };
 }
+
+/**
+ * For an address restored from the checkout draft: its town as the one filled in from the
+ * postcode (so a new postcode replaces it) when it is that postcode's own town, else null (the
+ * customer typed it).
+ */
+export function filledTown(address: { country: string; postcode: string; city: string } | null | undefined): string | null {
+  if (!address || address.country !== "DK" || address.city === "") return null;
+  return townForPostcode(address.postcode) === address.city ? address.city : null;
+}

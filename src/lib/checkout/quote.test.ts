@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatPrice } from "@/lib/money";
 import { quoteSchema } from "@/lib/woocommerce/schemas";
-import { cartShippingLabel, cheapestShipping, includesShipping, toClientQuote } from "./quote";
+import { cartShippingLabel, cheapestShipping, includesShipping, payTotalLine, shippingSection, toClientQuote } from "./quote";
 
 const base = {
   currency: "DKK",
@@ -75,5 +75,48 @@ describe("shipping in the cart", () => {
     expect(cartShippingLabel(client)).toBe("Beregnes ved kassen");
     expect(cartShippingLabel(null)).toBe("Beregnes ved kassen");
     expect(cartShippingLabel({ ...client, needsShipping: false })).toBeNull();
+  });
+});
+
+describe("the checkout's delivery methods", () => {
+  const noRates = toClientQuote(quoteSchema.parse({ ...base, coupons_enabled: false, coupons: [], coupon_errors: [] }));
+  const priced = { ...noRates, shippingRates: [{ id: "flat_rate:3", label: "PostNord – nærmeste pakkeshop", price: "39.00" }], shippingRateId: "flat_rate:3" };
+  const state = (postcodeValid: boolean, quote: typeof noRates | null, loading: boolean, failed = false) => shippingSection({ postcodeValid, quote, loading, failed });
+
+  it("asks for the address until the postcode is valid", () => {
+    expect(state(false, noRates, false)).toBe("address");
+    expect(state(false, null, false, true)).toBe("address");
+  });
+
+  it("loads, rather than saying it can't deliver, while the quote without a postcode is replaced", () => {
+    // The first quote was asked for without a postcode and has no rates; the postcode was just typed.
+    expect(state(true, noRates, true)).toBe("loading");
+    expect(state(true, null, true)).toBe("loading");
+    expect(state(true, noRates, false)).toBe("undeliverable");
+  });
+
+  it("keeps the rates shown while a new quote loads (e.g. a street name is typed)", () => {
+    expect(state(true, priced, true)).toBe("rates");
+    expect(state(true, priced, false)).toBe("rates");
+  });
+
+  it("shows the error with \"Prøv igen\" there when the quote failed, also while it is retried", () => {
+    expect(state(true, null, false, true)).toBe("error");
+    expect(state(true, null, true, true)).toBe("error");
+  });
+
+  it("says under the pay button whether delivery is included, and that rates are on their way", () => {
+    const line = (quote: typeof noRates | null, postcodeValid: boolean, loading: boolean) => payTotalLine({ quote, selectedRateId: quote?.shippingRateId ?? null, postcodeValid, loading });
+    expect(line(priced, true, false)).toBe(`Du betaler ${formatPrice("298.00")} inkl. moms og levering.`);
+    expect(line(noRates, false, false)).toBe(`Du betaler ${formatPrice("298.00")} inkl. moms. Levering beregnes, når du har angivet din adresse.`);
+    expect(line(noRates, true, true)).toBe("Henter fragtpriser…");
+    expect(line(noRates, true, false)).toBe(`Du betaler ${formatPrice("298.00")} inkl. moms.`);
+    expect(line(null, true, true)).toBe("");
+  });
+
+  it("says by the disabled pay button where the failed quote's error and \"Prøv igen\" are", () => {
+    const line = (failed: boolean) => payTotalLine({ quote: null, selectedRateId: null, postcodeValid: true, loading: false, failed });
+    expect(line(true)).toBe("Vi kan ikke beregne priser lige nu – prøv igen under Leveringsmetode.");
+    expect(line(false)).toBe("");
   });
 });

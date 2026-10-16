@@ -103,9 +103,23 @@ export type PluginResult = { status: number; body: PluginResponse };
 /** Expected business outcomes (conflicts, validation) come back as data, not exceptions. */
 const BUSINESS_STATUSES = [404, 409, 422];
 
-export async function fetchQuote(input: QuoteInput): Promise<WcQuote> {
-  // The quote creates nothing, so a busy host (508) or a dropped connection is retried.
-  const { data } = await wooRequest("wc-headless/v1/quote", { method: "POST", body: input, schema: quoteSchema, retry: true });
+/** A quote normally takes well under a second. A slower one fails: the customer gets "Prøv igen" instead of a long wait on a struggling host. */
+export const QUOTE_TIMEOUT_MS = 6000;
+
+/**
+ * The quote creates nothing, so a dropped connection is sent once more. A busy host (508) or a
+ * timeout is not: the browser asks again after a pause, or the customer does ("Prøv igen").
+ * `signal` stops it when the browser no longer waits for it (e.g. a newer address was typed).
+ */
+export async function fetchQuote(input: QuoteInput, signal?: AbortSignal): Promise<WcQuote> {
+  const { data } = await wooRequest("wc-headless/v1/quote", {
+    method: "POST",
+    body: input,
+    schema: quoteSchema,
+    retry: "connection",
+    timeoutMs: QUOTE_TIMEOUT_MS,
+    signal,
+  });
   return data;
 }
 
@@ -151,6 +165,8 @@ export async function getOrderDetails(orderId: number, orderKey: string): Promis
     query: { order_key: orderKey },
     schema: orderDetailsSchema.or(pluginResponseSchema),
     acceptStatus: [404],
+    // The customer has just paid: asked even while failed catalogue reads hold other GETs back.
+    ignoreBreaker: true,
   });
   if (status === 404) return null;
   const parsed = orderDetailsSchema.safeParse(data);

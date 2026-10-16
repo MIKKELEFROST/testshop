@@ -32,8 +32,9 @@ const drawerClasses = [
 export function CartDrawer() {
   const { lines, count, isOpen, closeCart, lastAdded } = useCart();
   // Prices are only fetched while the drawer is open (which also means the cart is hydrated).
-  const { quote, loading, error, temporary, retry, canCheckout } = useCartQuote(isOpen);
+  const { quote, loading, error, retrying, temporary, retry, canCheckout } = useCartQuote(isOpen);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const pressedBackdrop = useRef(false);
   const [announcement, setAnnouncement] = useState("");
 
@@ -94,7 +95,7 @@ export function CartDrawer() {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between gap-4 border-b border-line py-2 pr-3 pl-5">
-            <h2 id={`${DRAWER_ID}-titel`} className="text-lg font-semibold">
+            <h2 id={`${DRAWER_ID}-titel`} ref={titleRef} className="text-lg font-semibold">
               Kurv
               {count > 0 && <span className="font-normal text-muted"> ({count})</span>}
             </h2>
@@ -129,7 +130,7 @@ export function CartDrawer() {
                 <CartTotals quote={quote} loading={loading} />
                 {error && (
                   <div className="mt-3">
-                    <CartQuoteError error={error} temporary={temporary} onRetry={retry} />
+                    <CartQuoteError error={error} retrying={retrying} temporary={temporary} onRetry={retry} focusAfter={titleRef} />
                   </div>
                 )}
                 <DispatchCountdown className="mt-4 text-sm" />
