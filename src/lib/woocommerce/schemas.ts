@@ -185,6 +185,19 @@ export const orderSummarySchema = z.object({
   shipping_total: money,
   needs_payment: z.boolean(),
   payment_intent_id: z.string().nullable(),
+  /**
+   * Plugin 1.5: the authorized payment (status authorized, captured, failed, expired or released)
+   * and what is captured when the order is sent (its total less refunds). Null: paid at once.
+   */
+  capture: z
+    .object({
+      status: z.string(),
+      amount: money,
+      authorized_at: z.string().nullable(),
+      /** Failed captures so far; each new attempt is a new capture request to Stripe. */
+      attempt: z.number().int().default(0),
+    })
+    .nullish(),
   email: z.string(),
   items: z.array(
     z.object({
@@ -225,7 +238,14 @@ export const pluginResponseSchema = z.object({
   previous_payment_intent_id: z.string().nullable().optional(),
 });
 
+/** POST /payments/sweep (plugin 1.5). */
+export const sweepSchema = z.object({
+  settle: z.array(z.object({ id: z.number(), order_key: z.string(), action: z.enum(["capture", "release"]) })),
+  warned: z.array(z.number()),
+});
+
 export type WcQuote = z.infer<typeof quoteSchema>;
 export type WcOrderSummary = z.infer<typeof orderSummarySchema>;
 export type WcOrderDetails = z.infer<typeof orderDetailsSchema>;
 export type PluginResponse = z.infer<typeof pluginResponseSchema>;
+export type PaymentSweep = z.infer<typeof sweepSchema>;

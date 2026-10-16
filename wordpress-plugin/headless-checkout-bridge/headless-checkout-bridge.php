@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Headless Checkout Bridge
  * Description:       Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe). Uses WooCommerce's own cart, tax, shipping, order and stock-reservation logic.
- * Version:           1.4.0
+ * Version:           1.5.0
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WCHC_VERSION', '1.4.0' );
+define( 'WCHC_VERSION', '1.5.0' );
 define( 'WCHC_PATH', plugin_dir_path( __FILE__ ) );
 
 /*
@@ -35,6 +35,13 @@ define( 'WCHC_META_PAYMENT_INTENT', '_wchc_payment_intent_id' );
 define( 'WCHC_META_PAYMENT_INTENT_HISTORY', '_wchc_payment_intent_history' );
 define( 'WCHC_META_REFUND_REQUIRED', '_wchc_refund_required' );
 define( 'WCHC_META_FAILED_ATTEMPTS', '_wchc_failed_attempts' );
+// Capture at shipment (1.5): the payment is authorized when the order is placed and captured
+// when the order is completed. Orders without the status meta are paid orders from before 1.5.
+define( 'WCHC_META_CAPTURE_STATUS', '_wchc_capture_status' );
+define( 'WCHC_META_AUTHORIZED_AT', '_wchc_authorized_at' );
+define( 'WCHC_META_SETTLE_CALLBACK', '_wchc_settle_callback' );
+define( 'WCHC_META_RESERVATION_WARNED', '_wchc_reservation_warned' );
+define( 'WCHC_META_CAPTURE_ATTEMPT', '_wchc_capture_attempt' );
 define( 'WCHC_PAYMENT_METHOD_ID', 'wchc_stripe' );
 
 /** WP-Cron hook that cancels abandoned unpaid headless orders. */
@@ -67,6 +74,7 @@ add_action(
 		require_once WCHC_PATH . 'includes/class-wchc-shipping.php';
 		require_once WCHC_PATH . 'includes/class-wchc-category-filter.php';
 		require_once WCHC_PATH . 'includes/class-wchc-emails.php';
+		require_once WCHC_PATH . 'includes/class-wchc-capture.php';
 
 		add_action( 'rest_api_init', array( new WCHC_REST_Controller(), 'register_routes' ) );
 		WCHC_Product_Fields::init();
@@ -75,6 +83,7 @@ add_action(
 		WCHC_Category_Filter::init();
 		WCHC_Emails::init();
 		WCHC_Orders::init_hooks();
+		WCHC_Capture::init();
 	}
 );
 

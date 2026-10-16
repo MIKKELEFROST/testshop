@@ -8,6 +8,8 @@
  * - One Stripe PaymentIntent per order (compare-and-set under a lock).
  * - Idempotent, lock-protected payment state transitions. Stock is reduced and
  *   released only by WooCommerce core (payment_complete / status changes).
+ * - Payments are authorized when the order is placed and captured when it is sent
+ *   (WCHC_Capture, since 1.5); orders paid before that keep the old path.
  * - Unpaid orders are never resumed after the shop's hold time and are cancelled by a
  *   sweep that does not depend on WP-Cron alone.
  *
@@ -540,9 +542,18 @@ final class WCHC_Orders {
 			return self::handle_succeeded( $order, $input, $current );
 		}
 
+		if ( 'authorized' === $event ) {
+			return WCHC_Capture::authorize( $order, $input, $current );
+		}
+
 		if ( $current !== $intent_id ) {
 			// Events for a superseded PaymentIntent (e.g. one we cancelled) do not affect the order.
 			return self::result( 'ignored', $order );
+		}
+
+		if ( '' !== WCHC_Capture::status( $order ) ) {
+			// The payment was authorized: its release, expiry or a failed capture.
+			return WCHC_Capture::apply_event( $order, $input );
 		}
 
 		switch ( $event ) {
@@ -598,6 +609,11 @@ final class WCHC_Orders {
 	 */
 	private static function handle_succeeded( WC_Order $order, array $input, string $current ): array {
 		$intent_id = $input['payment_intent_id'];
+
+		if ( $current === $intent_id && '' !== WCHC_Capture::status( $order ) ) {
+			// The authorized payment was captured (when the order was sent, or in Stripe).
+			return WCHC_Capture::record_capture( $order, $input );
+		}
 
 		if ( $order->is_paid() || $order->has_status( array( 'completed', 'refunded' ) ) ) {
 			if ( $order->get_transaction_id() === $intent_id ) {
@@ -664,7 +680,7 @@ final class WCHC_Orders {
 	 * @param WC_Order $order Order.
 	 * @param array    $input Event input.
 	 */
-	private static function set_payment_method_title( WC_Order $order, array $input ): void {
+	public static function set_payment_method_title( WC_Order $order, array $input ): void {
 		if ( '' !== $input['payment_method_title'] ) {
 			$order->set_payment_method_title( $input['payment_method_title'] );
 		}
@@ -697,7 +713,7 @@ final class WCHC_Orders {
 	 *
 	 * @param WC_Order $order Order.
 	 */
-	private static function stock_available_for( WC_Order $order ): bool {
+	public static function stock_available_for( WC_Order $order ): bool {
 		$needed = array();
 		foreach ( $order->get_items() as $item ) {
 			/** @var WC_Order_Item_Product $item */ // phpcs:ignore Generic.Commenting.DocComment.MissingShort
@@ -756,6 +772,8 @@ final class WCHC_Orders {
 			'payment_intent_id' => $order->get_meta( WCHC_META_PAYMENT_INTENT ) ?: null,
 			'email'             => $order->get_billing_email(),
 			'items'             => $items,
+			// Since 1.5: the authorized payment and what to capture; null for orders paid at once.
+			'capture'           => WCHC_Capture::summary( $order ),
 		);
 	}
 
@@ -766,7 +784,7 @@ final class WCHC_Orders {
 	 * @param WC_Order $order  Order.
 	 * @return array{status:int,body:array<string,mixed>}
 	 */
-	private static function result( string $result, WC_Order $order ): array {
+	public static function result( string $result, WC_Order $order ): array {
 		return self::response( 200, array( 'result' => $result, 'order' => self::summary( $order ) ) );
 	}
 
@@ -799,7 +817,7 @@ final class WCHC_Orders {
 	 * @param array $body   Body.
 	 * @return array{status:int,body:array<string,mixed>}
 	 */
-	private static function response( int $status, array $body ): array {
+	public static function response( int $status, array $body ): array {
 		return array(
 			'status' => $status,
 			'body'   => $body,

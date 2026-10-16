@@ -21,11 +21,14 @@ export function LegalLink({ href, className = "underline underline-offset-2 hove
   );
 }
 
+/** When the customer is charged (capture at shipment, see lib/checkout/settle.ts). */
+export const PAYMENT_TIMING = "Beløbet reserveres nu og trækkes først, når vi sender varerne.";
+
 /** "Ved at trykke på Betal nu accepterer du …", under the pay button and the wallet buttons. */
 export function TermsNotice({ action }: { action: string }) {
   return (
     <>
-      Ved at {action} accepterer du vores <LegalLink href="/handelsbetingelser">handelsbetingelser</LegalLink>. Læs også om{" "}
+      {PAYMENT_TIMING} Ved at {action} accepterer du vores <LegalLink href="/handelsbetingelser">handelsbetingelser</LegalLink>. Læs også om{" "}
       <LegalLink href="/fortrydelsesret">fortrydelsesret og 30 dages returret</LegalLink> samt vores{" "}
       <LegalLink href="/privatlivspolitik">privatlivspolitik</LegalLink>.
     </>

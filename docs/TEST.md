@@ -20,11 +20,11 @@ Den lokale testbutik har dansk moms (25 %, priser inkl. moms), en fragtzone "Dan
 | LYS-001 | Duftlys | 179 | **0** (udsolgt) |
 | HOOD | Hættetrøje (S/M/L) | 449 | 5 / 2 / 0 |
 
-Integrationstestene kalder den rigtige WooCommerce via pluginet. Stripe erstattes af en in-memory-fake med samme kontrakt (idempotency keys, annullering, beløbsopdatering og refundering). Stripe-signaturverifikation testes med Stripe SDK'ets egen signaturgenerator. CI (`.github/workflows/ci.yml`) kører lint, typecheck, unit-tests (også importreglerne), build og integrationstestene (begge ordrelagre) ved hvert push.
+Integrationstestene kalder den rigtige WooCommerce via pluginet. Stripe erstattes af en in-memory-fake med samme kontrakt (idempotency keys, annullering, beløbsopdatering, reservation og træk, afvist træk, udløbet reservation og refundering). Til reservation og træk ved afsendelse (`capture-at-shipment.test.ts`) melder WordPress sendte og annullerede ordrer over HTTP til en server i testprocessen (`host.docker.internal`, port `SETTLE_TEST_PORT`, standard 3234), som kører shoppens rigtige `/api/payments/settle`. Den lokale testbutik gemmer mails i stedet for at sende dem (`scripts/local-woocommerce/local-test-hooks.php`), så testene kan tælle dem. Stripe-signaturverifikation testes med Stripe SDK'ets egen signaturgenerator. CI (`.github/workflows/ci.yml`) kører lint, typecheck, unit-tests (også importreglerne), build og integrationstestene (begge ordrelagre) ved hvert push.
 
 ## Testresultater
 
-Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen faktisk er kørt og bestået.
+Kørt 14.–16. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen faktisk er kørt og bestået.
 
 | Krav | Hvordan | Resultat |
 | --- | --- | --- |
@@ -36,6 +36,15 @@ Kørt 14.–15. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at test
 | Moms og fragt beregnes korrekt (25 %, fragt momspligtig, gratis fragt-grænse, "Fri fragt fra" på fast sats: ved beløbet, under det og efter rabat, også på ordren og betalingen) | Integration | Bestået |
 | **Ordre** oprettes i WooCommerce (pending, butiks-ID, lagerreservation) | Integration | Bestået |
 | Betaling registreres, ordrestatus "processing", transaktions-ID | Integration (fake Stripe) | Bestået |
+| **Reservation** (plugin 1.5): PaymentIntent med `capture_method: manual`; bekræftelsessiden og to webhooks samtidig → én "authorized", ordren *Afventer* uden transaktions-ID og betalingsdato, betalingsmetoden gemt, lageret trukket én gang, noten én gang, kundens *Afventer*-mail (med "reserveret … trækkes først, når vi sender" og fortrydelsesretten) og *Ny ordre* én gang hver | Integration (`capture-at-shipment.test.ts`), begge ordrelagre, 16-10-2026 | Bestået |
+| **Træk ved afsendelse**: ordren markeres *Gennemført* (to gange samtidig) → WordPress kalder shoppen → ét træk → transaktions-ID, betalingsdato, "Betalingen er trukket"; gentaget callback, webhook for trækket, *Gennemført* igen og det daglige job trækker ikke igen; efter en refundering trækkes kun resten | Integration, begge ordrelagre | Bestået |
+| Callback uden gyldigt token (forfalsket, en anden ordres, den anden webshops, mangler) afvises (401/400), intet trækkes | Integration + unit (`settle.test.ts`, route-test) | Bestået |
+| Annulleret før afsendelse: reservationen frigives, WooCommerce lægger varerne på lager igen, gentaget webhook noteres ikke igen | Integration, begge ordrelagre | Bestået |
+| Afvist træk: ordren tilbage til *Afventer*, note, mail til butikken; *Gennemført* igen giver et nyt forsøg (ny idempotency key), som lykkes | Integration + unit | Bestået |
+| Udløbet reservation: note og mail én gang, ordren venter; sendes den alligevel, trækkes intet, og ordren går tilbage til *Afventer* | Integration + unit | Bestået |
+| Dagligt job (`/api/cron/settle-payments`, `POST /payments/sweep`): trækker *Gennemført* og frigiver annullerede ordrer, som WordPress ikke kunne melde (shoppen svarede 404), advarer én gang om reservationer ældre end 5 dage (note og én mail), kræver `CRON_SECRET` | Integration + unit | Bestået |
+| Ordre betalt før reservationen (trukket med det samme) markeres *Gennemført*: ingen callback, intet træk, ingen ændring | Integration, begge ordrelagre | Bestået |
+| Plugin før 1.5 (kender ikke "authorized"): shoppen trækker beløbet med det samme som før | Unit (`service.test.ts`) | Bestået |
 | Lageret trækkes præcis én gang | Integration | Bestået |
 | Afvist betaling | Integration: ordren forbliver betalbar, ny betaling lykkes | Bestået |
 | Afbrudt/annulleret betaling | Integration: ordren annulleres, reservationen frigives | Bestået |
@@ -184,9 +193,12 @@ Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe li
 2. **Produkter:** Forsiden viser produkter. Priser og lager matcher WooCommerce-admin.
 3. **Kurv:** Læg to varer i kurven, ændr antal, fjern én, og genindlæs siden. Kurven skal være bevaret.
 4. **Checkout:** Indtast et ugyldigt postnummer (fejl skal vises), og ret det. Fragtmetoder og moms vises.
-5. **Betaling OK:** Betal med `4242 4242 4242 4242`. Du skal lande på bekræftelsessiden med "Tak for din ordre". Ordren i WooCommerce skal stå som *Behandler* med transaktions-ID `pi_…`, og lageret skal være faldet med det købte antal.
-6. **3-D Secure:** `4000 0025 0000 3155` → godkend → betalt.
-7. **Afvist:** `4000 0000 0000 9995` → fejlbesked i checkout. Ordren skal stadig være *Afventer betaling* med en note. Betal derefter med 4242 → betalt.
+5. **Betaling OK:** Betal med `4242 4242 4242 4242`. Du skal lande på bekræftelsessiden med "Tak for din ordre" og "Vi har reserveret … Beløbet trækkes først, når vi sender din ordre". Ordren i WooCommerce skal stå som *Afventer* med noten "Betalingen er reserveret og trækkes, når ordren sendes", lageret skal være faldet med det købte antal, og betalingen står som *Uncaptured* i Stripe.
+5a. **Afsendelse:** Markér ordren *Gennemført*. Inden for få sekunder: noten "Betalingen er trukket", transaktions-ID `pi_…`, og betalingen står som *Succeeded* i Stripe. Markér den *Gennemført* igen: intet nyt træk.
+5b. **Annullering:** Betal en ny ordre, og sæt den til *Annulleret*. Noten "Reservationen … er frigivet", betalingen står som *Canceled* i Stripe, og lageret er lagt tilbage.
+5c. **Dagligt job:** `curl -H "Authorization: Bearer $CRON_SECRET" https://<webshop>/api/cron/settle-payments` svarer med tal (fx `"listed":0`).
+6. **3-D Secure:** `4000 0025 0000 3155` → godkend → reserveret.
+7. **Afvist:** `4000 0000 0000 9995` → fejlbesked i checkout. Ordren skal stadig være *Afventer betaling* med en note. Betal derefter med 4242 → reserveret.
 8. **Dobbeltklik:** Klik hurtigt flere gange på Betal. Der må kun være én ordre og én betaling i Stripe.
 9. **Pris ændres:** Åbn checkout, ret prisen i WooCommerce, og tryk Betal. Du skal se beskeden "Prisen er ændret …" og den nye total.
 10. **Udsolgt:** Sæt lager til 0 i WooCommerce, mens varen ligger i kurven. Kurv og checkout skal vise "udsolgt", og Betal skal være spærret.

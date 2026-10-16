@@ -97,6 +97,14 @@ describe("information pages", () => {
     expect(exception.filter((t) => /^Masker/.test(t))).toEqual([]);
   });
 
+  // A card may as a rule only be charged when the goods are sent (capture at shipment).
+  it("says the amount is reserved on ordering and charged when the goods are sent", () => {
+    const timing = "Beløbet reserveres, når du bestiller, og trækkes, når vi sender varen.";
+    expect(section("handelsbetingelser", "Betaling").join(" ")).toContain(timing);
+    expect(section("faq", "Hvornår trækker I pengene?").join(" ")).toContain(timing);
+    for (const p of pages) for (const text of texts(p)) expect(text, `${p.slug}: ${text}`).not.toMatch(/trækkes, når du gennemfører/);
+  });
+
   it("lists the checkout form kept in sessionStorage in the cookie policy", () => {
     expect(section("cookiepolitik", "Det gemmes i din browser").some((t) => t.includes("sessionStorage"))).toBe(true);
   });

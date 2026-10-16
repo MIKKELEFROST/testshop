@@ -75,6 +75,16 @@ final class WCHC_REST_Controller {
 
 		register_rest_route(
 			self::NAMESPACE,
+			'/payments/sweep',
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'sweep_payments' ),
+				'permission_callback' => array( $this, 'permission' ),
+			)
+		);
+
+		register_rest_route(
+			self::NAMESPACE,
 			'/shops',
 			array(
 				'methods'             => WP_REST_Server::READABLE,
@@ -338,13 +348,16 @@ final class WCHC_REST_Controller {
 			'attempt_id'           => isset( $body['attempt_id'] ) && preg_match( '/^[A-Za-z0-9_]{1,100}$/', (string) $body['attempt_id'] ) ? (string) $body['attempt_id'] : '',
 			// The method actually used, e.g. "MobilePay (Stripe)".
 			'payment_method_title' => isset( $body['payment_method_title'] ) ? sanitize_text_field( substr( (string) $body['payment_method_title'], 0, 100 ) ) : '',
+			// With `authorized` (1.5): where and with which token the storefront captures or releases it.
+			'settle_url'           => isset( $body['settle_url'] ) ? (string) $body['settle_url'] : null,
+			'settle_token'         => isset( $body['settle_token'] ) ? (string) $body['settle_token'] : null,
 		);
 
-		if ( ! in_array( $input['event'], array( 'succeeded', 'processing', 'failed', 'canceled' ), true )
+		if ( ! in_array( $input['event'], array( 'succeeded', 'authorized', 'processing', 'failed', 'canceled', 'capture_failed' ), true )
 			|| ! $this->valid_intent_id( $input['payment_intent_id'] )
 			|| ! preg_match( '/^[a-z]{3}$/', $input['currency'] )
 			|| $input['currency_exponent'] < 0 || $input['currency_exponent'] > 3
-			|| ( 'succeeded' === $input['event'] && $input['amount_minor'] < 0 ) ) {
+			|| ( in_array( $input['event'], array( 'succeeded', 'authorized' ), true ) && $input['amount_minor'] < 0 ) ) {
 			return $this->error( new WP_Error( 'invalid_payment_event', 'Ugyldig betalingshændelse.' ), 400 );
 		}
 
@@ -354,6 +367,21 @@ final class WCHC_REST_Controller {
 				return WCHC_Orders::apply_payment_event( $order, $input );
 			}
 		);
+	}
+
+	/**
+	 * The storefront's daily job (since 1.5): its webshop's orders whose reservation is to be
+	 * captured or released, and warnings about old reservations (note and e-mail to the shop).
+	 *
+	 * @param WP_REST_Request $request Request.
+	 */
+	public function sweep_payments( WP_REST_Request $request ): WP_REST_Response {
+		$body     = (array) $request->get_json_params();
+		$store_id = isset( $body['store_id'] ) ? sanitize_key( (string) $body['store_id'] ) : '';
+		if ( '' === $store_id ) {
+			return $this->error( new WP_Error( 'invalid_store_id', 'Mangler butiks-ID.' ), 400 );
+		}
+		return new WP_REST_Response( WCHC_Capture::sweep( $store_id ), 200 );
 	}
 
 	/**

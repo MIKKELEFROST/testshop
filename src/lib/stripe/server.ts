@@ -21,8 +21,11 @@ function toLike(pi: Stripe.PaymentIntent): PaymentIntentLike {
     id: pi.id,
     status: pi.status,
     amount: pi.amount,
+    amount_capturable: pi.amount_capturable,
     amount_received: pi.amount_received,
     currency: pi.currency,
+    capture_method: pi.capture_method,
+    cancellation_reason: pi.cancellation_reason,
     client_secret: pi.client_secret,
     metadata: { ...pi.metadata },
     last_payment_error: pi.last_payment_error
@@ -52,6 +55,7 @@ export const stripeGateway: PaymentGateway = {
       {
         amount: params.amount,
         currency: params.currency,
+        capture_method: params.captureMethod,
         automatic_payment_methods: { enabled: true },
         metadata: params.metadata,
         description: params.description,
@@ -79,6 +83,11 @@ export const stripeGateway: PaymentGateway = {
       // Lost a race (e.g. the customer just paid): report the real state.
       return toLike(await stripe.paymentIntents.retrieve(id));
     }
+  },
+
+  async capture(id, amount, idempotencyKey) {
+    // With the payment method, as retrieve() has it: the order shows the method used.
+    return toLike(await getStripe().paymentIntents.capture(id, { amount_to_capture: amount, expand: ["payment_method"] }, { idempotencyKey }));
   },
 
   async refund(paymentIntentId, idempotencyKey) {

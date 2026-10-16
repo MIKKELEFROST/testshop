@@ -18,6 +18,7 @@ import { deliveryEstimate, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { cityForPostcode, filledTown } from "@/lib/postcodes";
 import { getStripeClient } from "@/lib/stripe/client";
+import { CAPTURE_METHOD } from "@/lib/stripe/gateway";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
 import { CouponField } from "./coupon-field";
 import { ExpressCheckout } from "./express-checkout";
@@ -80,6 +81,9 @@ export function CheckoutView() {
   }, [stripePromise]);
   const [options] = useState<StripeElementsOptions>(() => ({
     mode: "payment",
+    // Must match the PaymentIntent (lib/checkout/service.ts): only methods that can be captured
+    // later are offered. Also applies to the Apple Pay / Google Pay buttons (same Elements).
+    captureMethod: CAPTURE_METHOD,
     // Placeholder until the first WooCommerce quote arrives; updated via elements.update().
     // Kept above Stripe's minimum charge (2.50 DKK): a smaller placeholder can make the first
     // Payment Element load fail even though the real total is fine.

@@ -142,7 +142,7 @@ export const INFO_PAGES: InfoPage[] = [
           },
           {
             type: "p",
-            text: "Når betalingen er gennemført, sender vi en ordrebekræftelse til din e-mail. Aftalen er indgået, når vi har sendt ordrebekræftelsen.",
+            text: "Når betalingen er godkendt, sender vi en ordrebekræftelse til din e-mail. Aftalen er indgået, når vi har sendt ordrebekræftelsen.",
           },
           {
             type: "p",
@@ -154,7 +154,7 @@ export const INFO_PAGES: InfoPage[] = [
           },
           {
             type: "p",
-            text: "Er en vare mod forventning udsolgt, efter du har bestilt, kontakter vi dig. Kan vi ikke levere varen, får du pengene for den tilbage.",
+            text: "Er en vare mod forventning udsolgt, efter du har bestilt, kontakter vi dig. Kan vi ikke levere varen, trækker vi ikke beløbet for den.",
           },
         ],
       },
@@ -167,7 +167,10 @@ export const INFO_PAGES: InfoPage[] = [
           },
           { type: "p", text: "Afhængigt af din enhed kan du betale med:" },
           { type: "list", items: ["Visa", "Mastercard", "MobilePay", "Apple Pay", "Google Pay"] },
-          { type: "p", text: "Beløbet trækkes, når du gennemfører bestillingen. Vi bekræfter din ordre på e-mail." },
+          {
+            type: "p",
+            text: "Beløbet reserveres, når du bestiller, og trækkes, når vi sender varen. Annullerer vi ordren, frigives reservationen, og du betaler ingenting. Vi bekræfter din ordre på e-mail.",
+          },
           {
             type: "p",
             text: "Fortryder du købet, eller får du medhold i en reklamation, betaler vi pengene tilbage til det betalingsmiddel, du brugte.",
@@ -1146,6 +1149,15 @@ export const INFO_PAGES: InfoPage[] = [
           {
             type: "p",
             text: "Du kan betale med Visa, Mastercard, MobilePay, Apple Pay og Google Pay. Hvilke muligheder du ser i kassen, afhænger af din enhed.",
+          },
+        ],
+      },
+      {
+        heading: "Hvornår trækker I pengene?",
+        blocks: [
+          {
+            type: "p",
+            text: "Beløbet reserveres, når du bestiller, og trækkes, når vi sender varen. Indtil da står beløbet som reserveret på din konto. Annullerer vi ordren, frigives reservationen, og du betaler ingenting.",
           },
         ],
       },

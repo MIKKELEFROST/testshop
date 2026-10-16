@@ -34,8 +34,8 @@ export async function POST(request: Request) {
 
   const result = await handleStripeEvent(event as unknown as Parameters<typeof handleStripeEvent>[0], checkoutDeps());
 
-  // Paid orders change stock: refresh the affected product pages.
-  if (result.outcome?.type === "applied" && ["paid", "on_hold", "cancelled"].includes(result.outcome.result)) {
+  // Paid and reserved orders change stock: refresh the affected product pages.
+  if (result.outcome?.type === "applied" && ["paid", "authorized", "on_hold", "cancelled"].includes(result.outcome.result)) {
     revalidateTag(CATALOG_TAG, "max");
     for (const item of result.outcome.order?.items ?? []) revalidateTag(productTag(item.product_id), "max");
   }

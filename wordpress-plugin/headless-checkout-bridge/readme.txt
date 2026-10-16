@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Requires PHP: 7.4
 WC requires at least: 8.5
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPLv2 or later
 
 Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe).
@@ -20,8 +20,10 @@ use WooCommerce's own cart, tax, shipping, order and stock-reservation logic:
   replaced instead of resumed
 * POST /orders/{id}/payment-intent – attach a Stripe PaymentIntent (compare-and-set)
 * POST /orders/{id}/payment – apply a verified payment status; stock is reduced only by
-  WooCommerce core (payment_complete) and exactly once. Records the payment method
+  WooCommerce core (payment_complete or on-hold) and exactly once. Records the payment method
   actually used and notes each declined attempt once
+* POST /payments/sweep – the storefront's daily job: a webshop's orders whose reserved payment
+  is to be captured (completed) or released (cancelled), and warnings about old reservations
 * GET  /orders/{id}?order_key=… – order summary for the confirmation page
 * GET  /shops, PUT /shops/{store-id} – list webshops, create or rename one
 
@@ -56,6 +58,20 @@ colour. The "New order" subject names the webshop. The customer's order confirma
 withdrawal form (Danish forbrugeraftaleloven: on a durable medium, at the latest on
 delivery). Orders without a brand get the normal e-mails.
 
+Capture at shipment (1.5): a card may as a rule only be charged when the goods are sent. The
+storefront authorizes the payment when the order is placed (event `authorized`): the order goes
+on-hold ("Betalingen er reserveret og trækkes, når ordren sendes"), core reduces stock once and
+sends the on-hold and "New order" e-mails, and nothing is paid yet. When the shop marks the order
+Completed, the plugin tells the storefront that created it (POST to the callback URL it sent with
+the authorization, with the order's token: an HMAC only the storefront can make). The storefront
+re-reads the order, captures the payment in Stripe and reports it: transaction ID, date paid, note
+"Betalingen er trukket". A refused capture or an expired reservation puts the order back on-hold
+with a note and e-mails the shop. Cancelled, refunded or failed before that: the storefront
+releases the reservation. The storefront's daily job (POST /payments/sweep) settles what could not
+be reported and warns about reservations older than five days (filter wchc_reservation_warn_days).
+Order action "Træk eller frigiv betalingen nu" reports the order again. Orders paid at once
+(before 1.5) are not touched.
+
 Unpaid headless orders are cancelled after the shop's "Hold stock (minutes)" (60 when
 empty), by WP-Cron every 15 minutes and, throttled, from the storefront's own API calls,
 so cleanup does not depend on site traffic.
@@ -74,6 +90,28 @@ To update, upload the new zip the same way and choose "Replace current with uplo
 Check: GET /wp-json/wc-headless/v1/status with the API key.
 
 == Changelog ==
+
+= 1.5.0 =
+* Payments: capture at shipment. New payment events `authorized` (the amount is reserved: order
+  on-hold, stock reduced once, on-hold and "New order" e-mails once, payment method title, note,
+  nothing paid) and `capture_failed`; `succeeded` on a reserved order records the capture
+  (transaction ID, date paid, note) and `canceled` its release or expiry. Order meta
+  `_wchc_capture_status`, `_wchc_authorized_at`, `_wchc_settle_callback`, `_wchc_capture_attempt`,
+  `_wchc_reservation_warned`.
+* Payments: when a reserved order is marked Completed, Cancelled, Refunded or Failed, the plugin
+  tells the storefront that created it (https POST with the order's token, at most 10 orders per
+  request, after WooCommerce has saved the order). What cannot be sent is noted on the order.
+  Order action "Træk eller frigiv betalingen nu" sends it again.
+* Payments: a refused capture or an expired reservation of a sent order puts it back on-hold with
+  a note and an e-mail to the shop ("New order" recipients); an expired reservation of an unsent
+  order is noted and e-mailed too.
+* REST: `POST /payments/sweep` lists a webshop's reserved orders to capture or release and warns
+  (note and one e-mail) about reservations older than five days. `GET /orders/{id}` and the other
+  order responses include `capture` (status, amount to capture, authorized_at, attempt).
+* E-mails: the customer's on-hold e-mail of a reserved order says that the amount is reserved and
+  charged when the order is sent (its intro no longer says the order waits for the payment);
+  "New order" tells the shop to mark it Completed when sent; the completed e-mail says the amount
+  is charged now.
 
 = 1.4.0 =
 * E-mails: the customer's order e-mails and "New order" show the webshop the order came from:

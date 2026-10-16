@@ -92,6 +92,17 @@ describe("POST /api/stripe/webhook", () => {
     expect(state.events[0]).toMatchObject({ event: "succeeded", payment_intent_id: pi.id });
   });
 
+  it("reserves the order when the amount is authorized (captured when the order is sent)", async () => {
+    const pi = await stripe.create(
+      { amount: 54700, currency: "dkk", captureMethod: "manual", description: "x", metadata: { wc_order_id: "101", wc_order_key: "wc_order_abc", store_id: "piece-dk" } },
+      `key-${Math.random()}`,
+    );
+    stripe.confirm(pi.id);
+    const response = await POST(signedRequest(eventPayload("payment_intent.amount_capturable_updated", pi.id)));
+    expect(response.status).toBe(200);
+    expect(state.events[0]).toMatchObject({ event: "authorized", payment_intent_id: pi.id, amount_minor: 54700 });
+  });
+
   it("acknowledges unrelated events without touching orders", async () => {
     const response = await POST(signedRequest(JSON.stringify({ id: "evt_1", object: "event", type: "customer.created", data: { object: { id: "cus_1", object: "customer" } } })));
     expect(response.status).toBe(200);

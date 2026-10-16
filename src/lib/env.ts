@@ -25,6 +25,11 @@ const webhookSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().trim().startsWith("whsec_"),
 });
 
+/** Vercel sends it as `Authorization: Bearer …` to the cron jobs in vercel.json. */
+const cronSchema = z.object({
+  CRON_SECRET: z.string().trim().min(16),
+});
+
 export class ConfigError extends Error {
   constructor(public readonly variables: string[]) {
     super(`Missing or invalid environment variables: ${variables.join(", ")}`);
@@ -56,6 +61,12 @@ let webhook: z.infer<typeof webhookSchema> | undefined;
 export function stripeWebhookEnv() {
   webhook ??= parse(webhookSchema);
   return webhook;
+}
+
+let cron: z.infer<typeof cronSchema> | undefined;
+export function cronEnv() {
+  cron ??= parse(cronSchema);
+  return cron;
 }
 
 export function isProduction() {
