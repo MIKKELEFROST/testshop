@@ -437,7 +437,7 @@ const halloween: Merchandising = {
       title: "Bliv aftenens mest uhyggelige",
       text: "Halloweenkostumer, masker, blod og pynt – alt til en skræmmende god fest. Bestil før kl. 19 på hverdage, så sender vi samme dag.",
       primary: { label: "Se halloweenkostumer", href: "/tema/halloweenkostumer" },
-      secondary: { label: "Masker og make-up", href: "/tema/halloweenmasker" },
+      secondary: { label: "Masker, blod og make-up", href: "/tema/masker-og-blod" },
       products: [],
     },
     audiences: {
