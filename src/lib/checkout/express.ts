@@ -87,8 +87,9 @@ export const WALLET_WAIT_MS = 800;
 
 /**
  * What a tap on a wallet button does: open the sheet with a quote, wait a moment for the
- * estimate still on its way ("wait"), or not open and ask for the estimate again ("retry",
- * only once it has failed: a tap never restarts an estimate under way).
+ * estimate still on its way ("wait"), or not open and ask for the estimate again ("retry", once
+ * it has failed or cannot open the sheet, e.g. sold out since: a tap never restarts an estimate
+ * under way).
  */
 export function walletTap(
   formQuote: ClientQuote,
@@ -97,6 +98,21 @@ export function walletTap(
   const opening = walletOpeningQuote(formQuote, estimate?.status === "ok" ? estimate.quote : null);
   if (opening) return { action: "open", quote: opening };
   return estimate?.status === "loading" ? { action: "wait" } : { action: "retry" };
+}
+
+/**
+ * Where the estimate for `request` comes from: the one here or on its way ("keep"), a quote this
+ * tab got moments ago for the same request (`recent`, e.g. the cart's), or WooCommerce ("ask").
+ * One that failed, or that a tap marked failed because it could not open the sheet, is asked
+ * for anew: `recent` may be that very answer.
+ */
+export function estimateSource(
+  current: { request: string; status: WalletEstimate["status"] } | null,
+  request: string,
+  recent: ClientQuote | null,
+): { from: "keep" } | { from: "recent"; quote: ClientQuote } | { from: "ask" } {
+  if (current?.request === request) return current.status === "failed" ? { from: "ask" } : { from: "keep" };
+  return recent ? { from: "recent", quote: recent } : { from: "ask" };
 }
 
 export function quoteAmount(quote: ClientQuote): number {

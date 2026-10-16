@@ -13,6 +13,7 @@ import { Alert } from "@/components/ui/alert";
 import { storeConfig } from "@/config/store";
 import type { CartLine } from "@/lib/cart/cart";
 import {
+  estimateSource,
   expressCheckoutRequest,
   quoteAmount,
   WALLET_WAIT_MS,
@@ -63,17 +64,18 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
       ? quotePayload(lines, ESTIMATE_ADDRESS, null, { codes: quote.coupons.map((c) => c.code) })
       : null;
   const estimate = useRef<Estimate | null>(null);
-  // Raised by a tap after the estimate failed: ask for it again.
+  // Raised by a tap after the estimate failed or could not open the sheet: ask for it again.
   const [estimateAttempt, setEstimateAttempt] = useState(0);
   useEffect(() => {
     if (!estimateRequest) return;
     const current = estimate.current;
+    const source = estimateSource(current, estimateRequest, recentQuote(estimateRequest));
     // Here, or on its way: never started again (a tap waits for it instead).
-    if (current?.request === estimateRequest && current.status !== "failed") return;
-    // Another cart or coupon: the old estimate is of no use.
+    if (source.from === "keep") return;
+    // Another cart or coupon, or it failed: the old estimate is of no use.
     current?.controller.abort();
     const controller = new AbortController();
-    const seeded = recentQuote(estimateRequest);
+    const seeded = source.from === "recent" ? source.quote : null;
     const next: Estimate = { request: estimateRequest, status: seeded ? "ok" : "loading", quote: seeded, controller, answer: Promise.resolve() };
     estimate.current = next;
     if (seeded) return;
@@ -273,6 +275,9 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
             }
             if (tap.action === "retry") {
               setError("Vi kan ikke beregne fragt lige nu. Prøv igen om lidt, eller udfyld formularen nedenfor.");
+              // Asked for anew (see estimateSource), also when it is here but cannot open the sheet (a cart problem, no rates).
+              const unusable = current();
+              if (unusable) unusable.status = "failed";
               setEstimateAttempt((n) => n + 1);
               return event.reject();
             }

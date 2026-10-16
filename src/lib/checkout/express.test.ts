@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkoutRequestSchema, quoteRequestSchema } from "@/lib/validation/checkout";
-import { expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates, walletTap } from "./express";
+import { estimateSource, expressCheckoutRequest, splitName, walletOpeningQuote, walletPostcode, walletShippingRates, walletTap } from "./express";
 import { ESTIMATE_ADDRESS, type ClientQuote } from "./quote";
 
 const quote: ClientQuote = {
@@ -118,6 +118,7 @@ describe("express checkout helpers", () => {
 
 describe("a tap on a wallet button", () => {
   const noAddress: ClientQuote = { ...quote, shippingRates: [], shippingRateId: null };
+  const soldOut: ClientQuote = { ...quote, errors: [{ code: "out_of_stock", message: "", productId: 18, variationId: 0, available: 0 }] };
 
   it("opens the sheet with the form's quote, or with the estimate once it is here", () => {
     expect(walletTap(quote, null)).toEqual({ action: "open", quote });
@@ -128,11 +129,23 @@ describe("a tap on a wallet button", () => {
     expect(walletTap(noAddress, { status: "loading", quote: null })).toEqual({ action: "wait" });
   });
 
-  it("asks for the estimate again only after it failed", () => {
+  it("asks for the estimate again only after it failed, or when it cannot open the sheet", () => {
     expect(walletTap(noAddress, { status: "failed", quote: null })).toEqual({ action: "retry" });
     expect(walletTap(noAddress, null)).toEqual({ action: "retry" });
     // An estimate with a cart problem does not open the sheet either.
-    const soldOut = { ...quote, errors: [{ code: "out_of_stock", message: "", productId: 18, variationId: 0, available: 0 }] };
     expect(walletTap(noAddress, { status: "ok", quote: soldOut }).action).toBe("retry");
+  });
+
+  it("asks WooCommerce for it then, not the cart's recent quote, which may be the stale answer itself", () => {
+    const request = "the cart for ESTIMATE_ADDRESS";
+    // The first estimate for a request can be the cart's quote; another cart's estimate is of no use.
+    expect(estimateSource(null, request, soldOut)).toEqual({ from: "recent", quote: soldOut });
+    expect(estimateSource(null, request, null)).toEqual({ from: "ask" });
+    expect(estimateSource({ request: "another cart", status: "ok" }, request, null)).toEqual({ from: "ask" });
+    // Here or on its way: kept, a tap waits for it.
+    expect(estimateSource({ request, status: "loading" }, request, null)).toEqual({ from: "keep" });
+    expect(estimateSource({ request, status: "ok" }, request, soldOut)).toEqual({ from: "keep" });
+    // Failed, or marked failed by a tap because it could not open the sheet: asked for anew.
+    expect(estimateSource({ request, status: "failed" }, request, soldOut)).toEqual({ from: "ask" });
   });
 });
