@@ -1535,7 +1535,7 @@ export const OM_OS: Record<string, InfoPage> = {
           },
           {
             type: "p",
-            text: "Varer, der kun er for voksne, er mærket 18+ og sælges kun til kunder, der er fyldt 18 år.",
+            text: "Varer mærket 18+ er kun for voksne og sælges kun til kunder, der er fyldt 18 år.",
           },
           {
             type: "p",
