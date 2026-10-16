@@ -104,7 +104,7 @@ export type PluginResult = { status: number; body: PluginResponse };
 const BUSINESS_STATUSES = [404, 409, 422];
 
 export async function fetchQuote(input: QuoteInput): Promise<WcQuote> {
-  // The quote creates nothing, so a busy host (508) or a dropped connection is retried.
+  // The quote creates nothing, so a busy host (508, once) or a dropped connection is retried.
   const { data } = await wooRequest("wc-headless/v1/quote", { method: "POST", body: input, schema: quoteSchema, retry: true });
   return data;
 }
@@ -151,6 +151,8 @@ export async function getOrderDetails(orderId: number, orderKey: string): Promis
     query: { order_key: orderKey },
     schema: orderDetailsSchema.or(pluginResponseSchema),
     acceptStatus: [404],
+    // The customer has just paid: asked even while failed catalogue reads hold other GETs back.
+    ignoreBreaker: true,
   });
   if (status === 404) return null;
   const parsed = orderDetailsSchema.safeParse(data);
