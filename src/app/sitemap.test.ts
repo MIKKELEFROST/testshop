@@ -46,6 +46,14 @@ afterEach(() => {
 });
 
 describe("sitemap", () => {
+  it("lists the front page, all products, the themes overview and the information pages", async () => {
+    for (const id of SHOPS) {
+      const { urls } = await shop(id);
+      for (const path of ["/", "/produkter", "/tema", "/kontakt"]) expect(urls, `${id}: ${path}`).toContain(path);
+      expect(new Set(urls).size, id).toBe(urls.length);
+    }
+  });
+
   it("lists no category page whose home is the other shop, and lists each one in its home shop", async () => {
     const shops = new Map<string, Awaited<ReturnType<typeof shop>>>();
     for (const id of SHOPS) shops.set(id, await shop(id));

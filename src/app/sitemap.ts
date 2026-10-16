@@ -8,10 +8,10 @@ import { isBuilding } from "@/lib/woocommerce/cache";
 import { getAllProductSlugs, getCategories } from "@/lib/woocommerce/products";
 
 /**
- * The shop's pages for search engines: front page, themes, categories, products and
- * information pages. Only the pages whose canonical address is in this shop: not the products
- * and hidden categories whose home is another shop (lib/home-store.ts), nor the theme pages
- * that stand in for a category page.
+ * The shop's pages for search engines: front page, the themes overview and its themes,
+ * categories, products and information pages. Only the pages whose canonical address is in
+ * this shop: not the products and categories whose home is another shop (lib/home-store.ts),
+ * nor the theme pages that stand in for a category page.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const [categories, products] = await Promise.all([getCategories(), getAllProductSlugs()]);
@@ -23,6 +23,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     { url: absoluteUrl("/"), changeFrequency: "daily", priority: 1 },
     { url: absoluteUrl("/produkter"), changeFrequency: "daily", priority: 0.6 },
+    { url: absoluteUrl("/tema"), changeFrequency: "weekly", priority: 0.8 },
     ...merchandising.collections
       .filter((c) => !c.canonical)
       .map((c) => ({ url: absoluteUrl(`/tema/${c.slug}`), changeFrequency: "weekly" as const, priority: 0.8 })),
