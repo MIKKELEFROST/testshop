@@ -25,7 +25,7 @@ export const USP_STRIP: Usp[] = [
   { icon: "gift", title: "Fri fragt til pakkeshop v/ {fri_fragt}" },
   { icon: "rabbit", title: "1-dags levering" },
   { icon: "piggy-bank", title: "100% prismatch" },
-  { icon: "return-30", title: "30 dages returret" },
+  { icon: "return-30", title: "Gratis retur i 30 dage" },
   { icon: "happy", title: "+500.000 glade kunder" },
 ];
 
@@ -45,15 +45,15 @@ export function withoutRating(usps: Usp[]): Usp[] {
   return usps.filter((usp) => usp.icon !== "trophy");
 }
 
-/** The return promise in "Levering og retur" on product pages. */
-export const RETURN_PROMISE = "30 dages returret";
+/** The return promise in "Levering og retur" on product pages: free returns (company.returnShipping). */
+export const RETURN_PROMISE = "Gratis retur i 30 dage";
 
 /**
  * The return promise on products sold with a hygiene seal (HYGIENE_CATEGORY_SLUGS in
  * src/config/catalog.ts): the law lets the shop refuse them once the seal is broken, but only
  * when the customer is told before buying (see /fortrydelsesret).
  */
-export const HYGIENE_RETURN_PROMISE = "30 dages returret – gælder ikke, hvis forseglingen er brudt (hygiejnevare)";
+export const HYGIENE_RETURN_PROMISE = "Gratis retur i 30 dage – gælder ikke, hvis forseglingen er brudt (hygiejnevare)";
 
 /** "Levering og retur" on product pages. */
 export const DELIVERY_FACTS: string[] = [
@@ -64,7 +64,7 @@ export const DELIVERY_FACTS: string[] = [
 ];
 
 /** The bar above the header. */
-export const USP_BAR: string[] = ["Fri fragt til pakkeshop v/ {fri_fragt}", "1-dags levering", "30 dages returret"];
+export const USP_BAR: string[] = ["Fri fragt til pakkeshop v/ {fri_fragt}", "1-dags levering", "Gratis retur i 30 dage"];
 
 const FREE_SHIPPING = "{fri_fragt}";
 

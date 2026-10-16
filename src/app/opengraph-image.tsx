@@ -32,7 +32,7 @@ export default async function OpengraphImage() {
         <div style={{ marginTop: 26, fontSize: 28, display: "flex", gap: 28, color: halloween ? "#f2690d" : (theme.accent ?? "#2446c8") }}>
           <span>1-dags levering</span>
           <span>·</span>
-          <span>30 dages returret</span>
+          <span>Gratis retur i 30 dage</span>
           <span>·</span>
           <span>Dansk webshop</span>
         </div>

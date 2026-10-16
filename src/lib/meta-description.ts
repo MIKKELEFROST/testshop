@@ -7,7 +7,7 @@ import type { Product, ProductCategory } from "@/types/commerce";
  * Meta descriptions (the text under the title in search results). Most Guirca products have a
  * one-line supplier text ("Kostume til piger med kjole.") and most categories none, so the
  * shop builds its own from the facts it has. The promises are the shop's usual ones
- * (src/config/usps.ts): "1-dags levering" and "30 dages returret", never a delivery date.
+ * (src/config/usps.ts): "1-dags levering" and "gratis retur i 30 dage", never a delivery date.
  */
 
 /** About as long as search engines show in full. */
@@ -49,8 +49,8 @@ function sizesText(product: Pick<Product, "attributes">): string {
  * the sizes, the holiday (when the name and text don't say it), the promises and the shop.
  * What doesn't fit is left out in this order: the shop (it is in the title too), the sizes,
  * then the end of the short description. E.g. "Piratkostume til drenge – 199 kr. Kostume
- * med hat. Str. 3-4 år til 10-12 år. Klar til fastelavn med 1-dags levering og 30 dages
- * returret."
+ * med hat. Str. 3-4 år til 10-12 år. Klar til fastelavn med 1-dags levering og gratis
+ * retur i 30 dage."
  */
 export function productDescription(
   product: Pick<Product, "name" | "price" | "priceRange" | "shortDescription" | "attributes">,
@@ -61,7 +61,7 @@ export function productDescription(
   const short = sentence(product.shortDescription.join(" "));
   const sizes = sizesText(product);
   const named = `${product.name} ${short}`.toLowerCase();
-  const promise = `${options.season && !named.includes(options.season) ? `Klar til ${options.season} med 1-dags` : "1-dags"} levering og 30 dages returret`;
+  const promise = `${options.season && !named.includes(options.season) ? `Klar til ${options.season} med 1-dags` : "1-dags"} levering og gratis retur i 30 dage`;
 
   const join = (parts: string[]) => parts.filter(Boolean).join(" ");
   const candidates = [
@@ -82,11 +82,11 @@ export function productDescription(
 /**
  * A category's description when neither the shop (merchandising.categoryIntros) nor
  * WooCommerce has one, e.g. "Pigekostumer hos Fastelavnskostumer.dk: 812 varer med 1-dags
- * levering (bestil før kl. 19 på hverdage) og 30 dages returret."
+ * levering (bestil før kl. 19 på hverdage) og gratis retur i 30 dage."
  */
 export function categoryDescription(category: Pick<ProductCategory, "name" | "count">, shop: string): string {
   return shorten(
-    `${category.name} hos ${shop}: ${productCount(category.count)} med 1-dags levering (bestil før kl. 19 på hverdage) og 30 dages returret.`,
+    `${category.name} hos ${shop}: ${productCount(category.count)} med 1-dags levering (bestil før kl. 19 på hverdage) og gratis retur i 30 dage.`,
     DESCRIPTION_LENGTH,
   );
 }

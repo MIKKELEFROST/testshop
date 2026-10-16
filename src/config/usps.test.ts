@@ -10,7 +10,7 @@ describe("selling points", () => {
     expect(formatThreshold("1499.50")).toBe("1.499,50 kr.");
     expect(resolveUsps(USP_STRIP, "599.00")[0]).toEqual({ icon: "gift", title: "Fri fragt til pakkeshop v/ 599 kr." });
     expect(resolveUsps(USP_PRODUCT, "599.00").find((u) => u.icon === "box")).toEqual({ icon: "box", title: "Gratis fragt", text: "til pakkeshop ved 599 kr." });
-    expect(resolveTexts(USP_BAR, "599.00")).toEqual(["Fri fragt til pakkeshop v/ 599 kr.", "1-dags levering", "30 dages returret"]);
+    expect(resolveTexts(USP_BAR, "599.00")).toEqual(["Fri fragt til pakkeshop v/ 599 kr.", "1-dags levering", "Gratis retur i 30 dage"]);
   });
 
   it("leaves out the promises about free shipping when no method has it", () => {
