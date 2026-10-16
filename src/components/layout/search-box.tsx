@@ -7,12 +7,13 @@ import { formatAmount } from "@/lib/money";
 import type { Suggestions } from "@/lib/search";
 import { SearchIcon } from "./search-icon";
 
-const EMPTY: Suggestions = { products: [], links: [] };
+const EMPTY: Suggestions = { products: [], links: [], searched: null };
 
 /**
  * The search field with suggestions while typing: products (with photo and price), and
  * categories and themes. Arrow keys move through them, Enter opens one, or the search page
- * when none is chosen. Without JavaScript it is a plain form to /soeg.
+ * when none is chosen (a combobox: Tab leaves the field and closes the list). Without
+ * JavaScript it is a plain form to /soeg.
  */
 export function SearchBox({ defaultValue = "", autoFocus = false, className = "" }: { defaultValue?: string; autoFocus?: boolean; className?: string }) {
   const router = useRouter();
@@ -22,6 +23,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const q = query.replace(/\s+/g, " ").trim();
   useEffect(() => {
@@ -58,6 +60,8 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
   ];
   const showList = open && q.length >= 2 && (options.length > 0 || results.q === q);
   const optionId = (index: number) => `${id}-option-${index}`;
+  // Read out by screen readers when the suggestions for what was typed arrive.
+  const status = showList && results.q === q ? (options.length > 0 ? `${options.length} forslag – brug piletasterne til at vælge.` : "Ingen forslag.") : "";
 
   function go(href: string) {
     setOpen(false);
@@ -91,6 +95,13 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
             setActive(-1);
           }}
           onFocus={() => setOpen(true)}
+          onBlur={(event) => {
+            // Focus left the field (Tab, or a tap elsewhere): close the list, unless it went into the list.
+            if (!listRef.current?.contains(event.relatedTarget as Node | null)) {
+              setOpen(false);
+              setActive(-1);
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown" && options.length > 0) {
               event.preventDefault();
@@ -106,7 +117,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
           }}
           autoFocus={autoFocus}
           autoComplete="off"
-          placeholder="Søg efter kostumer, parykker, masker …"
+          placeholder="Søg efter kostume, paryk, maske …"
           enterKeyHint="search"
           maxLength={100}
           role="combobox"
@@ -114,20 +125,31 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
           aria-controls={`${id}-list`}
           aria-autocomplete="list"
           aria-activedescendant={showList && active >= 0 ? optionId(active) : undefined}
-          className="h-11 w-full rounded-full border border-line-strong bg-surface pr-12 pl-4 text-[15px] text-ink placeholder:text-muted focus:border-ink focus:outline-none"
+          className="h-11 w-full rounded-full border border-field bg-surface pr-12 pl-4 text-base text-ink placeholder:text-muted focus:border-ink focus:outline-none sm:text-[15px]"
         />
         <button type="submit" className="absolute top-1 right-1 flex size-9 items-center justify-center rounded-full text-ink hover:bg-tint" aria-label="Søg">
           <SearchIcon />
         </button>
       </form>
 
+      <p role="status" className="sr-only">
+        {status}
+      </p>
+
       {showList && (
-        <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl bg-surface text-ink shadow-[0_16px_48px_rgb(0_0_0/0.18)] ring-1 ring-black/5">
+        <div
+          ref={listRef}
+          className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl bg-surface text-ink shadow-[0_16px_48px_rgb(0_0_0/0.18)] ring-1 ring-black/5"
+          // Keep the focus in the field while an option is clicked (Safari would otherwise blur it and close the list first).
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {results.q === q && data.searched && <p className="px-4 pt-3 text-xs text-muted">Viser forslag for “{data.searched}”</p>}
           <ul id={`${id}-list`} role="listbox" aria-label="Forslag" className="max-h-[min(70vh,560px)] overflow-y-auto py-2">
             {data.links.map((link, i) => (
               <li key={link.href} id={optionId(i)} role="option" aria-selected={active === i}>
                 <a
                   href={link.href}
+                  tabIndex={-1}
                   onClick={(event) => {
                     event.preventDefault();
                     go(link.href);
@@ -145,6 +167,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
                 <li key={product.id} id={optionId(i)} role="option" aria-selected={active === i}>
                   <a
                     href={`/produkter/${product.slug}`}
+                    tabIndex={-1}
                     onClick={(event) => {
                       event.preventDefault();
                       go(`/produkter/${product.slug}`);
@@ -175,6 +198,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
           {q && (
             <a
               href={`/soeg?q=${encodeURIComponent(q)}`}
+              tabIndex={-1}
               onClick={(event) => {
                 event.preventDefault();
                 go(`/soeg?q=${encodeURIComponent(q)}`);
