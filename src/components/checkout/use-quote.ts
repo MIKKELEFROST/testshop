@@ -10,7 +10,7 @@ export type QuoteAddress = { country?: string; postcode?: string; city?: string;
 type Result = { payload: string; attempt: number; quote: ClientQuote | null; error: string | null; failure: QuoteFailure | null };
 
 /** Which attempt for which request is wanted; `manual` when the customer pressed "Prøv igen". */
-type Attempt = { payload: string; attempt: number; manual: boolean };
+export type Attempt = { payload: string; attempt: number; manual: boolean };
 
 /**
  * Fetches an authoritative quote (WooCommerce prices, stock, tax, shipping) for the cart.
@@ -91,20 +91,36 @@ export function useQuote(
   const setQuote = useCallback((quote: ClientQuote) => setOverride({ payload, quote }), [payload]);
   const retry = useCallback(() => setWanted({ payload, attempt: attempt + 1, manual: true }), [payload, attempt]);
 
-  const own = result?.payload === payload ? result : null;
-  // Automatic retries run in the background, with the error still shown; "Prøv igen" shows progress.
-  const loading = active && (!own || (current.manual && own.attempt !== attempt));
-  const failure = active && own && !loading ? own.failure : null;
+  const { loading, retrying, shown } = quoteProgress(active, current, result?.payload === payload ? result : null);
 
   return {
     quote: override?.payload === payload ? override.quote : (result?.quote ?? null),
     loading,
-    error: active && own && !loading ? own.error : null,
+    /** Also kept while "Prøv igen" runs, so its button stays where the customer pressed it. */
+    error: shown?.error ?? null,
+    /** "Prøv igen" was pressed and its answer is not here yet. */
+    retrying,
     /** The error is an outage (WooCommerce busy or down, no connection), not a problem with the cart. */
-    temporary: failure !== null && isTemporaryQuoteFailure(failure),
+    temporary: shown?.failure ? isTemporaryQuoteFailure(shown.failure) : false,
     /** Use a quote returned by /api/checkout (e.g. after a price change). */
     setQuote,
     /** Ask WooCommerce again now ("Prøv igen"). */
     retry,
   };
+}
+
+/**
+ * Whether the quote for the current request is loading, and which answer to show (`own`: the
+ * last answer for this cart and address). Automatic retries run in the background with the
+ * error still shown; "Prøv igen" shows progress (`retrying`), but keeps the error and its
+ * button, so keyboard and screen reader focus is not lost.
+ */
+export function quoteProgress(
+  active: boolean,
+  current: Attempt,
+  own: Pick<Result, "attempt" | "error" | "failure"> | null,
+): { loading: boolean; retrying: boolean; shown: Pick<Result, "error" | "failure"> | null } {
+  const loading = active && (!own || (current.manual && own.attempt !== current.attempt));
+  const retrying = loading && own !== null && own.error !== null;
+  return { loading, retrying, shown: active && own && (!loading || retrying) ? own : null };
 }

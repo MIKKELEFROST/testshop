@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { QuoteError } from "@/components/checkout/quote-error";
 import { useQuote } from "@/components/checkout/use-quote";
@@ -18,7 +18,8 @@ import { formatPrice, fromMinorUnits, multiplyAmount, toMinorUnits } from "@/lib
 /** The /kurv page. Its parts are shared with the cart drawer. */
 export function CartView() {
   const { lines, hydrated } = useCart();
-  const { quote, loading, error, temporary, retry, canCheckout } = useCartQuote(hydrated);
+  const { quote, loading, error, retrying, temporary, retry, canCheckout } = useCartQuote(hydrated);
+  const heading = useRef<HTMLHeadingElement>(null);
 
   if (!hydrated) {
     return <div className="mt-8 h-40 animate-pulse rounded-[var(--radius-card)] bg-black/5" aria-hidden="true" />;
@@ -37,14 +38,14 @@ export function CartView() {
       </ul>
 
       <aside className="h-fit rounded-[var(--radius-card)] border border-line bg-surface p-6 lg:sticky lg:top-28" aria-labelledby="kurv-oversigt">
-        <h2 id="kurv-oversigt" className="text-lg font-semibold">
+        <h2 id="kurv-oversigt" ref={heading} className="text-lg font-semibold">
           Oversigt
         </h2>
         <CartTotals quote={quote} loading={loading} className="mt-4" />
 
         {error && (
           <div className="mt-4">
-            <CartQuoteError error={error} temporary={temporary} onRetry={retry} />
+            <CartQuoteError error={error} retrying={retrying} temporary={temporary} onRetry={retry} focusAfter={heading} />
           </div>
         )}
 
@@ -70,15 +71,27 @@ export function CartView() {
 export function useCartQuote(enabled: boolean) {
   const { lines } = useCart();
   // Priced for a sample address, so WooCommerce returns the shipping rates ("Fragt: fra 39 kr.").
-  const { quote, loading, error, temporary, retry } = useQuote(lines, ESTIMATE_ADDRESS, null, enabled);
+  const { quote, loading, error, retrying, temporary, retry } = useQuote(lines, ESTIMATE_ADDRESS, null, enabled);
   const canCheckout = !loading && (quote !== null ? quote.errors.length === 0 && !error : temporary);
-  return { quote, loading, error, temporary, retry, canCheckout };
+  return { quote, loading, error, retrying, temporary, retry, canCheckout };
 }
 
 /** The cart's quote error with "Prøv igen". */
-export function CartQuoteError({ error, temporary, onRetry }: { error: string; temporary: boolean; onRetry: () => void }) {
+export function CartQuoteError({
+  error,
+  retrying,
+  temporary,
+  onRetry,
+  focusAfter,
+}: {
+  error: string;
+  retrying: boolean;
+  temporary: boolean;
+  onRetry: () => void;
+  focusAfter: RefObject<HTMLElement | null>;
+}) {
   return (
-    <QuoteError error={error} onRetry={onRetry}>
+    <QuoteError error={error} retrying={retrying} onRetry={onRetry} focusAfter={focusAfter}>
       {temporary ? "Du kan stadig gå til kassen, hvor priserne beregnes igen." : null}
     </QuoteError>
   );

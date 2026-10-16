@@ -133,10 +133,12 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const inFlight = useRef(false);
   // The town filled in from the postcode, per address: replaced when the postcode changes, unless the customer edited it.
   const filledCity = useRef<Record<"shipping" | "billing", string | null>>({ shipping: null, billing: null });
+  // Where focus goes when "Prøv igen" has brought the quote.
+  const payLine = useRef<HTMLParagraphElement>(null);
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
   const emailValid = contactSchema.shape.email.safeParse(contact.email).success;
-  const { quote, loading: quoteLoading, error: quoteError, setQuote, retry: retryQuote } = useQuote(
+  const { quote, loading: quoteLoading, error: quoteError, retrying: quoteRetrying, setQuote, retry: retryQuote } = useQuote(
     lines,
     {
       country: shipping.country,
@@ -657,7 +659,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           <div className="space-y-4">
             {notice && <Alert tone="warning">{notice}</Alert>}
             {formError && <Alert tone="error">{formError}</Alert>}
-            {quoteError && <QuoteError error={quoteError} onRetry={retryQuote} />}
+            {quoteError && <QuoteError error={quoteError} retrying={quoteRetrying} onRetry={retryQuote} focusAfter={payLine} />}
             {quoteErrors.length > 0 && (
               <Alert tone="error" title="Kurven skal rettes">
                 <ul className="list-disc pl-5">
@@ -688,7 +690,7 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
                 "Betal nu"
               )}
             </button>
-            <p id="betal-total" className="text-center text-xs leading-relaxed text-muted">
+            <p id="betal-total" ref={payLine} className="text-center text-xs leading-relaxed text-muted">
               {quote
                 ? includesShipping(quote, selectedRateId)
                   ? `Du betaler ${formatPrice(quote.totals.total)} inkl. moms og levering. `
