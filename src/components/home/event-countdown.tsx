@@ -11,7 +11,7 @@ const subscribe = () => () => {};
 const today = () => danishTime(new Date()).date;
 
 /** "Fastelavn er søndag 7. februar · om 115 dage". Worked out in the browser, so it is never stale. */
-export function EventCountdown({ season, className = "" }: { season: Season; className?: string }) {
+export function EventCountdown({ season, className = "", iconClassName = "" }: { season: Season; className?: string; iconClassName?: string }) {
   const date = useSyncExternalStore(subscribe, today, () => null);
   const name = NAMES[season];
   let text = name;
@@ -27,7 +27,7 @@ export function EventCountdown({ season, className = "" }: { season: Season; cla
   }
   return (
     <p className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-bold ${className}`}>
-      <CalendarHeart className="size-4 shrink-0" aria-hidden="true" />
+      <CalendarHeart className={`size-4 shrink-0 ${iconClassName}`} aria-hidden="true" />
       <span suppressHydrationWarning>{text}</span>
     </p>
   );

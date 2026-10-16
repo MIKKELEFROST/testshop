@@ -68,7 +68,7 @@ function Guide({ guide }: { guide: HomeConfig["guide"] }) {
   const icons = [Ruler, Sparkles, Lightbulb];
   const halloween = storeConfig.season === "halloween";
   return (
-    <section aria-labelledby="guide" className={`rounded-[1.75rem] p-6 sm:p-10 ${halloween ? "bg-hero text-white" : "bg-tint"}`}>
+    <section aria-labelledby="guide" className={`rounded-[1.75rem] p-6 sm:p-10 ${halloween ? "bg-hero text-white [--color-focus:#ffffff]" : "bg-tint"}`}>
       <div className="max-w-2xl">
         <h2 id="guide" className="heading text-[26px] sm:text-3xl">
           {guide.title}

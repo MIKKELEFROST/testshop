@@ -70,7 +70,7 @@ export async function InfoPageView({ slug }: { slug: string }) {
           ))}
         </article>
         <aside className="lg:pt-20">
-          <nav aria-label="Kundeservice" className="rounded-2xl bg-surface p-5 ring-1 ring-line lg:sticky lg:top-40">
+          <nav aria-label="Kundeservicesider" className="rounded-2xl bg-surface p-5 ring-1 ring-line lg:sticky lg:top-40">
             <p className="text-xs font-bold tracking-[0.12em] text-muted uppercase">Kundeservice</p>
             <ul className="mt-3 space-y-1">
               {INFO_LINKS.map((link) => (

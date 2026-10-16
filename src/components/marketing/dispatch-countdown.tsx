@@ -24,7 +24,7 @@ export function DispatchCountdown({ className = "" }: { className?: string }) {
       <Truck className="size-5 shrink-0 text-success" aria-hidden="true" />
       {minutes !== null ? (
         <span>
-          Bestil inden <strong className="text-success">{formatDuration(minutes)}</strong> – så sender vi i dag
+          Bestil inden <strong>{formatDuration(minutes)}</strong> – så sender vi i dag
         </span>
       ) : (
         <span>

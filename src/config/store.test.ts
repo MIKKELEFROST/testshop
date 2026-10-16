@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { brands, brandStyle, isDark, resolveStoreConfig, themeStyle } from "./store";
 
+/** WCAG contrast ratio of two "#rrggbb" colours. */
+function contrast(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  };
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light! + 0.05) / (dark! + 0.05);
+}
+
+const SURFACE = "#ffffff"; // --color-surface, the same in every brand
+
 describe("store config", () => {
   it("picks the brand of the store ID, with name and support e-mail from the environment", () => {
     const shop = resolveStoreConfig({ storeId: "halloween-kostumer-dk", supportEmail: "hej@example.com" });
@@ -29,5 +41,18 @@ describe("store config", () => {
     expect(isDark(brands["halloween-kostumer-dk"]!.theme.hero)).toBe(true);
     expect(isDark("#e9e2d8")).toBe(false);
     expect(isDark(undefined)).toBe(false);
+  });
+
+  it.each(Object.entries(brands))("keeps small text and focus rings readable in %s (WCAG AA)", (_, brand) => {
+    const t = brand.theme;
+    // Text: 4.5:1. Prices are small in the buy bar, the search suggestions and "fra" (on white
+    // cards and panels, and the product page's paper).
+    for (const background of [SURFACE, t.paper!]) expect(contrast(t.price!, background)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t.muted!, SURFACE)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t["on-action"]!, t.action!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t["chrome-ink"]!, t.chrome!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(t["footer-ink"]!, t.footer!)).toBeGreaterThanOrEqual(4.5);
+    // Focus rings (globals.css): 3:1 against what they are drawn on.
+    for (const background of [SURFACE, t.paper!, t.canvas!]) expect(contrast(t.accent!, background)).toBeGreaterThanOrEqual(3);
   });
 });

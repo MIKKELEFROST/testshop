@@ -7,19 +7,22 @@ import type { ProductImage as ProductImageType } from "@/types/commerce";
 /**
  * Product image with a neutral, branded placeholder when there is no image or it fails to
  * load (e.g. a supplier link that has gone). Supplier photos (`fit: "contain"`) are shown
- * whole on white instead of cropped.
+ * whole on white instead of cropped. `decorative`: the image sits next to the product's name
+ * (in the same link or button), so screen readers skip it instead of reading the name twice.
  */
 export function ProductImage({
   image,
   name,
   sizes,
   priority = false,
+  decorative = false,
   className = "",
 }: {
   image: ProductImageType | null;
   name: string;
   sizes: string;
   priority?: boolean;
+  decorative?: boolean;
   className?: string;
 }) {
   const [failed, setFailed] = useState<string | null>(null);
@@ -28,8 +31,9 @@ export function ProductImage({
     return (
       <div
         className={`flex size-full items-center justify-center bg-gradient-to-br from-tint to-tint-strong ${className}`}
-        role="img"
-        aria-label={name}
+        role={decorative ? undefined : "img"}
+        aria-label={decorative ? undefined : name}
+        aria-hidden={decorative || undefined}
       >
         <span className="text-5xl font-semibold text-black/10 select-none">{name.slice(0, 1)}</span>
       </div>
@@ -40,7 +44,7 @@ export function ProductImage({
   return (
     <Image
       src={image.src}
-      alt={image.alt || name}
+      alt={decorative ? "" : image.alt || name}
       fill
       sizes={sizes}
       priority={priority}
