@@ -106,7 +106,7 @@ function waitForSlot(deadline: number): Promise<void> {
  * cache.ts), so during an outage every page view would ask WooCommerce again. When a GET ends
  * with the host overloaded (508, 429), not answering in time or unreachable, GETs fail at once
  * for 30 s, doubling up to 2 minutes while the host stays down; cached pages keep their last
- * good data meanwhile. Then one GET is let through as a probe: a good answer closes the
+ * good data meanwhile. Then one GET is let through as a probe: only its good answer closes the
  * breaker, another such failure opens it again. Writes (the quote, orders) are never held back.
  */
 const BREAKER_MIN_MS = 30_000;
@@ -125,10 +125,12 @@ function breakerOpen(path: string) {
   return new WooCommerceError(`WooCommerce was not asked (GET ${path}): it failed moments ago`, 503, "circuit_open");
 }
 
-/** How a counted GET ended: answered (closes the breaker), down (opens it) or neither. */
+/** How a counted GET ended: answered (the probe's answer closes the breaker), down (opens it) or neither. */
 function settleRead(probe: boolean, outcome: "answered" | "down" | "other") {
   if (probe) breaker.probing = false;
-  if (outcome === "answered") {
+  // A read sent before the breaker opened says nothing about the host since: at its
+  // entry-process limit, requests it has already admitted still finish while new ones get 508.
+  if (outcome === "answered" && (probe || !breaker.tripped)) {
     breaker.tripped = false;
     breaker.nextOpenMs = BREAKER_MIN_MS;
   } else if (outcome === "down" && (!breaker.tripped || probe)) {

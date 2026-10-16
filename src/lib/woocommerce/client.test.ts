@@ -235,6 +235,25 @@ describe("the breaker for reads", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it("stays open when a read sent before it opened answers: only the probe closes it", async () => {
+    // At the host's entry-process limit, requests it has already admitted still finish while new ones get 508.
+    const fetch = vi.fn(async (url: URL) => {
+      if (url.pathname.endsWith("/slow")) {
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        return Response.json({ ok: true });
+      }
+      return Response.json({ code: "http_508" }, { status: 508 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const slow = wooRequest("wc/v3/slow", { schema: okSchema });
+    expect(failure((await settle(read())).error).status).toBe(508); // 508 twice: the breaker opens
+    expect((await slow).data).toEqual({ ok: true }); // answers after that
+    expect(fetch).toHaveBeenCalledTimes(3);
+
+    expect(failure((await settle(read())).error).code).toBe("circuit_open");
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
   it("never holds back writes, nor reading a paying customer's order", async () => {
     respond(508, 508);
     await settle(read());
