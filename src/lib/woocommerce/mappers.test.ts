@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { discountPercent } from "@/lib/pricing";
 import { mapCategory, mapProduct, mapProductSummary, productImages, youtubeIds } from "./mappers";
-import { wcCategorySchema, wcProductSchema } from "./schemas";
+import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 function product(overrides: Record<string, unknown> = {}) {
   return wcProductSchema.parse({
@@ -55,6 +55,14 @@ describe("mapProduct", () => {
     expect(p.sizeChart).toBe("https://static.guirca.com/media/mailing/tallas/UK/Size%20chart_CHILD_TEEN.jpg");
     expect(p.safetyInfo).toBeNull();
     expect(mapProduct(product(), []).sizeChart).toBeNull();
+  });
+
+  it("reads the EAN of the product and its sizes, and drops values that are not a GTIN", () => {
+    const variation = (id: number, ean: string) => wcVariationSchema.parse({ id, global_unique_id: ean });
+    const p = mapProduct(product({ type: "simple", global_unique_id: " 8434077902042 " }), [variation(2, "8434077865255"), variation(3, "GU-80031")]);
+    expect(p.gtin).toBe("8434077902042");
+    expect(p.variations.map((v) => v.gtin)).toEqual(["8434077865255", ""]);
+    expect(mapProduct(product(), []).gtin).toBe("");
   });
 });
 

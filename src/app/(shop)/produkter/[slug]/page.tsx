@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
@@ -7,24 +8,39 @@ import { ProductDetail } from "@/components/products/product-detail";
 import { ProductInfo } from "@/components/products/product-info";
 import { RelatedProducts, RelatedProductsSkeleton } from "@/components/products/related-products";
 import { Alert } from "@/components/ui/alert";
+import { company, isPlaceholder } from "@/config/company";
 import { storeConfig } from "@/config/store";
+import { homeSeasonFor, homeStoreFor, storeUrl } from "@/lib/home-store";
+import { productDescription } from "@/lib/meta-description";
 import { splitProductText } from "@/lib/product-text";
-import { absoluteUrl, breadcrumbData, JsonLd } from "@/lib/seo";
+import { breadcrumbData, JsonLd } from "@/lib/seo";
 import { categoryPath, primaryCategory } from "@/lib/woocommerce/category-tree";
 import { getCategories, getProductBySlug } from "@/lib/woocommerce/products";
-import type { Product } from "@/types/commerce";
+import type { Product, ProductCategory } from "@/types/commerce";
 
-export async function generateMetadata(props: PageProps<"/produkter/[slug]">) {
+export async function generateMetadata(props: PageProps<"/produkter/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
-  const product = await getProductBySlug(slug);
-  if (!product.ok || !product.data) return { title: "Produkt" };
-  const image = product.data.images[0];
+  const [result, categories] = await Promise.all([getProductBySlug(slug), getCategories()]);
+  // WooCommerce can't be read: a plain title. Throwing here (a 5xx for search engines) would be
+  // better, but after a failed cached read Next.js 16.4 then never finishes the crawler's response.
+  if (!result.ok) return { title: "Produkt" };
+  const product = result.data;
+  // A product this shop doesn't sell. Search engines get the metadata before the page
+  // (next.config.ts htmlLimitedBots), so they get a real 404; visitors get the page streamed.
+  if (!product) notFound();
+  const tree = categories.ok ? categories.data : [];
+  const image = product.images[0];
   return {
-    title: product.data.name,
-    description: product.data.shortDescription.join(" ").slice(0, 160) || undefined,
-    alternates: { canonical: `/produkter/${product.data.slug}` },
-    openGraph: image ? { images: [{ url: image.src, alt: product.data.name }] } : undefined,
+    title: product.name,
+    description: productDescription(product, { shop: storeConfig.name, season: homeSeasonFor(product.categories, tree) }),
+    alternates: { canonical: productUrl(product, tree) },
+    openGraph: image ? { images: [{ url: image.src, alt: product.name }] } : undefined,
   };
+}
+
+/** The product page's canonical address: on its home shop (lib/home-store.ts), so the shops' copies don't compete. */
+function productUrl(product: Product, tree: ProductCategory[]): string {
+  return `${storeUrl(homeStoreFor(product.categories, tree))}/produkter/${product.slug}`;
 }
 
 export default function ProductPage(props: PageProps<"/produkter/[slug]">) {
@@ -57,7 +73,7 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
   return (
     <>
       <div className="container-shop pt-5 pb-16 sm:pt-8">
-        <JsonLd data={productData(product)} />
+        <JsonLd data={productData(product, productUrl(product, categories.ok ? categories.data : []))} />
         <JsonLd data={breadcrumbData([...crumbs, { name: product.name, href: `/produkter/${product.slug}` }])} />
         <Breadcrumbs className="mb-5" items={crumbs} />
         <ProductDetail
@@ -105,31 +121,43 @@ function ProductSkeleton() {
   );
 }
 
-/** schema.org Product with its price(s) and stock, for search results. */
-function productData(product: Product) {
-  const url = absoluteUrl(`/produkter/${product.slug}`);
+/** schema.org Product with its price(s), stock and barcode, for search results; `url` is its canonical address. */
+function productData(product: Product, url: string) {
   const availability = (status: string, quantity: number | null) =>
     status === "outofstock" || quantity === 0
       ? "https://schema.org/OutOfStock"
       : status === "onbackorder"
         ? "https://schema.org/BackOrder"
         : "https://schema.org/InStock";
-  const prices = product.variations.map((v) => v.price).filter((p): p is string => p !== null);
+  const offer = (price: string, stock: string) => ({
+    "@type": "Offer",
+    priceCurrency: storeConfig.currency,
+    price: Number(price).toFixed(2),
+    availability: stock,
+    url,
+    itemCondition: "https://schema.org/NewCondition",
+  });
+  const prices = product.variations.map((v) => v.price).filter((p): p is string => p !== null).map(Number);
+  const anyInStock = product.variations.some((v) => availability(v.stockStatus, v.stockQuantity).endsWith("InStock"));
+  const variableStock = anyInStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
+  const low = Math.min(...prices);
+  const high = Math.max(...prices);
   const offers =
     product.type === "variable" && prices.length > 0
-      ? {
-          "@type": "AggregateOffer",
-          priceCurrency: storeConfig.currency,
-          lowPrice: Math.min(...prices.map(Number)).toFixed(2),
-          highPrice: Math.max(...prices.map(Number)).toFixed(2),
-          offerCount: prices.length,
-          availability: product.variations.some((v) => availability(v.stockStatus, v.stockQuantity).endsWith("InStock"))
-            ? "https://schema.org/InStock"
-            : "https://schema.org/OutOfStock",
-          url,
-        }
+      ? // Every size at the same price is one offer; different prices are a range.
+        low === high
+        ? offer(String(low), variableStock)
+        : {
+            "@type": "AggregateOffer",
+            priceCurrency: storeConfig.currency,
+            lowPrice: low.toFixed(2),
+            highPrice: high.toFixed(2),
+            offerCount: prices.length,
+            availability: variableStock,
+            url,
+          }
       : product.price
-        ? { "@type": "Offer", priceCurrency: storeConfig.currency, price: Number(product.price).toFixed(2), availability: availability(product.stockStatus, product.stockQuantity), url, itemCondition: "https://schema.org/NewCondition" }
+        ? offer(product.price, availability(product.stockStatus, product.stockQuantity))
         : undefined;
   return {
     "@context": "https://schema.org",
@@ -137,10 +165,34 @@ function productData(product: Product) {
     name: product.name,
     url,
     sku: product.sku || undefined,
+    ...gtinData(product.gtin),
     image: product.images.slice(0, 8).map((i) => i.src),
     description: [...product.shortDescription, ...product.description].join(" ").slice(0, 5000) || undefined,
     brand: { "@type": "Brand", name: "Guirca" },
     category: product.categories[0]?.name,
-    ...(offers ? { offers: { ...offers, seller: { "@type": "Organization", name: storeConfig.name } } } : {}),
+    ...(offers ? { offers: { ...offers, seller: { "@type": "Organization", name: storeConfig.name }, ...returnPolicyData() } } : {}),
+  };
+}
+
+/** The barcode as schema.org names it by length (an EAN is a GTIN-13). */
+function gtinData(gtin: string): Record<string, string> {
+  if (!gtin) return {};
+  return { [gtin.length === 13 ? "gtin13" : gtin.length === 8 ? "gtin8" : gtin.length === 12 ? "gtin12" : "gtin14"]: gtin };
+}
+
+/**
+ * The 30 days' right of return (src/config/usps.ts), once the owner has decided who pays the
+ * return shipping (src/config/company.ts); until then none, rather than a guess.
+ */
+function returnPolicyData() {
+  if (isPlaceholder(company.returnShipping)) return {};
+  return {
+    hasMerchantReturnPolicy: {
+      "@type": "MerchantReturnPolicy",
+      applicableCountry: storeConfig.defaultCountry,
+      returnPolicyCategory: "https://schema.org/MerchantReturnFiniteReturnWindow",
+      merchantReturnDays: 30,
+      returnMethod: "https://schema.org/ReturnByMail",
+    },
   };
 }

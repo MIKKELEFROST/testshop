@@ -1,28 +1,48 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
+import { pageHref } from "@/components/ui/pagination";
 import { ProductListing } from "@/components/products/listing";
 import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
 import { merchandising, shownInNav } from "@/config/merchandising";
+import { storeConfig } from "@/config/store";
+import { categoryHomeStore, storeUrl } from "@/lib/home-store";
+import { categoryDescription } from "@/lib/meta-description";
 import { parsePage } from "@/lib/pagination";
+import { breadcrumbData, JsonLd } from "@/lib/seo";
 import { categoryPath, subcategories } from "@/lib/woocommerce/category-tree";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { getCategories, parseSort } from "@/lib/woocommerce/products";
+import { getCategories, parseSort, type SortKey } from "@/lib/woocommerce/products";
 import type { ProductCategory } from "@/types/commerce";
 
-export async function generateMetadata(props: PageProps<"/kategori/[slug]">) {
-  const { slug } = await props.params;
+export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Promise<Metadata> {
+  const [{ slug }, query] = await Promise.all([props.params, props.searchParams]);
   const categories = await getCategories();
-  const category = categories.ok ? categories.data.find((c) => c.slug === slug) : undefined;
-  if (!category) return { title: "Kategori" };
+  // Without WooCommerce, a plain title (see the product page).
+  if (!categories.ok) return { title: "Kategori" };
+  // An unknown category or a page past the last one. Search engines get the metadata before
+  // the page (next.config.ts htmlLimitedBots), so they get a real 404.
+  const category = categories.data.find((c) => c.slug === slug);
+  if (!category) notFound();
+  const page = parsePage(query.side);
+  const products = await categoryProducts(category, page, parseSort(query.sorter));
+  if (products.ok && products.data.products.length === 0 && page > 1) notFound();
   return {
-    title: category.name,
-    description: merchandising.categoryIntros[category.slug] ?? (category.description || undefined),
-    alternates: { canonical: `/kategori/${category.slug}` },
+    title: page > 1 ? `${category.name} – side ${page}` : category.name,
+    description: merchandising.categoryIntros[category.slug] || category.description || categoryDescription(category, storeConfig.name),
+    // Each page of the listing is its own page (without the sorting). A category this shop
+    // hides, whose home is another shop, points there (e.g. Halloween in the Fastelavn shop).
+    alternates: { canonical: `${storeUrl(categoryHomeStore(category, categories.data))}${pageHref(`/kategori/${category.slug}`, page)}` },
   };
+}
+
+/** A page of the category's products, the season's first (see getSeasonalProducts). */
+function categoryProducts(category: ProductCategory, page: number, sort: SortKey) {
+  return getSeasonalProducts({ categoryIds: [category.id], page, sort });
 }
 
 export default function CategoryPage(props: PageProps<"/kategori/[slug]">) {
@@ -62,7 +82,7 @@ async function CategoryContent({
   const category = categories.data.find((c) => c.slug === slug);
   if (!category) notFound();
 
-  const products = await getSeasonalProducts({ categoryIds: [category.id], page, sort });
+  const products = await categoryProducts(category, page, sort);
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();
 
   const path = categoryPath(categories.data, category);
@@ -71,16 +91,12 @@ async function CategoryContent({
   const children = subcategories(categories.data, category.id).filter((c) => shownInNav(c.slug));
   const siblings = parent ? subcategories(categories.data, parent.id).filter((c) => c.id === category.id || shownInNav(c.slug)) : [];
   const intro = merchandising.categoryIntros[category.slug] ?? category.description;
+  const crumbs = [{ name: "Forside", href: "/" }, ...path.slice(0, -1).map((c) => ({ name: c.name, href: `/kategori/${c.slug}` }))];
 
   return (
     <>
-      <Breadcrumbs
-        items={[
-          { name: "Forside", href: "/" },
-          ...path.slice(0, -1).map((c) => ({ name: c.name, href: `/kategori/${c.slug}` })),
-          { name: category.name },
-        ]}
-      />
+      <JsonLd data={breadcrumbData([...crumbs, { name: category.name, href: `/kategori/${category.slug}` }])} />
+      <Breadcrumbs items={[...crumbs, { name: category.name }]} />
       <h1 className="heading mt-2 text-[34px] text-ink sm:text-5xl">{category.name}</h1>
       {intro && <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-ink-soft">{intro}</p>}
       {ADULT_CATEGORY_SLUGS.includes(category.slug) && (

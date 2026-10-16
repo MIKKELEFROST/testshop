@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { HTML_LIMITED_BOT_UA_RE } from "next/dist/shared/lib/router/utils/html-bots";
 import { SUPPLIER_IMAGE_HOSTS } from "./src/config/images";
 
 /** Product images are served from the WooCommerce host (and supplier hosts, see src/config/images.ts). */
@@ -26,6 +27,11 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  // Next.js's list of crawlers that get a page's metadata before the page, plus Google's search
+  // crawler. The metadata can then set the status: a real 404 for an unknown product, category
+  // or theme, or a page past the last one, instead of a 200 "not found" page. Visitors still
+  // get the page streamed.
+  htmlLimitedBots: new RegExp(`${HTML_LIMITED_BOT_UA_RE.source}|Googlebot`, "i"),
   images: {
     remotePatterns: [
       ...(pattern ? [pattern] : []),

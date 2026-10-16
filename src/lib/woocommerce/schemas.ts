@@ -32,6 +32,8 @@ export const wcProductSchema = z.object({
   description: z.string().default(""),
   short_description: z.string().default(""),
   sku: z.string().default(""),
+  /** "GTIN, UPC, EAN or ISBN" (WooCommerce 9.2+); the Guirca import writes the EAN here. */
+  global_unique_id: z.string().default(""),
   price: decimalOrEmpty,
   regular_price: decimalOrEmpty,
   sale_price: decimalOrEmpty,
@@ -64,6 +66,7 @@ export const wcProductSchema = z.object({
 export const wcVariationSchema = z.object({
   id: z.number(),
   sku: z.string().default(""),
+  global_unique_id: z.string().default(""),
   status: z.string().default("publish"),
   price: decimalOrEmpty,
   regular_price: decimalOrEmpty,

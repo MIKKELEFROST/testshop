@@ -4,11 +4,24 @@ import { Suspense } from "react";
 import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
+import { pageHref } from "@/components/ui/pagination";
 import { parsePage } from "@/lib/pagination";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { parseSort } from "@/lib/woocommerce/products";
+import { parseSort, type SortKey } from "@/lib/woocommerce/products";
 
-export const metadata: Metadata = { title: "Alle produkter", alternates: { canonical: "/produkter" } };
+export async function generateMetadata(props: PageProps<"/produkter">): Promise<Metadata> {
+  const query = await props.searchParams;
+  // As on category pages, search engines get the metadata first: a 404 for a page past the last one.
+  const page = parsePage(query.side);
+  const result = await allProducts(page, parseSort(query.sorter));
+  if (result.ok && result.data.products.length === 0 && page > 1) notFound();
+  return { title: page > 1 ? `Alle produkter – side ${page}` : "Alle produkter", alternates: { canonical: pageHref("/produkter", page) } };
+}
+
+/** A page of all the shop's products except the 18+ ones, the season's first. */
+function allProducts(page: number, sort: SortKey) {
+  return getSeasonalProducts({ page, sort, hideAdult: true });
+}
 
 export default function ProductsPage(props: PageProps<"/produkter">) {
   return (
@@ -33,7 +46,7 @@ async function AllProducts({ searchParams }: { searchParams: Promise<Record<stri
   const query = await searchParams;
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
-  const result = await getSeasonalProducts({ page, sort, hideAdult: true });
+  const result = await allProducts(page, sort);
   if (!result.ok) {
     return (
       <div className="mt-8">

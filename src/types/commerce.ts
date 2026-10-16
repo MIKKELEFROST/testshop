@@ -56,6 +56,8 @@ export type ProductAttribute = { name: string; slug: string; options: string[] }
 export type ProductVariation = {
   id: number;
   sku: string;
+  /** Barcode number (EAN-13 for Guirca), "" when unknown. */
+  gtin: string;
   price: string | null;
   regularPrice: string | null;
   salePrice: string | null;
@@ -71,6 +73,8 @@ export type ProductVariation = {
 
 export type Product = ProductSummary & {
   sku: string;
+  /** Barcode number (EAN-13 for Guirca), "" when unknown; a variable product's are on its variations. */
+  gtin: string;
   description: string[];
   shortDescription: string[];
   images: ProductImage[];

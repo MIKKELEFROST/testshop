@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -5,8 +6,10 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
+import { pageHref } from "@/components/ui/pagination";
 import { findCollection, merchandising } from "@/config/merchandising";
 import { parsePage } from "@/lib/pagination";
+import { breadcrumbData, JsonLd } from "@/lib/seo";
 import { getCollectionProducts } from "@/lib/woocommerce/collections";
 import { parseSort } from "@/lib/woocommerce/products";
 
@@ -16,11 +19,21 @@ export function generateStaticParams() {
   return merchandising.collections.map((c) => ({ slug: c.slug }));
 }
 
-export async function generateMetadata(props: PageProps<"/tema/[slug]">) {
-  const { slug } = await props.params;
+export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promise<Metadata> {
+  const [{ slug }, query] = await Promise.all([props.params, props.searchParams]);
   const collection = findCollection(slug);
-  if (!collection) return { title: "Tema" };
-  return { title: collection.title, description: collection.intro, alternates: { canonical: collection.canonical ?? `/tema/${collection.slug}` } };
+  if (!collection) notFound();
+  // As on category pages, search engines get the metadata first: a 404 for an unknown theme
+  // or a page past the last one.
+  const page = parsePage(query.side);
+  const result = await getCollectionProducts(slug, { page, sort: parseSort(query.sorter) });
+  if (result === null) notFound();
+  if (result.ok && result.data.products.length === 0 && page > 1) notFound();
+  return {
+    title: page > 1 ? `${collection.title} – side ${page}` : collection.title,
+    description: collection.intro,
+    alternates: { canonical: collection.canonical ?? pageHref(`/tema/${collection.slug}`, page) },
+  };
 }
 
 export default function ThemePage(props: PageProps<"/tema/[slug]">) {
@@ -69,6 +82,13 @@ async function ThemeContent({
 
   return (
     <>
+      <JsonLd
+        data={breadcrumbData([
+          { name: "Forside", href: "/" },
+          { name: "Temaer", href: "/tema" },
+          { name: collection.title, href: `/tema/${collection.slug}` },
+        ])}
+      />
       <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: "Temaer", href: "/tema" }, { name: collection.title }]} />
       <h1 className="heading mt-2 text-[34px] text-ink sm:text-5xl">{collection.title}</h1>
       <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-ink-soft">{collection.intro}</p>

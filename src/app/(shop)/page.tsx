@@ -1,4 +1,5 @@
 import { House, Ruler, Shirt, Sparkles, VenetianMask, type LucideIcon } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Hero } from "@/components/home/hero";
@@ -9,6 +10,9 @@ import { merchandising, type GuideIcon, type HomePage as HomeConfig } from "@/co
 import { storeConfig } from "@/config/store";
 import { JsonLd, shopData } from "@/lib/seo";
 import { getCollectionProducts, getProductsBySlug } from "@/lib/woocommerce/collections";
+
+// One address for the front page, also when it is opened with e.g. "?utm_source=…".
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 /**
  * The shop's front page (src/config/merchandising.ts): hero with the countdown to its holiday,

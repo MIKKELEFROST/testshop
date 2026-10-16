@@ -128,10 +128,17 @@ export function mapProductSummary(product: WcProduct): ProductSummary {
   };
 }
 
+/** A GTIN (EAN-13, UPC …) of 8, 12, 13 or 14 digits, else "". */
+function gtin(value: string): string {
+  const digits = value.trim();
+  return /^(\d{8}|\d{12,14})$/.test(digits) ? digits : "";
+}
+
 export function mapVariation(variation: WcVariation): ProductVariation {
   return {
     id: variation.id,
     sku: variation.sku,
+    gtin: gtin(variation.global_unique_id),
     ...prices(variation),
     onSale: variation.on_sale,
     purchasable: variation.purchasable && variation.status === "publish",
@@ -146,6 +153,7 @@ export function mapProduct(product: WcProduct, variations: WcVariation[]): Produ
   return {
     ...mapProductSummary(product),
     sku: product.sku,
+    gtin: gtin(product.global_unique_id),
     description: htmlToParagraphs(product.description),
     shortDescription: htmlToParagraphs(product.short_description),
     images: productImages(product),
