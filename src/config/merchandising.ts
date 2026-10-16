@@ -73,7 +73,8 @@ export type Merchandising = {
   hidden: string[];
   /**
    * Subcategories left out of the menu's dropdowns and the category chips (e.g. Halloweenpynt
-   * in the Fastelavn shop), like the hidden categories. Their pages still work and are in search.
+   * in the Fastelavn shop), like the hidden categories. Their pages still work and are in search,
+   * but search engines are sent to the shop that shows them (see categoryHomeStore in lib/home-store.ts).
    */
   navHidden: string[];
   /**

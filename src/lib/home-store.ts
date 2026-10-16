@@ -1,4 +1,4 @@
-import { merchandising } from "@/config/merchandising";
+import { merchandising, merchandisingByStore, shownInNav, type Merchandising } from "@/config/merchandising";
 import { brands, DEFAULT_STORE_ID, storeConfig, type Season } from "@/config/store";
 import { SITE_URL } from "@/lib/seo";
 import { categoryPath } from "@/lib/woocommerce/category-tree";
@@ -57,10 +57,19 @@ export function storeUrl(storeId: string): string {
 }
 
 /**
- * Where a category page's canonical address is: a category this shop keeps out of its menu
- * and front page (merchandising.hidden) whose home is another shop belongs there (e.g.
- * "Halloween" in the Fastelavn shop); every other category page here.
+ * Where a category page's canonical address is. Every category this shop shows in its menu
+ * and category chips is here. One it keeps out of them (merchandising.hidden and navHidden)
+ * belongs to the other shop that shows it, e.g. "Halloween" and "Halloweenpynt" in the
+ * Fastelavn shop; one that no shop shows to its products' home shop (homeStoreFor), e.g.
+ * "Julepynt" to the Fastelavn shop. Products keep their own home either way.
  */
-export function categoryHomeStore(category: ProductCategory, tree: ProductCategory[], hidden: string[] = merchandising.hidden): string {
-  return hidden.includes(category.slug) ? homeStoreFor([category], tree) : storeConfig.id;
+export function categoryHomeStore(
+  category: ProductCategory,
+  tree: ProductCategory[],
+  shops: Record<string, Merchandising> = merchandisingByStore,
+): string {
+  const own = shops[storeConfig.id] ?? merchandising;
+  if (shownInNav(category.slug, own)) return storeConfig.id;
+  const shownElsewhere = Object.entries(shops).find(([id, shop]) => id !== storeConfig.id && shownInNav(category.slug, shop));
+  return shownElsewhere?.[0] ?? homeStoreFor([category], tree);
 }

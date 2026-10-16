@@ -46,7 +46,7 @@ Begge webshops har de samme ~8.600 produktsider med samme navn, tekst og billede
 
 - Produkter i **Halloween** (og dens underkategorier) og **18+**-varerne hører hjemme på Halloweenkostumer.dk. Alt andet, også jul, hører hjemme på Fastelavnskostumer.dk.
 - Produktsiden peger i begge webshops på hjemme-webshoppens side som den kanoniske (`<link rel="canonical">` og adressen i produktets strukturerede data), og kun hjemme-webshoppens `sitemap.xml` har produktet med.
-- En kategori, som en webshop skjuler (`hidden` i `merchandising.ts`), peger på hjemme-webshoppens kategoriside, f.eks. `/kategori/halloween` i Fastelavnsshoppen → `https://halloweenkostumer.dk/kategori/halloween` og `/kategori/jul-og-nytaar` i Halloweenshoppen → Fastelavnskostumer.dk. Den står kun i hjemme-webshoppens sitemap.
+- En kategori, som en webshop holder ude af menuen og kategori-chipsene (`hidden` og `navHidden` i `merchandising.ts`), peger på kategorisiden i den webshop, der viser den: f.eks. `/kategori/halloween`, `/kategori/halloweenpynt` og `/kategori/blod-og-effekter` i Fastelavnsshoppen → `https://halloweenkostumer.dk/kategori/…`. Viser ingen af dem kategorien, hører den hjemme hos produkternes hjemme-webshop: `/kategori/jul-og-nytaar` og `/kategori/julepynt` i Halloweenshoppen → Fastelavnskostumer.dk. Den står kun i hjemme-webshoppens sitemap. Produkternes hjem ændres ikke af det.
 - Produkterne kan stadig købes i begge webshops; det ændrer kun, hvilken side Google viser.
 
 Den anden webshops adresse er `siteUrl` i `src/config/store.ts` (de rigtige domæner). Webshoppens egne sider bruger `NEXT_PUBLIC_SITE_URL`. Indtil domænerne er koblet på, peger kanoniske adresser altså på domæner, der endnu ikke svarer; kobl begge domæner på samtidig.

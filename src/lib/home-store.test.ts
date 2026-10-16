@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { merchandisingByStore } from "@/config/merchandising";
 import type { ProductCategory } from "@/types/commerce";
 import { categoryHomeStore, homeSeasonFor, homeStoreFor, storeUrl } from "./home-store";
 import { SITE_URL } from "./seo";
@@ -70,12 +71,54 @@ describe("storeUrl", () => {
 });
 
 describe("categoryHomeStore", () => {
-  it("sends a hidden category to its home shop, and keeps every other category here", () => {
-    const hidden = ["halloween", "jul-og-nytaar"];
-    expect(categoryHomeStore(halloween, tree, hidden)).toBe("halloween-kostumer-dk");
-    expect(categoryHomeStore(jul, tree, hidden)).toBe("piece-dk");
-    // Shown in this shop: its page stays here, even when its home is another shop.
-    expect(categoryHomeStore(halloween, tree, [])).toBe("piece-dk");
-    expect(categoryHomeStore(kostumer, tree, hidden)).toBe("piece-dk");
+  // As in WooCommerce: the decorations and effects are not under "Halloween".
+  const shopTree = [
+    category(1, "kostumer"),
+    category(5, "halloween"),
+    category(7, "jul-og-nytaar"),
+    category(90, "make-up"),
+    category(91, "blod-og-effekter", 90),
+    category(94, "pynt-og-fest"),
+    category(95, "halloweenpynt", 94),
+    category(96, "figurer-og-animatronics", 94),
+    category(101, "slik-eller-ballade", 94),
+    category(102, "julepynt", 94),
+  ];
+  const slug = (s: string) => shopTree.find((c) => c.slug === s)!;
+  const halloweenOnly = ["halloweenpynt", "slik-eller-ballade", "figurer-og-animatronics", "blod-og-effekter"];
+
+  it("in the Fastelavn shop: sends Halloween's categories to the Halloween shop, and keeps its own and Christmas", () => {
+    // The tests run as the default shop (piece-dk).
+    expect(categoryHomeStore(slug("halloween"), shopTree)).toBe("halloween-kostumer-dk");
+    for (const s of halloweenOnly) expect(categoryHomeStore(slug(s), shopTree), s).toBe("halloween-kostumer-dk");
+    // Neither shop shows Christmas: its products' home, the Fastelavn shop.
+    expect(categoryHomeStore(slug("jul-og-nytaar"), shopTree)).toBe("piece-dk");
+    expect(categoryHomeStore(slug("julepynt"), shopTree)).toBe("piece-dk");
+    for (const s of ["kostumer", "make-up", "pynt-og-fest"]) expect(categoryHomeStore(slug(s), shopTree), s).toBe("piece-dk");
+  });
+
+  it("in the Halloween shop: sends Christmas to the Fastelavn shop, and keeps the rest", async () => {
+    vi.stubEnv("NEXT_PUBLIC_STORE_ID", "halloween-kostumer-dk");
+    vi.resetModules();
+    const shop = await import("./home-store");
+    expect(shop.categoryHomeStore(slug("julepynt"), shopTree)).toBe("piece-dk");
+    expect(shop.categoryHomeStore(slug("jul-og-nytaar"), shopTree)).toBe("piece-dk");
+    for (const s of ["halloween", ...halloweenOnly, "kostumer", "pynt-og-fest"]) {
+      expect(shop.categoryHomeStore(slug(s), shopTree), s).toBe("halloween-kostumer-dk");
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it("only moves category pages: the products in them keep their home", () => {
+    // Halloween decorations are also in "Halloween", which gives them the Halloween shop.
+    expect(homeStoreFor([slug("halloweenpynt"), slug("halloween")], shopTree)).toBe("halloween-kostumer-dk");
+    // A Christmas figure in "Figurer og animatronics" stays in the Fastelavn shop.
+    expect(homeStoreFor([slug("figurer-og-animatronics"), slug("jul-og-nytaar")], shopTree)).toBe("piece-dk");
+  });
+
+  it("keeps a category shown in this shop here, even when its products' home is another shop", () => {
+    const shops = { "piece-dk": { ...merchandisingByStore["piece-dk"]!, hidden: [], navHidden: [] } };
+    expect(categoryHomeStore(slug("halloween"), shopTree, shops)).toBe("piece-dk");
+    expect(categoryHomeStore(kostumer, tree, shops)).toBe("piece-dk");
   });
 });

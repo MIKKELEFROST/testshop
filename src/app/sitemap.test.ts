@@ -1,0 +1,71 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ProductCategory } from "@/types/commerce";
+
+const category = (id: number, slug: string, parent = 0): ProductCategory => ({ id, name: slug, slug, description: "", count: 5, image: null, parent, menuOrder: 0 });
+
+// The category tree as in WooCommerce: the decorations and effects are not under "Halloween".
+const tree = [
+  category(1, "kostumer"),
+  category(2, "pigekostumer", 1),
+  category(5, "halloween"),
+  category(7, "jul-og-nytaar"),
+  category(8, "polterabend-18"),
+  category(90, "make-up"),
+  category(91, "blod-og-effekter", 90),
+  category(92, "sminke-og-ansigtsmaling", 90),
+  category(94, "pynt-og-fest"),
+  category(95, "halloweenpynt", 94),
+  category(96, "figurer-og-animatronics", 94),
+  category(101, "slik-eller-ballade", 94),
+  category(102, "julepynt", 94),
+];
+
+vi.mock("@/components/content/info-page", () => ({ INFO_LINKS: [{ label: "Kontakt", href: "/kontakt" }] }));
+vi.mock("@/lib/woocommerce/products", () => ({
+  getCategories: async () => ({ ok: true, data: tree }),
+  getAllProductSlugs: async () => ({ ok: true, data: [] }),
+}));
+
+const SHOPS = ["piece-dk", "halloween-kostumer-dk"];
+
+/** The shop's sitemap (its category slugs) and where its category pages point (slug -> store ID). */
+async function shop(storeId: string) {
+  vi.stubEnv("NEXT_PUBLIC_STORE_ID", storeId);
+  vi.resetModules();
+  const [{ default: sitemap }, { categoryHomeStore }] = await Promise.all([import("./sitemap"), import("@/lib/home-store")]);
+  const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
+  return {
+    urls,
+    categories: urls.filter((path) => path.startsWith("/kategori/")).map((path) => path.slice("/kategori/".length)),
+    homes: new Map(tree.map((c) => [c.slug, categoryHomeStore(c, tree)])),
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("sitemap", () => {
+  it("lists no category page whose home is the other shop, and lists each one in its home shop", async () => {
+    const shops = new Map<string, Awaited<ReturnType<typeof shop>>>();
+    for (const id of SHOPS) shops.set(id, await shop(id));
+    for (const [id, { categories, homes }] of shops) {
+      for (const c of tree) {
+        const home = homes.get(c.slug)!;
+        if (home === id) expect(categories, `${id}: ${c.slug}`).toContain(c.slug);
+        else {
+          expect(categories, `${id}: ${c.slug}`).not.toContain(c.slug);
+          expect(shops.get(home)?.categories, `${home}: ${c.slug}`).toContain(c.slug);
+        }
+      }
+    }
+    for (const slug of ["halloween", "halloweenpynt", "slik-eller-ballade", "figurer-og-animatronics", "blod-og-effekter"]) {
+      expect(shops.get("piece-dk")?.categories, slug).not.toContain(slug);
+      expect(shops.get("halloween-kostumer-dk")?.categories, slug).toContain(slug);
+    }
+    for (const slug of ["jul-og-nytaar", "julepynt"]) {
+      expect(shops.get("piece-dk")?.categories, slug).toContain(slug);
+      expect(shops.get("halloween-kostumer-dk")?.categories, slug).not.toContain(slug);
+    }
+  });
+});
