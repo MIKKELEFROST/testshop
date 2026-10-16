@@ -125,7 +125,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
           aria-controls={`${id}-list`}
           aria-autocomplete="list"
           aria-activedescendant={showList && active >= 0 ? optionId(active) : undefined}
-          className="h-11 w-full rounded-full border border-field bg-surface pr-12 pl-4 text-base text-ink placeholder:text-muted focus:border-ink focus:outline-none sm:text-[15px]"
+          className="h-11 w-full rounded-full border border-field bg-surface pr-12 pl-4 text-base text-ink placeholder:text-muted focus:border-ink sm:text-[15px]"
         />
         <button type="submit" className="absolute top-1 right-1 flex size-9 items-center justify-center rounded-full text-ink hover:bg-tint" aria-label="Søg">
           <SearchIcon />
