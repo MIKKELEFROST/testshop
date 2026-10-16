@@ -230,18 +230,29 @@ export type SearchResult = {
 
 /**
  * Search along the plan (see searchPlan) until something is found, with at most `tries`
- * searches: each one is a WooCommerce read, cached but new for every new word.
+ * searches: each one is a WooCommerce read, cached but new for every new word. With `probe`
+ * (a cheaper read that only has to tell whether a search finds anything), the variants are
+ * tried with it, and `run` only for the one that finds something.
  */
 export async function searchProducts(
   query: string,
   run: (search: string) => Promise<Loadable<ProductList>>,
-  { tries = 4, season = storeConfig.season }: { tries?: number; season?: Season } = {},
+  {
+    tries = 4,
+    season = storeConfig.season,
+    probe,
+  }: { tries?: number; season?: Season; probe?: (search: string) => Promise<Loadable<Pick<ProductList, "total">>> } = {},
 ): Promise<Loadable<SearchResult>> {
   const [primary, ...variants] = searchPlan(query, season);
   const first = await run(primary!);
   if (!first.ok) return first;
   if (first.data.total === 0) {
     for (const variant of variants.slice(0, Math.max(0, tries - 1))) {
+      if (probe) {
+        const found = await probe(variant);
+        if (!found.ok) return found;
+        if (found.data.total === 0) continue;
+      }
       const result = await run(variant);
       if (!result.ok) return result;
       if (result.data.total > 0) return { ok: true, data: { list: result.data, searched: variant, fallback: true } };

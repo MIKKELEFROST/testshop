@@ -164,6 +164,15 @@ async function readProducts(options: ProductQuery): Promise<Read<ProductList>> {
   });
 }
 
+/**
+ * Up to 24 products for a search, in the shop's order: the search field's suggestions, and the
+ * search page's check whether other words find anything (see searchProducts). One cached read
+ * for both, so a search typed in the field and then sent costs WooCommerce nothing more.
+ */
+export async function getSearchMatches(search: string): Promise<Loadable<ProductList>> {
+  return getProducts({ search, perPage: 24 });
+}
+
 /** IDs of this shop's adult-only (18+) products, to leave them out of general listings. */
 async function readAdultProductIds(): Promise<Read<number[]>> {
   "use cache: remote";

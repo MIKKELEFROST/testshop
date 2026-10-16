@@ -1,7 +1,7 @@
 import { buildSuggestions, normalizeQuery, searchProducts } from "@/lib/search";
 import { createRateLimiter } from "@/lib/security/rate-limit";
 import { clientIp, rateLimited } from "@/lib/security/request";
-import { getCategories, getProducts } from "@/lib/woocommerce/products";
+import { getCategories, getSearchMatches } from "@/lib/woocommerce/products";
 
 /** GET /api/search?q=heks — suggestions for the search field (products, categories, themes). */
 
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   if (q.length < 2) return Response.json({ products: [], links: [], searched: null });
 
   const [found, categories] = await Promise.all([
-    searchProducts(q, (search) => getProducts({ search, perPage: 24 }), { tries: TRIES }),
+    searchProducts(q, getSearchMatches, { tries: TRIES }),
     getCategories(),
   ]);
   if (!found.ok) return Response.json({ products: [], links: [], searched: null }, { status: 503 });

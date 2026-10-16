@@ -12,7 +12,7 @@ import { storeConfig } from "@/config/store";
 import { parsePage } from "@/lib/pagination";
 import { matchingLinks, normalizeQuery, rankProducts, SEARCH_EXAMPLES, searchedOtherWords, searchProducts, type SuggestedLink } from "@/lib/search";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { getCategories, parseSort } from "@/lib/woocommerce/products";
+import { getCategories, getSearchMatches, parseSort } from "@/lib/woocommerce/products";
 
 // Result pages are not worth indexing.
 export const metadata: Metadata = { title: "Søg", robots: { index: false } };
@@ -61,8 +61,14 @@ async function SearchResults({ searchParams }: { searchParams: Promise<Record<st
     );
   }
 
-  // The season's products first (like the category pages), then by WooCommerce's order.
-  const [found, categories] = await Promise.all([searchProducts(q, (search) => getSeasonalProducts({ search, page, sort })), getCategories()]);
+  // The season's products first (like the category pages), then by WooCommerce's order. That is
+  // two reads a search, so other words for a query that finds nothing are first tried with
+  // the suggestions' one read (often cached already), and only the one that finds something
+  // is read in full.
+  const [found, categories] = await Promise.all([
+    searchProducts(q, (search) => getSeasonalProducts({ search, page, sort }), { probe: getSearchMatches }),
+    getCategories(),
+  ]);
   const tree = categories.ok ? categories.data : [];
   if (!found.ok) {
     return (

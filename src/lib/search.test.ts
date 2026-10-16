@@ -179,6 +179,26 @@ describe("searching with fallbacks", () => {
     expect(searchedOtherWords("halloweenmaske", "maske")).toBe(true);
   });
 
+  it("checks the variants with the cheaper probe, and reads only the one that finds something", async () => {
+    const reads: string[] = [];
+    const probes: string[] = [];
+    const run = async (q: string) => (reads.push(q), q === "dronning krone" ? list(8, [7]) : list(0));
+    const probe = async (q: string) => (probes.push(q), q === "dronning krone" ? list(8) : list(0));
+    const result = await searchProducts("kattedronning", run, { season: "fastelavn", probe });
+    expect(reads).toEqual(["kattedronning", "dronning krone"]);
+    expect(probes).toEqual(["dronning krone"]);
+    expect(result).toMatchObject({ ok: true, data: { searched: "dronning krone", fallback: true, list: { total: 8 } } });
+
+    // Nothing found: one full read (the query) and a probe per variant.
+    reads.length = 0;
+    probes.length = 0;
+    const plan = searchPlan("vampyrerne kattekongerne", "halloween");
+    await searchProducts("vampyrerne kattekongerne", async (q) => (reads.push(q), list(0)), { season: "halloween", probe: async (q) => (probes.push(q), list(0)) });
+    expect(reads).toEqual([plan[0]]);
+    expect(probes).toEqual(plan.slice(1, 4));
+    expect(await searchProducts("zombiemaske", async () => list(0), { season: "halloween", probe: async () => ({ ok: false, error: "nede" }) })).toEqual({ ok: false, error: "nede" });
+  });
+
   it("passes on a failed read", async () => {
     const failed = { ok: false as const, error: "nede" };
     expect(await searchProducts("heks", async () => failed)).toEqual(failed);
