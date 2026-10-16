@@ -38,10 +38,19 @@ describe("express checkout helpers", () => {
   });
 
   it("offers WooCommerce's rates in the wallet, its current choice first, in øre", () => {
-    expect(walletShippingRates(quote)).toEqual([
-      { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900, deliveryEstimate: "Levering normalt næste hverdag" },
-      { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375, deliveryEstimate: "Levering normalt næste hverdag" },
+    const thursdayMorning = new Date("2026-10-15T08:00:00Z");
+    expect(walletShippingRates(quote, thursdayMorning)).toEqual([
+      { id: "flat_rate:2", displayName: "DAO til Døren", amount: 4900, deliveryEstimate: "Sendes i dag – levering normalt næste hverdag" },
+      { id: "flat_rate:1", displayName: "GLS til Døren", amount: 7375, deliveryEstimate: "Sendes i dag – levering normalt næste hverdag" },
     ]);
+  });
+
+  it("says in the wallet that an evening or weekend order is sent the next working day", () => {
+    for (const when of ["2026-10-15T18:30:00Z", "2026-10-18T10:00:00Z"]) {
+      for (const rate of walletShippingRates(quote, new Date(when))) {
+        expect(rate.deliveryEstimate).toBe("Sendes næste hverdag – levering normalt hverdagen efter");
+      }
+    }
   });
 
   it("opens the wallet with rates before the customer has typed an address", () => {

@@ -8,8 +8,17 @@ export const CUTOFF_MINUTES = 19 * 60;
  * working day, delivered normally the next working day. Never a date.
  */
 export const DISPATCH_PROMISE = `Bestil før kl. ${CUTOFF_MINUTES / 60} på en hverdag, så sender vi samme dag.`;
-/** With each shipping method in the checkout and the Apple Pay / Google Pay sheet. */
-export const DELIVERY_ESTIMATE = "Levering normalt næste hverdag";
+
+/**
+ * With each shipping method in the checkout and the Apple Pay / Google Pay sheet: when an order
+ * placed `now` is sent and normally delivered, counted from that time (after 19:00, at weekends
+ * and on closed days it is sent the next working day). Never a date.
+ */
+export function deliveryEstimate(now: Date): string {
+  return minutesToCutoff(now) !== null
+    ? "Sendes i dag – levering normalt næste hverdag"
+    : "Sendes næste hverdag – levering normalt hverdagen efter";
+}
 
 /**
  * Minutes left to order for same-day dispatch, or null when nothing is sent today (after

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DELIVERY_ESTIMATE, DISPATCH_PROMISE, formatDuration, minutesToCutoff } from "./delivery";
+import { deliveryEstimate, DISPATCH_PROMISE, formatDuration, minutesToCutoff } from "./delivery";
 
 describe("same-day dispatch countdown", () => {
   it("counts down to 19:00 Danish time on working days", () => {
@@ -16,9 +16,20 @@ describe("same-day dispatch countdown", () => {
     expect(minutesToCutoff(new Date("2027-03-25T09:00:00Z"))).toBeNull(); // Skærtorsdag 2027
   });
 
+  it("says when an order placed now is sent and normally delivered", () => {
+    const today = "Sendes i dag – levering normalt næste hverdag";
+    const nextDay = "Sendes næste hverdag – levering normalt hverdagen efter";
+    expect(deliveryEstimate(new Date("2026-10-15T16:59:00Z"))).toBe(today); // Thursday 18:59
+    expect(deliveryEstimate(new Date("2026-10-15T17:00:00Z"))).toBe(nextDay); // Thursday 19:00: sent Friday
+    expect(deliveryEstimate(new Date("2026-10-16T18:00:00Z"))).toBe(nextDay); // Friday 20:00: sent Monday
+    expect(deliveryEstimate(new Date("2026-10-17T09:00:00Z"))).toBe(nextDay); // Saturday
+    expect(deliveryEstimate(new Date("2026-12-24T09:00:00Z"))).toBe(nextDay); // Juleaften
+  });
+
   it("states the promise with the cut-off, and never a date", () => {
     expect(DISPATCH_PROMISE).toContain("før kl. 19 på en hverdag");
-    for (const text of [DISPATCH_PROMISE, DELIVERY_ESTIMATE]) expect(text).not.toMatch(/\d+\.\s*(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)|\d+\/\d+/i);
+    const texts = [DISPATCH_PROMISE, deliveryEstimate(new Date("2026-10-15T08:00:00Z")), deliveryEstimate(new Date("2026-10-17T08:00:00Z"))];
+    for (const text of texts) expect(text).not.toMatch(/\d+\.\s*(jan|feb|mar|apr|maj|jun|jul|aug|sep|okt|nov|dec)|\d+\/\d+|mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag/i);
   });
 
   it("formats the time left", () => {

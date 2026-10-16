@@ -1,5 +1,5 @@
 import type { CartLine } from "@/lib/cart/cart";
-import { DELIVERY_ESTIMATE } from "@/lib/delivery";
+import { deliveryEstimate } from "@/lib/delivery";
 import { stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import type { ClientQuote } from "./quote";
 
@@ -52,14 +52,18 @@ function isComplete(address: ReturnType<typeof toFormAddress>): boolean {
   return Boolean(address.firstName && address.address1 && address.postcode && address.city && address.country);
 }
 
-/** The quote's shipping rates for the wallet sheet, WooCommerce's current choice first. */
-export function walletShippingRates(quote: ClientQuote): WalletShippingRate[] {
+/**
+ * The quote's shipping rates for the wallet sheet, WooCommerce's current choice first. Made when
+ * the sheet opens or the address changes, so the delivery text fits the time (`now`).
+ */
+export function walletShippingRates(quote: ClientQuote, now: Date = new Date()): WalletShippingRate[] {
   const exponent = stripeCurrencyExponent(quote.currency);
+  const estimate = deliveryEstimate(now);
   const rates = quote.shippingRates.map((rate) => ({
     id: rate.id,
     displayName: rate.label,
     amount: toMinorUnits(rate.price, exponent),
-    deliveryEstimate: DELIVERY_ESTIMATE,
+    deliveryEstimate: estimate,
   }));
   return [...rates.filter((r) => r.id === quote.shippingRateId), ...rates.filter((r) => r.id !== quote.shippingRateId)];
 }

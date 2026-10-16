@@ -14,7 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { storeConfig } from "@/config/store";
 import { loadCheckoutDraft, saveCheckoutDraft } from "@/lib/checkout/form-draft";
 import { payTotalLine, shippingSection, type ClientQuote } from "@/lib/checkout/quote";
-import { DELIVERY_ESTIMATE, DISPATCH_PROMISE } from "@/lib/delivery";
+import { deliveryEstimate, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { cityForPostcode, filledTown } from "@/lib/postcodes";
 import { getStripeClient } from "@/lib/stripe/client";
@@ -558,7 +558,9 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
                           />
                           <span className="flex-1">
                             <span className="block text-[15px]">{rate.label}</span>
-                            <span className="block text-xs text-muted">{DELIVERY_ESTIMATE}</span>
+                            <span className="block text-xs text-muted">
+                              <DeliveryEstimate />
+                            </span>
                           </span>
                           <span className="text-[15px] font-medium tabular-nums">
                             {Number(rate.price) === 0 ? "Gratis" : formatPrice(rate.price)}
@@ -736,6 +738,20 @@ type CheckoutResponse =
     }
   | { type?: undefined; code: string; message: string; fields?: Record<string, string>; quote?: undefined }
   | { type: "busy"; message: string; fields?: undefined; quote?: undefined };
+
+/**
+ * When an order placed now is sent and normally delivered (no date). Follows the clock, so a
+ * checkout left open past 19:00 does not keep promising today's dispatch. Only rendered in the
+ * browser (the form waits for the cart to load), so the server's clock is never used.
+ */
+function DeliveryEstimate() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return deliveryEstimate(now);
+}
 
 function focusFirstError(fields: Record<string, string>) {
   const first = Object.keys(fields)[0];
