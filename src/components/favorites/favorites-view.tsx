@@ -5,27 +5,32 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { ProductGrid, ProductGridSkeleton } from "@/components/products/product-card";
 import { Alert } from "@/components/ui/alert";
 import { ButtonLink } from "@/components/ui/button";
+import { favoritesRequest } from "@/lib/favorites/favorites";
 import { useFavorites } from "@/lib/favorites/use-favorites";
 import type { ProductSummary } from "@/types/commerce";
 
 /** The saved products, fetched fresh (current prices and stock); removed products drop out. */
 const noopSubscribe = () => () => {};
 
+type Fetched = { key: string; ids: ReadonlySet<number>; products: ProductSummary[] | null; error: boolean };
+
 export function FavoritesView() {
   const { ids } = useFavorites();
   // The server can't know the favourites: show the placeholder until the browser has read them.
   const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
-  const key = ids.join(",");
-  const [state, setState] = useState<{ key: string; products: ProductSummary[] | null; error: boolean }>({ key: "", products: null, error: false });
+  const [state, setState] = useState<Fetched>({ key: "", ids: new Set(), products: null, error: false });
+  // A removed favourite just drops out of the grid (no reload, no skeleton).
+  const key = favoritesRequest(ids, state.ids, state.key);
 
   useEffect(() => {
     if (!key) return;
     const controller = new AbortController();
+    const asked = new Set(key.split(",").map(Number));
     fetch(`/api/products?ids=${key}`, { signal: controller.signal })
       .then((r) => (r.ok ? (r.json() as Promise<{ products: ProductSummary[] }>) : Promise.reject(new Error(String(r.status)))))
-      .then((data) => setState({ key, products: data.products, error: false }))
+      .then((data) => setState({ key, ids: asked, products: data.products, error: false }))
       .catch((error: unknown) => {
-        if (!controller.signal.aborted) setState({ key, products: null, error: Boolean(error) });
+        if (!controller.signal.aborted) setState({ key, ids: new Set(), products: null, error: Boolean(error) });
       });
     return () => controller.abort();
   }, [key]);

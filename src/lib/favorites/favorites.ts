@@ -18,3 +18,11 @@ export function parseFavorites(raw: string | null): number[] {
 export function toggleFavorite(ids: number[], id: number): number[] {
   return ids.includes(id) ? ids.filter((x) => x !== id) : [id, ...ids].slice(0, MAX_FAVORITES);
 }
+
+/**
+ * The product request the favourites page needs (the IDs, comma-separated): none while the last
+ * answer covers every favourite (a removed one just drops out of the grid), else all of them.
+ */
+export function favoritesRequest(ids: number[], answered: ReadonlySet<number>, lastRequest: string): string {
+  return ids.some((id) => !answered.has(id)) ? ids.join(",") : lastRequest;
+}

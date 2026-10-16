@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FAVORITES, parseFavorites, toggleFavorite } from "./favorites";
+import { MAX_FAVORITES, favoritesRequest, parseFavorites, toggleFavorite } from "./favorites";
 
 describe("favourites", () => {
   it("reads only valid product IDs, once each", () => {
@@ -19,5 +19,15 @@ describe("favourites", () => {
     const next = toggleFavorite(full, 999);
     expect(next).toHaveLength(MAX_FAVORITES);
     expect(next[0]).toBe(999);
+  });
+
+  it("asks for products again only when a favourite is not in the last answer", () => {
+    const answered = new Set([3, 1, 2]);
+    expect(favoritesRequest([3, 1, 2], new Set(), "")).toBe("3,1,2");
+    // Removing one keeps the last answer: no reload.
+    expect(favoritesRequest([3, 2], answered, "3,1,2")).toBe("3,1,2");
+    expect(favoritesRequest([], answered, "3,1,2")).toBe("3,1,2");
+    // A new one (e.g. from another tab) needs a request.
+    expect(favoritesRequest([4, 3, 2], answered, "3,1,2")).toBe("4,3,2");
   });
 });

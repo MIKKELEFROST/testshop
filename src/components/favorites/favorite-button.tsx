@@ -16,8 +16,10 @@ export function FavoriteButton({ productId, name, variant = "card" }: { productI
         event.stopPropagation();
         toggle(productId);
       }}
+      // A toggle: the name stays the same and "pressed" tells whether it is saved (screen
+      // readers say "Gem … som favorit, trykket"); the tooltip says what a click does.
       aria-pressed={saved}
-      aria-label={saved ? `Fjern ${name} fra favoritter` : `Gem ${name} som favorit`}
+      aria-label={`Gem ${name} som favorit`}
       title={saved ? "Fjern fra favoritter" : "Gem som favorit"}
       className={
         variant === "card"
