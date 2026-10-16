@@ -13,7 +13,7 @@ const FREE_FROM = "wchc_free_from";
 /**
  * The lowest "Fri fragt fra" amount (decimal string, e.g. "599.00") of the enabled flat rates
  * that deliver to the shop's country, or null when no method is free from an amount. The
- * selling points ("Fri fragt v/ 599 kr.") and the cart use it, so they always match WooCommerce.
+ * selling points ("Fri fragt til pakkeshop v/ 599 kr.") and the cart use it, so they always match WooCommerce.
  * A failed refresh keeps the last amount (see ./cache.ts).
  */
 export async function getFreeShippingFrom(): Promise<string | null> {

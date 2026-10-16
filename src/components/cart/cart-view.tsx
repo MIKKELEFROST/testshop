@@ -124,9 +124,11 @@ export function CartLineItem({
       <Link
         href={`/produkter/${line.slug}`}
         onNavigate={onNavigate}
+        tabIndex={-1}
+        aria-hidden="true"
         className={`relative aspect-[4/5] shrink-0 overflow-hidden rounded-xl bg-tint ${compact ? "w-20" : "w-24 sm:w-28"}`}
       >
-        <ProductImage image={line.image ?? null} name={line.name} sizes={compact ? "80px" : "112px"} />
+        <ProductImage image={line.image ?? null} name={line.name} sizes={compact ? "80px" : "112px"} decorative />
       </Link>
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex justify-between gap-4">

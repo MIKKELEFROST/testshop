@@ -39,7 +39,7 @@ export function OrderSummary({
             <li key={line.key} className="flex items-center gap-4">
               <div className="relative shrink-0">
                 <div className="relative size-16 overflow-hidden rounded-xl border border-line bg-surface">
-                  <ProductImage image={line.image ?? null} name={line.name} sizes="64px" />
+                  <ProductImage image={line.image ?? null} name={line.name} sizes="64px" decorative />
                 </div>
                 <span className="absolute -right-2 -top-2 flex size-5 items-center justify-center rounded-full bg-ink text-[11px] font-semibold text-white">
                   {line.quantity}

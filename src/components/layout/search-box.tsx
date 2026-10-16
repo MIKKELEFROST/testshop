@@ -175,7 +175,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
                     className={`flex items-center gap-3 px-4 py-2 ${active === i ? "bg-tint" : "hover:bg-tint"}`}
                   >
                     <span className="relative size-12 shrink-0 overflow-hidden rounded-lg bg-white ring-1 ring-line">
-                      <ProductImage image={product.image} name={product.name} sizes="48px" />
+                      <ProductImage image={product.image} name={product.name} sizes="48px" decorative />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="line-clamp-2 text-sm leading-snug font-semibold">
