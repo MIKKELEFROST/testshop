@@ -47,6 +47,19 @@ describe("product images", () => {
   it("has no image when there are neither", () => {
     expect(mapProductSummary(product()).image).toBeNull();
   });
+
+  it("leaves out a costume's main photo with the inset when its catalogue photo is there", () => {
+    const photos = (...links: string[]) => product({ meta_data: [{ key: "_wchc_external_images", value: links }] });
+    const g = (path: string) => `https://marketing.guirca.com/${path}`;
+    const costume = photos(g("80031/80031.jpg"), g("80031/80031_01.jpg"), g("80031/80031_02.jpg"), g("80031/80031_04.jpg"));
+    expect(productImages(costume).map((i) => i.src)).toEqual([g("80031/80031_01.jpg"), g("80031/80031_02.jpg"), g("80031/80031_04.jpg")]);
+    expect(mapProductSummary(costume).image?.src).toBe(g("80031/80031_01.jpg"));
+    // An accessory (catalogue photo _07), a main photo on its own, and another article's
+    // catalogue photo keep the main photo.
+    expect(productImages(photos(g("18347/18347.jpg"), g("18347/18347_07.jpg"))).map((i) => i.src)).toEqual([g("18347/18347.jpg"), g("18347/18347_07.jpg")]);
+    expect(productImages(photos(g("27766/27766.jpg"))).map((i) => i.src)).toEqual([g("27766/27766.jpg")]);
+    expect(productImages(photos(g("1/1.jpg"), g("2/2_01.jpg"))).map((i) => i.src)).toEqual([g("1/1.jpg"), g("2/2_01.jpg")]);
+  });
 });
 
 describe("mapProduct", () => {

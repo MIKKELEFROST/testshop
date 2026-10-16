@@ -872,11 +872,25 @@ def image_candidates(row: dict) -> list[str]:
 
 def image_urls(row: dict, status: ImageStatus = ImageStatus()) -> list[str]:
     """The row's photos over https, best first: the sheet's links that are not dead, and the
-    photos the image check found on Guirca's server that the sheet does not list."""
+    photos the image check found on Guirca's server that the sheet does not list. A costume's
+    main photo is left out when its catalogue photo is there (without_inset_photo)."""
     ranked = [(rank, url) for rank, url in sheet_images(row) if url not in status.dead]
     ranked += [(rank, url) for rank, url in enumerate(server_images(row.get("ARTICLE CODE", ""))) if url in status.found]
     ranked.sort(key=lambda item: item[0])  # stable: the sheet's own link first within a rank
-    return list(dict.fromkeys(url for _, url in ranked))
+    return without_inset_photo(list(dict.fromkeys(url for _, url in ranked)))
+
+
+GUIRCA_PHOTO = re.compile(rf"^{re.escape(IMAGE_HOST)}/([^/]+)/\1(_\d\d)?\.jpg$")
+
+
+def without_inset_photo(urls: list[str]) -> list[str]:
+    """Leaves out Guirca's main photo of a costume (<nr>/<nr>.jpg) when its catalogue photo
+    (<nr>/<nr>_01.jpg) is in the list. The main photo is a close crop with the same photo again,
+    small, in the lower left corner; the catalogue photo shows the whole costume on its own.
+    Accessories and decorations (catalogue photos _07 and _14) keep their main photo."""
+    matches = [(url, GUIRCA_PHOTO.match(url)) for url in urls]
+    with_catalogue = {m[1] for _, m in matches if m and m[2] == "_01"}
+    return [url for url, m in matches if not (m and m[2] is None and m[1] in with_catalogue)]
 
 
 def video_urls(row: dict) -> list[str]:

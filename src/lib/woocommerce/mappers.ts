@@ -40,9 +40,27 @@ function supplierUrl(value: unknown, hosts: readonly string[] | null = SUPPLIER_
   }
 }
 
+/** A Guirca photo link: the article code and the photo's ending ("" for the main photo, "_01" …). */
+const GUIRCA_PHOTO = /^https:\/\/marketing\.guirca\.com\/([^/]+)\/\1(_\d\d)?\.jpg$/;
+
+/**
+ * Leaves out Guirca's main photo of a costume (`<nr>/<nr>.jpg`) when its catalogue photo
+ * (`<nr>/<nr>_01.jpg`) is there too. The main photo is a close crop with the same photo again,
+ * small, in the lower left corner; the catalogue photo shows the whole costume on its own.
+ * Accessories and decorations have no catalogue photo with that ending and keep their main photo.
+ */
+function withoutInsetPhoto(urls: string[]): string[] {
+  const withCatalogue = new Set(urls.map((src) => GUIRCA_PHOTO.exec(src)).filter((m) => m?.[2] === "_01").map((m) => m![1]));
+  return urls.filter((src) => {
+    const m = GUIRCA_PHOTO.exec(src);
+    return !(m && m[2] === undefined && withCatalogue.has(m[1]));
+  });
+}
+
 /**
  * The product's photos: its WooCommerce images, or else the supplier photos an import
- * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS).
+ * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS, without a
+ * costume's inset main photo, see withoutInsetPhoto).
  */
 export function productImages(product: Pick<WcProduct, "name" | "images" | "meta_data">): ProductImage[] {
   const own = product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null);
@@ -50,10 +68,8 @@ export function productImages(product: Pick<WcProduct, "name" | "images" | "meta
   const external = meta(product, "_wchc_external_images");
   if (!Array.isArray(external)) return [];
   const alt = decodeEntities(product.name);
-  return external
-    .map((src) => supplierUrl(src))
-    .filter((src): src is string => src !== null)
-    .map((src) => ({ src, alt, fit: "contain" as const }));
+  const links = external.map((src) => supplierUrl(src)).filter((src): src is string => src !== null);
+  return withoutInsetPhoto(links).map((src) => ({ src, alt, fit: "contain" as const }));
 }
 
 function prices(source: WcProduct | WcVariation) {
