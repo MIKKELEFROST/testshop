@@ -25,9 +25,16 @@
  *   {prismatch_dage}     days after a purchase that the price match applies (prismatch)
  *   {svartid}            the answer time for emails (kontakt)
  *
+ * The pages are shared, so words that belong to one shop's season are tokens too, filled in
+ * from SEASON_WORDS below (storeConfig.season):
+ *   {højtid}    the holiday the shop is built around, e.g. "fastelavn"
+ *   {åben_ild}  examples of open fire to keep costumes away from
+ *
  * Text format: links are written as [link text](/path), [link text](mailto:{email}) or
  * [link text](https://…). There is no other markup.
  */
+import type { Season } from "@/config/store";
+
 export type InfoBlock =
   | { type: "p"; text: string }
   | { type: "list"; items: string[] }
@@ -46,6 +53,12 @@ export type InfoPage = {
   sections: InfoSection[];
 };
 
+/** The season tokens' words per shop season (see the top of this file). */
+export const SEASON_WORDS: Record<Season, { højtid: string; åben_ild: string }> = {
+  fastelavn: { højtid: "fastelavn", åben_ild: "stearinlys og bål" },
+  halloween: { højtid: "halloween", åben_ild: "stearinlys, græskarlygter og bål" },
+};
+
 const RETURFRAGT = "{returfragt}";
 
 const EMAIL_LINK = "[{email}](mailto:{email})";
@@ -53,8 +66,8 @@ const EMAIL_LINK = "[{email}](mailto:{email})";
 const SELLING_POINTS: InfoBlock = {
   type: "list",
   items: [
-    "Lynhurtig 1-dags levering – bestil før kl. 19",
-    "Fri fragt ved {fri_fragt}",
+    "Lynhurtig 1-dags levering – bestil før kl. 19 på hverdage",
+    "Fri fragt til pakkeshop ved {fri_fragt}",
     "30 dages returret",
     "100% prismatch",
     "+500.000 glade kunder",
@@ -170,7 +183,11 @@ export const INFO_PAGES: InfoPage[] = [
           },
           {
             type: "p",
-            text: "Bestiller du på en hverdag (mandag–fredag) før kl. 19, sender vi din ordre samme dag. Bestillinger efter kl. 19, i weekenden og på helligdage sender vi den næste hverdag. Vi kan ikke love en bestemt leveringsdato, da selve leveringen sker hos fragtfirmaet.",
+            text: "Bestiller du på en hverdag (mandag–fredag) før kl. 19, sender vi din ordre samme dag. Bestillinger efter kl. 19, i weekenden og på helligdage sender vi den næste hverdag.",
+          },
+          {
+            type: "p",
+            text: "Fragtfirmaet leverer normalt pakken hverdagen efter, at vi har sendt den (1-dags levering). Vi kan ikke love en bestemt leveringsdato, da selve leveringen sker hos fragtfirmaet. Vi leverer senest 30 dage efter, at aftalen er indgået.",
           },
           {
             type: "p",
@@ -471,8 +488,8 @@ export const INFO_PAGES: InfoPage[] = [
     slug: "fragt-og-levering",
     title: "Fragt og levering",
     description:
-      "Lynhurtig 1-dags levering: bestil før kl. 19 på hverdage, så sender vi samme dag. Pakkeshop fra 39 kr. og fri fragt ved {fri_fragt}.",
-    intro: "Bestil på en hverdag før kl. 19, så sender vi din ordre samme dag. Du vælger selv, om pakken skal til en pakkeshop eller helt hjem til døren.",
+      "Lynhurtig 1-dags levering: bestil før kl. 19 på hverdage, så sender vi samme dag. Pakkeshop fra 39 kr. – gratis ved {fri_fragt}",
+    intro: "Bestil på en hverdag før kl. 19, så sender vi din ordre samme dag, og den er normalt fremme hverdagen efter. Du vælger selv, om pakken skal til en pakkeshop eller helt hjem til døren.",
     sections: [
       {
         heading: "Leveringsformer og priser",
@@ -491,7 +508,7 @@ export const INFO_PAGES: InfoPage[] = [
         ],
       },
       {
-        heading: "Fri fragt ved {fri_fragt}",
+        heading: "Fri fragt til pakkeshop ved {fri_fragt}",
         blocks: [
           {
             type: "p",
@@ -513,11 +530,11 @@ export const INFO_PAGES: InfoPage[] = [
           },
           {
             type: "p",
-            text: "Herefter er det fragtfirmaet, der leverer pakken – som regel allerede hverdagen efter. Vi kan ikke love en bestemt leveringsdato, da leveringstiden afhænger af fragtfirmaet.",
+            text: "Herefter leverer fragtfirmaet pakken – normalt hverdagen efter, at vi har sendt den. Vi kan ikke love en bestemt leveringsdato, da selve leveringen sker hos fragtfirmaet.",
           },
           {
             type: "p",
-            text: "Skal du bruge kostumet til en bestemt dag, så bestil i god tid – især op til fastelavn og halloween, hvor fragtfirmaerne har travlt.",
+            text: "Skal du bruge kostumet til en bestemt dag, så bestil i god tid – især op til {højtid}, hvor fragtfirmaerne har travlt.",
           },
         ],
       },
@@ -817,6 +834,12 @@ export const INFO_PAGES: InfoPage[] = [
                 "Til du fjerner dem eller sletter dine browserdata",
               ],
               [
+                "Dine oplysninger i kassen (sessionStorage)",
+                "Husker det, du har skrevet i kassen, mens du betaler – fx hvis du kommer tilbage fra MobilePay",
+                "{shop}",
+                "Til betalingen er gennemført, eller du lukker fanen",
+              ],
+              [
                 "Betalingscookies, fx __stripe_mid og __stripe_sid",
                 "Sikker betaling og forebyggelse af svindel. Sættes først, når du går til kassen",
                 "Stripe",
@@ -1046,7 +1069,7 @@ export const INFO_PAGES: InfoPage[] = [
         blocks: [
           {
             type: "p",
-            text: "Bestiller du på en hverdag før kl. 19, sender vi din ordre samme dag. Herefter leverer fragtfirmaet den – som regel allerede hverdagen efter. Læs mere under [Fragt og levering](/fragt-og-levering).",
+            text: "Bestiller du på en hverdag før kl. 19, sender vi din ordre samme dag. Herefter leverer fragtfirmaet den – normalt hverdagen efter. Vi kan ikke love en bestemt leveringsdato. Læs mere under [Fragt og levering](/fragt-og-levering).",
           },
         ],
       },
@@ -1162,7 +1185,7 @@ export const INFO_PAGES: InfoPage[] = [
         blocks: [
           {
             type: "p",
-            text: "Børnekostumer er CE-mærkede efter EU's regler for legetøjssikkerhed. Men kostumer er ikke brandsikre, så hold altid afstand til åben ild som stearinlys, græskarlygter og bål.",
+            text: "Børnekostumer er CE-mærkede efter EU's regler for legetøjssikkerhed. Men kostumer er ikke brandsikre, så hold altid afstand til åben ild som {åben_ild}.",
           },
         ],
       },

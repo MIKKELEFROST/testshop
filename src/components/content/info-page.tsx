@@ -4,7 +4,7 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { company } from "@/config/company";
 import { storeConfig } from "@/config/store";
 import { formatThreshold } from "@/config/usps";
-import { INFO_PAGES, OM_OS, type InfoBlock, type InfoPage } from "@/content/info-pages";
+import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoBlock, type InfoPage } from "@/content/info-pages";
 import { fillTokens, parseText, safeHref } from "@/lib/info-text";
 import { JsonLd, plainText } from "@/lib/seo";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
@@ -32,6 +32,7 @@ async function tokenValues(): Promise<Record<string, string>> {
     svartid: company.answerTime,
     shop: storeConfig.name,
     fri_fragt: freeFrom ? formatThreshold(freeFrom) : "et vist beløb",
+    ...SEASON_WORDS[storeConfig.season],
   };
 }
 

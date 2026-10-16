@@ -13,10 +13,17 @@ export type UspIcon = "gift" | "rabbit" | "piggy-bank" | "return-30" | "happy" |
 
 export type Usp = { icon: UspIcon; title: string; text?: string };
 
+/*
+ * Only parcel-shop delivery becomes free from the amount (door delivery keeps its price), so
+ * every free shipping promise says "til pakkeshop". Delivery: sent the same day when ordered
+ * before 19:00 on a weekday, normally delivered the next weekday ("1-dags levering"); never a
+ * date.
+ */
+
 /** Row of five above the footer on every shop page. */
 export const USP_STRIP: Usp[] = [
-  { icon: "gift", title: "Fri fragt v/ {fri_fragt}" },
-  { icon: "rabbit", title: "1 dags levering" },
+  { icon: "gift", title: "Fri fragt til pakkeshop v/ {fri_fragt}" },
+  { icon: "rabbit", title: "1-dags levering" },
   { icon: "piggy-bank", title: "100% prismatch" },
   { icon: "return-30", title: "30 dages returret" },
   { icon: "happy", title: "+500.000 glade kunder" },
@@ -24,9 +31,9 @@ export const USP_STRIP: Usp[] = [
 
 /** Under "Læg i kurv" on product pages. */
 export const USP_PRODUCT: Usp[] = [
-  { icon: "clock-truck", title: "Lynhurtig 1-dags levering", text: "Bestil før kl. 19" },
+  { icon: "clock-truck", title: "Lynhurtig 1-dags levering", text: "Bestil før kl. 19 på hverdage" },
   { icon: "denmark", title: "Dansk webshop", text: "Dansk lager og kundeservice" },
-  { icon: "box", title: "Gratis fragt", text: "ved {fri_fragt}" },
+  { icon: "box", title: "Gratis fragt", text: "til pakkeshop ved {fri_fragt}" },
   { icon: "trophy", title: "Bedømt som Fremragende", text: "+30.000 femstjernede anmeldelser" },
 ];
 
@@ -43,13 +50,13 @@ export const HYGIENE_RETURN_PROMISE = "30 dages returret – gælder ikke, hvis 
 /** "Levering og retur" on product pages. */
 export const DELIVERY_FACTS: string[] = [
   "Fri fragt til pakkeshop ved køb for mindst {fri_fragt}",
-  "Lynhurtig 1-dags levering: bestil før kl. 19",
+  "Lynhurtig 1-dags levering: bestil før kl. 19 på en hverdag, så sender vi samme dag, og pakken er normalt fremme hverdagen efter",
   "Levering til pakkeshop eller til døren. Du vælger fragtfirma i kassen.",
   RETURN_PROMISE,
 ];
 
 /** The bar above the header. */
-export const USP_BAR: string[] = ["Fri fragt v/ {fri_fragt}", "1 dags levering", "30 dages returret"];
+export const USP_BAR: string[] = ["Fri fragt til pakkeshop v/ {fri_fragt}", "1-dags levering", "30 dages returret"];
 
 const FREE_SHIPPING = "{fri_fragt}";
 
