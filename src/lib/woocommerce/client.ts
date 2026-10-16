@@ -51,8 +51,8 @@ type RequestOptions<T extends z.ZodType> = {
   /** Stops the request and its retries, e.g. when the browser that asked for it has gone. */
   signal?: AbortSignal;
   /**
-   * GETs: sent even while the breaker is open, and not counted by it. Only for a paying
-   * customer's own order, never for catalogue reads.
+   * GETs: sent at once, even while the breaker is open or the read slots are taken, and not
+   * counted by it. Only for a paying customer's own order, never for catalogue reads.
    */
   ignoreBreaker?: boolean;
 };
@@ -67,7 +67,8 @@ const OVERLOADED_RETRY_MS = 1500;
 /**
  * At most this many reads (GET) at a time from one server instance. The shop's web host
  * limits concurrent requests and answers HTTP 508 ("Resource Limit Is Reached") beyond it, so
- * a cold instance must not fire dozens of catalogue reads at once. Writes are not queued.
+ * a cold instance must not fire dozens of catalogue reads at once. Writes and a paying
+ * customer's order are not queued.
  */
 const MAX_CONCURRENT_GETS = 4;
 /** A read gives up after waiting this long for a free slot, so no page queues for a minute. */
@@ -205,7 +206,7 @@ export async function wooRequest<T extends z.ZodType>(
     for (let attempt = 1; ; attempt++) {
       let error: WooCommerceError;
       try {
-        const { response, json } = method === "GET" ? await withGetSlot(send) : await send();
+        const { response, json } = counted ? await withGetSlot(send) : await send();
         if (response.ok || (options.acceptStatus ?? []).includes(response.status)) {
           outcome = "answered";
           const parsed = options.schema.safeParse(json);

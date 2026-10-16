@@ -297,6 +297,17 @@ describe("the read queue", () => {
     for (const answer of answers.slice(1)) answer();
     await Promise.all(running);
   });
+
+  it("does not queue reading a paying customer's order behind slow catalogue reads", async () => {
+    const { fetch, answers } = hang();
+    const running = [read(), read(), read(), read()];
+    await vi.advanceTimersByTimeAsync(0);
+    const order = getOrderDetails(1, "wc_order_x").catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(5);
+    for (const answer of answers) answer();
+    await Promise.all([...running, order]);
+  });
 });
 
 describe("checkout endpoints", () => {
