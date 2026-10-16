@@ -50,6 +50,12 @@ export function homeSeasonFor(categories: { id: number; slug?: string }[], tree:
   return inSeasonCategories === (seasonFirst.prefer === "in") ? storeConfig.season : null;
 }
 
+/** A shop's name: this shop's own (storeConfig.name), another's brand name. */
+export function storeName(storeId: string): string {
+  if (storeId === storeConfig.id) return storeConfig.name;
+  return brands[storeId]?.name ?? storeConfig.name;
+}
+
 /** A shop's address without a trailing slash: this shop's own (SITE_URL), another's domain. */
 export function storeUrl(storeId: string): string {
   if (storeId === storeConfig.id) return SITE_URL;

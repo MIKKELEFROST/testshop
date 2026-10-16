@@ -10,7 +10,7 @@ import { RelatedProducts, RelatedProductsSkeleton } from "@/components/products/
 import { Alert } from "@/components/ui/alert";
 import { company, isPlaceholder } from "@/config/company";
 import { storeConfig } from "@/config/store";
-import { homeSeasonFor, homeStoreFor, storeUrl } from "@/lib/home-store";
+import { homeSeasonFor, homeStoreFor, storeName, storeUrl } from "@/lib/home-store";
 import { productDescription } from "@/lib/meta-description";
 import { splitProductText } from "@/lib/product-text";
 import { breadcrumbData, JsonLd } from "@/lib/seo";
@@ -43,6 +43,12 @@ function productUrl(product: Product, tree: ProductCategory[]): string {
   return `${storeUrl(homeStoreFor(product.categories, tree))}/produkter/${product.slug}`;
 }
 
+/** The shop that sells the product on its canonical page (its home shop), for the structured data. */
+function productSeller(product: Product, tree: ProductCategory[]) {
+  const home = homeStoreFor(product.categories, tree);
+  return { "@type": "Organization", name: storeName(home), url: storeUrl(home) };
+}
+
 export default function ProductPage(props: PageProps<"/produkter/[slug]">) {
   return (
     <Suspense fallback={<ProductSkeleton />}>
@@ -68,12 +74,13 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
   const primary = categories.ok ? primaryCategory(categories.data, product.categories) : undefined;
   const path = primary && categories.ok ? categoryPath(categories.data, primary) : product.categories.slice(0, 1);
   const text = splitProductText(product.description);
+  const tree = categories.ok ? categories.data : [];
   const crumbs = [{ name: "Forside", href: "/" }, ...path.map((c) => ({ name: c.name, href: `/kategori/${c.slug}` }))];
 
   return (
     <>
       <div className="container-shop pt-5 pb-16 sm:pt-8">
-        <JsonLd data={productData(product, productUrl(product, categories.ok ? categories.data : []))} />
+        <JsonLd data={productData(product, productUrl(product, tree), productSeller(product, tree))} />
         <JsonLd data={breadcrumbData([...crumbs, { name: product.name, href: `/produkter/${product.slug}` }])} />
         <Breadcrumbs className="mb-5" items={crumbs} />
         <ProductDetail
@@ -121,8 +128,11 @@ function ProductSkeleton() {
   );
 }
 
-/** schema.org Product with its price(s), stock and barcode, for search results; `url` is its canonical address. */
-function productData(product: Product, url: string) {
+/**
+ * schema.org Product with its price(s), stock and barcode, for search results; `url` is its
+ * canonical address and `seller` the shop there.
+ */
+function productData(product: Product, url: string, seller: Record<string, string>) {
   const availability = (status: string, quantity: number | null) =>
     status === "outofstock" || quantity === 0
       ? "https://schema.org/OutOfStock"
@@ -170,7 +180,7 @@ function productData(product: Product, url: string) {
     description: [...product.shortDescription, ...product.description].join(" ").slice(0, 5000) || undefined,
     brand: { "@type": "Brand", name: "Guirca" },
     category: product.categories[0]?.name,
-    ...(offers ? { offers: { ...offers, seller: { "@type": "Organization", name: storeConfig.name }, ...returnPolicyData() } } : {}),
+    ...(offers ? { offers: { ...offers, seller, ...returnPolicyData() } } : {}),
   };
 }
 
