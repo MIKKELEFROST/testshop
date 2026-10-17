@@ -1,6 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { revalidateTag } from "next/cache";
-import { CATALOG_TAG, productTag } from "@/lib/woocommerce/products";
+import { revalidateCatalog, revalidateProduct } from "@/lib/woocommerce/revalidate";
 
 /**
  * POST /api/revalidate — WooCommerce webhook target (product created/updated/deleted/restored).
@@ -12,14 +11,8 @@ import { CATALOG_TAG, productTag } from "@/lib/woocommerce/products";
  *
  * The whole catalogue (lists, the menu's counts, the sitemap) is only marked stale when the
  * change can add or remove products from lists: a product created, deleted or restored, or
- * no longer published. And at most once per CATALOG_INTERVAL_MS (per server instance): an
- * import or a stock update of thousands of products would otherwise have every list read
- * again from the WordPress host after each one. Lists refresh by themselves every 15 minutes
- * (lib/woocommerce/cache.ts).
+ * no longer published; and at most once per 5 minutes (see lib/woocommerce/revalidate.ts).
  */
-
-const CATALOG_INTERVAL_MS = 5 * 60_000;
-let lastCatalogRevalidation = -Infinity;
 
 /** The webhook topics that can change which products the lists have. */
 const LIST_TOPICS = new Set(["product.created", "product.deleted", "product.restored"]);
@@ -47,18 +40,13 @@ export async function POST(request: Request) {
   // A variation's change is its product's.
   const variation = typeof json.parent_id === "number" && json.parent_id > 0;
   const productId = variation ? (json.parent_id as number) : typeof json.id === "number" ? json.id : undefined;
-  if (productId) revalidateTag(productTag(productId), "max");
+  if (productId) revalidateProduct(productId);
 
   const topic = request.headers.get("x-wc-webhook-topic") ?? "";
   // An unknown topic (an older or odd sender) counts as a change to the lists. A product (not a
   // variation: a disabled size is "private") that is no longer published leaves them.
   const unpublished = !variation && typeof json.status === "string" && json.status !== "publish";
   const changesLists = !topic.startsWith("product.") || LIST_TOPICS.has(topic) || unpublished;
-  const now = Date.now();
-  const catalog = changesLists && now - lastCatalogRevalidation >= CATALOG_INTERVAL_MS;
-  if (catalog) {
-    lastCatalogRevalidation = now;
-    revalidateTag(CATALOG_TAG, "max");
-  }
+  const catalog = changesLists && revalidateCatalog();
   return Response.json({ ok: true, product: productId ?? null, catalog });
 }

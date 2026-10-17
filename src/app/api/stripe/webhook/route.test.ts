@@ -26,13 +26,14 @@ vi.mock("@/lib/checkout/deps", () => ({
         state.events.push(input);
         const already = state.paid.has(input.payment_intent_id);
         if (input.event === "succeeded") state.paid.add(input.payment_intent_id);
-        return { status: 200, body: { result: already ? "already_paid" : "paid", order: { items: [] } } };
+        return { status: 200, body: { result: already ? "already_paid" : "paid", order: { items: [{ product_id: 7 }] } } };
       },
     },
   }),
 }));
 
 const { POST } = await import("./route");
+const { revalidateTag } = await import("next/cache");
 const signer = new Stripe("sk_test_dummy_key_for_signature_tests");
 
 function signedRequest(payload: string, secret = SECRET) {
@@ -114,5 +115,16 @@ describe("POST /api/stripe/webhook", () => {
     const pi = await paidIntent();
     const response = await POST(signedRequest(eventPayload("payment_intent.succeeded", pi.id)));
     expect(response.status).toBe(500);
+  });
+
+  it("refreshes the paid products at once and the lists at most every 5 minutes", async () => {
+    vi.mocked(revalidateTag).mockClear();
+    for (let i = 0; i < 2; i++) {
+      const pi = await paidIntent();
+      expect((await POST(signedRequest(eventPayload("payment_intent.succeeded", pi.id)))).status).toBe(200);
+    }
+    const tags = vi.mocked(revalidateTag).mock.calls.map((call) => call[0]);
+    expect(tags.filter((tag) => tag === "wc-product-7")).toHaveLength(2);
+    expect(tags.filter((tag) => tag === "wc-catalog").length).toBeLessThanOrEqual(1);
   });
 });

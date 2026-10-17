@@ -1,9 +1,8 @@
-import { revalidateTag } from "next/cache";
 import { checkoutDeps } from "@/lib/checkout/deps";
 import { handleStripeEvent } from "@/lib/checkout/webhook";
 import { ConfigError, stripeWebhookEnv } from "@/lib/env";
 import { getStripe } from "@/lib/stripe/server";
-import { CATALOG_TAG, productTag } from "@/lib/woocommerce/products";
+import { revalidateCatalog, revalidateProduct } from "@/lib/woocommerce/revalidate";
 
 /**
  * POST /api/stripe/webhook — Stripe → WooCommerce payment status.
@@ -34,10 +33,11 @@ export async function POST(request: Request) {
 
   const result = await handleStripeEvent(event as unknown as Parameters<typeof handleStripeEvent>[0], checkoutDeps());
 
-  // Paid and reserved orders change stock: refresh the affected product pages.
+  // Paid and reserved orders change stock: refresh the affected product pages at once, the
+  // lists (their stock marks) at most every 5 minutes (see lib/woocommerce/revalidate.ts).
   if (result.outcome?.type === "applied" && ["paid", "authorized", "on_hold", "cancelled"].includes(result.outcome.result)) {
-    revalidateTag(CATALOG_TAG, "max");
-    for (const item of result.outcome.order?.items ?? []) revalidateTag(productTag(item.product_id), "max");
+    for (const item of result.outcome.order?.items ?? []) revalidateProduct(item.product_id);
+    revalidateCatalog();
   }
 
   return Response.json(result.body, { status: result.status });
