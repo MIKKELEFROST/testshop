@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
-import { Alert } from "@/components/ui/alert";
+import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { pageHref } from "@/components/ui/pagination";
 import { findCollection, merchandising } from "@/config/merchandising";
 import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
@@ -36,8 +36,9 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promis
     title: page > 1 ? `${collection.title} – side ${page}` : collection.title,
     description: collection.intro,
     alternates: { canonical: collection.canonical ?? pageHref(`/tema/${collection.slug}`, page) },
-    // A filtered view is not a page of its own for search engines (its links are followed).
-    robots: activeFilterCount(filters.selection) > 0 ? { index: false, follow: true } : undefined,
+    // A filtered view is not a page of its own for search engines (its links are followed), and
+    // a page whose products couldn't be read is not one to show in search results.
+    robots: activeFilterCount(filters.selection) > 0 || !result.ok ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -118,7 +119,7 @@ async function ThemeContent({
         <ProductListing list={result.data} sort={sort} path={`/tema/${slug}`} filters={{ options, selection: filters.selection }} />
       ) : (
         <div className="mt-8">
-          <Alert tone="warning">{result.error}</Alert>
+          <CatalogRetry loading="Vi henter varerne …" message={result.error} />
         </div>
       )}
     </>

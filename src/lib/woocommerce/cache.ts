@@ -11,7 +11,8 @@ import { describeError } from "@/lib/log";
  * refresh failed, and a page regenerated in the background keeps its last good version
  * (Next.js discards a page render in which a cache threw). The exported, uncached function
  * turns the error into its fallback (e.g. "Vi kan ikke hente produkterne lige nu") with
- * `orFailure`; that is only shown when nothing is cached.
+ * `orFailure`; that is only shown when nothing is cached, and the page then retries by itself
+ * (components/ui/catalog-retry.tsx).
  *
  * Returning the fallback from the cached read instead would replace good data with it.
  */

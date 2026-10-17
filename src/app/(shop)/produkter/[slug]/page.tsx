@@ -7,7 +7,7 @@ import { CardBand } from "@/components/products/product-card";
 import { ProductDetail } from "@/components/products/product-detail";
 import { ProductInfo } from "@/components/products/product-info";
 import { RelatedProducts, RelatedProductsSkeleton } from "@/components/products/related-products";
-import { Alert } from "@/components/ui/alert";
+import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { company, isPlaceholder } from "@/config/company";
 import { storeConfig } from "@/config/store";
 import { homeSeasonFor, homeStoreFor, storeName, storeUrl } from "@/lib/home-store";
@@ -18,12 +18,23 @@ import { categoryPath, primaryCategory } from "@/lib/woocommerce/category-tree";
 import { getCategories, getProductBySlug } from "@/lib/woocommerce/products";
 import type { Product, ProductCategory } from "@/types/commerce";
 
+/*
+ * No generateStaticParams: a product page is rendered for each request (the shared shell at
+ * once, the product streamed in from its cache entry, see lib/woocommerce/cache.ts), not kept
+ * as a page of its own. With one, Next.js 16.4 keeps the first render of each address as its
+ * page, and when that render's product read failed it keeps the failed read with it (in the
+ * page's resume data, even when the page renders the error for that request only), so the
+ * address showed the error to every visitor until the page was regenerated, 15 minutes later
+ * (tried in a production build, 17-10-2026).
+ */
+
 export async function generateMetadata(props: PageProps<"/produkter/[slug]">): Promise<Metadata> {
   const { slug } = await props.params;
   const [result, categories] = await Promise.all([getProductBySlug(slug), getCategories()]);
-  // WooCommerce can't be read: a plain title. Throwing here (a 5xx for search engines) would be
-  // better, but after a failed cached read Next.js 16.4 then never finishes the crawler's response.
-  if (!result.ok) return { title: "Produkt" };
+  // WooCommerce can't be read: a plain title, kept out of search results (the page retries by
+  // itself). Throwing here (a 5xx for search engines) would be better, but after a failed
+  // cached read Next.js 16.4 then never finishes the crawler's response.
+  if (!result.ok) return { title: "Produkt", robots: { index: false, follow: true } };
   const product = result.data;
   // A product this shop doesn't sell. Search engines get the metadata before the page
   // (next.config.ts htmlLimitedBots), so they get a real 404; visitors get the page streamed.
@@ -33,7 +44,9 @@ export async function generateMetadata(props: PageProps<"/produkter/[slug]">): P
   return {
     title: product.name,
     description: productDescription(product, { shop: storeConfig.name, season: homeSeasonFor(product.categories, tree, product.webshops) }),
-    alternates: { canonical: productUrl(product, tree) },
+    // Without the categories the home shop can't be told (see lib/home-store.ts): no canonical
+    // rather than a wrong one.
+    alternates: categories.ok ? { canonical: productUrl(product, tree) } : undefined,
     openGraph: image ? { images: [{ url: image.src, alt: product.name }] } : undefined,
   };
 }
@@ -53,6 +66,11 @@ function productSeller(product: Product, tree: ProductCategory[]) {
   return { "@type": "Organization", name: storeName(home), url: storeUrl(home) };
 }
 
+/** This shop's own address for the product (when its home shop can't be told). */
+function ownProductUrl(product: Product): string {
+  return `${storeUrl(storeConfig.id)}/produkter/${product.slug}`;
+}
+
 export default function ProductPage(props: PageProps<"/produkter/[slug]">) {
   return (
     <Suspense fallback={<ProductSkeleton />}>
@@ -67,7 +85,7 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
   if (!result.ok) {
     return (
       <div className="container-shop pt-10">
-        <Alert tone="warning">{result.error}</Alert>
+        <CatalogRetry loading="Vi henter produktet …" message={result.error} />
       </div>
     );
   }
@@ -84,7 +102,7 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
   return (
     <>
       <div className="container-shop pt-5 pb-16 sm:pt-8">
-        <JsonLd data={productData(product, productUrl(product, tree), productSeller(product, tree))} />
+        <JsonLd data={categories.ok ? productData(product, productUrl(product, tree), productSeller(product, tree)) : productData(product, ownProductUrl(product))} />
         <JsonLd data={breadcrumbData([...crumbs, { name: product.name, href: `/produkter/${product.slug}` }])} />
         <Breadcrumbs className="mb-5" items={crumbs} />
         <ProductDetail
@@ -136,7 +154,7 @@ function ProductSkeleton() {
  * schema.org Product with its price(s), stock and barcode, for search results; `url` is its
  * canonical address and `seller` the shop there.
  */
-function productData(product: Product, url: string, seller: Record<string, string>) {
+function productData(product: Product, url: string, seller?: Record<string, string>) {
   const availability = (status: string, quantity: number | null) =>
     status === "outofstock" || quantity === 0
       ? "https://schema.org/OutOfStock"
@@ -184,7 +202,7 @@ function productData(product: Product, url: string, seller: Record<string, strin
     description: [...product.shortDescription, ...product.description].join(" ").slice(0, 5000) || undefined,
     brand: { "@type": "Brand", name: "Guirca" },
     category: product.categories[0]?.name,
-    ...(offers ? { offers: { ...offers, seller, ...returnPolicyData() } } : {}),
+    ...(offers ? { offers: { ...offers, ...(seller ? { seller } : {}), ...returnPolicyData() } } : {}),
   };
 }
 

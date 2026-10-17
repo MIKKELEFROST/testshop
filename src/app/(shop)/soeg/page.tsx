@@ -6,7 +6,7 @@ import { ThemeTiles } from "@/components/home/tiles";
 import { SearchBox } from "@/components/layout/search-box";
 import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
-import { Alert } from "@/components/ui/alert";
+import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { merchandising } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { parsePage } from "@/lib/pagination";
@@ -75,7 +75,7 @@ async function SearchResults({ searchParams }: { searchParams: Promise<Record<st
       <div className="container-shop">
         <SearchBox key={q} defaultValue={q} className="mt-6 max-w-xl" />
         <div className="mt-8">
-          <Alert tone="warning">{found.error}</Alert>
+          <CatalogRetry loading="Vi søger …" message={found.error} />
         </div>
       </div>
     );

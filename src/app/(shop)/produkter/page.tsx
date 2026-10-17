@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
-import { Alert } from "@/components/ui/alert";
+import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { pageHref } from "@/components/ui/pagination";
 import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
 import { parsePage } from "@/lib/pagination";
@@ -21,8 +21,9 @@ export async function generateMetadata(props: PageProps<"/produkter">): Promise<
   return {
     title: page > 1 ? `Alle produkter – side ${page}` : "Alle produkter",
     alternates: { canonical: pageHref("/produkter", page) },
-    // A filtered view is not a page of its own for search engines (its links are followed).
-    robots: activeFilterCount(filters.selection) > 0 ? { index: false, follow: true } : undefined,
+    // A filtered view is not a page of its own for search engines (its links are followed), and
+    // a page whose products couldn't be read is not one to show in search results.
+    robots: activeFilterCount(filters.selection) > 0 || !result.ok ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -59,7 +60,7 @@ async function AllProducts({ searchParams }: { searchParams: Promise<Record<stri
   if (!result.ok) {
     return (
       <div className="mt-8">
-        <Alert tone="warning">{result.error}</Alert>
+        <CatalogRetry loading="Vi henter varerne …" message={result.error} />
       </div>
     );
   }

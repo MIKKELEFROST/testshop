@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
-import { Alert } from "@/components/ui/alert";
+import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { pageHref } from "@/components/ui/pagination";
 import { ProductListing } from "@/components/products/listing";
 import { ADULT_CATEGORY_SLUGS } from "@/config/catalog";
@@ -24,8 +24,8 @@ import type { ProductCategory } from "@/types/commerce";
 export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Promise<Metadata> {
   const [{ slug }, query] = await Promise.all([props.params, props.searchParams]);
   const [categories, filters] = await Promise.all([getCategories(), resolveFilters(parseFilters(query))]);
-  // Without WooCommerce, a plain title (see the product page).
-  if (!categories.ok) return { title: "Kategori" };
+  // Without WooCommerce, a plain title, kept out of search results (see the product page).
+  if (!categories.ok) return { title: "Kategori", robots: { index: false, follow: true } };
   // An unknown category or a page past the last one. Search engines get the metadata before
   // the page (next.config.ts htmlLimitedBots), so they get a real 404.
   const category = categories.data.find((c) => c.slug === slug);
@@ -39,8 +39,9 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Pr
     // Each page of the listing is its own page (without the sorting). A category this shop
     // hides, whose home is another shop, points there (e.g. Halloween in the Fastelavn shop).
     alternates: { canonical: `${storeUrl(categoryHomeStore(category, categories.data))}${pageHref(`/kategori/${category.slug}`, page)}` },
-    // A filtered view is not a page of its own for search engines (its links are followed).
-    robots: activeFilterCount(filters.selection) > 0 ? { index: false, follow: true } : undefined,
+    // A filtered view is not a page of its own for search engines (its links are followed), and
+    // a page whose products couldn't be read is not one to show in search results.
+    robots: activeFilterCount(filters.selection) > 0 || !products.ok ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -81,7 +82,7 @@ async function CategoryContent({
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
   const [categories, filters] = await Promise.all([getCategories(), resolveFilters(parseFilters(query))]);
-  if (!categories.ok) return <Alert tone="warning">{categories.error}</Alert>;
+  if (!categories.ok) return <CatalogRetry loading="Vi henter varerne …" message={categories.error} />;
 
   const category = categories.data.find((c) => c.slug === slug);
   if (!category) notFound();
@@ -129,7 +130,7 @@ async function CategoryContent({
         <ProductListing list={products.data} sort={sort} path={`/kategori/${category.slug}`} filters={{ options, selection: filters.selection }} />
       ) : (
         <div className="mt-8">
-          <Alert tone="warning">{products.error}</Alert>
+          <CatalogRetry loading="Vi henter varerne …" message={products.error} />
         </div>
       )}
     </>
