@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categoryDescription, DESCRIPTION_LENGTH, productDescription, shorten } from "./meta-description";
+import { allProductsDescription, categoryDescription, DESCRIPTION_LENGTH, pageDescription, productDescription, shorten } from "./meta-description";
 
 const shop = "Fastelavnskostumer.dk";
 
@@ -60,6 +60,22 @@ describe("categoryDescription", () => {
     expect(categoryDescription({ name: "Pigekostumer", count: 812 }, shop)).toBe(
       "Pigekostumer hos Fastelavnskostumer.dk: 812 varer med 1-dags levering (bestil før kl. 19 på hverdage) og gratis retur i 30 dage.",
     );
+  });
+});
+
+describe("allProductsDescription", () => {
+  it("names the number of products, the kinds and the promises", () => {
+    expect(allProductsDescription(6284, shop)).toBe(
+      "Alle 6.284 varer hos Fastelavnskostumer.dk: kostumer, masker, parykker, tilbehør og pynt. 1-dags levering og gratis retur i 30 dage.",
+    );
+  });
+});
+
+describe("pageDescription", () => {
+  it("leaves page 1 as it is and starts later pages with their number", () => {
+    expect(pageDescription("Kostumer til piger.", 1)).toBe("Kostumer til piger.");
+    expect(pageDescription("Kostumer til piger.", 2)).toBe("Side 2: Kostumer til piger.");
+    expect(pageDescription("x".repeat(160), 3).length).toBeLessThanOrEqual(DESCRIPTION_LENGTH);
   });
 });
 

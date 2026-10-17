@@ -8,12 +8,12 @@ import { CardBand } from "@/components/products/product-card";
 import { ProductRow, RelatedProductsSkeleton } from "@/components/products/related-products";
 import { merchandising, type GuideIcon, type HomePage as HomeConfig } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
-import { JsonLd, shopData } from "@/lib/seo";
+import { JsonLd, openGraphFor, shopData } from "@/lib/seo";
 import type { ProductPhoto } from "@/lib/woocommerce/products";
 import { getCollectionProducts, getProductPhotos } from "@/lib/woocommerce/collections";
 
 // One address for the front page, also when it is opened with e.g. "?utm_source=…".
-export const metadata: Metadata = { alternates: { canonical: "/" } };
+export const metadata: Metadata = { alternates: { canonical: "/" }, openGraph: openGraphFor("/") };
 
 /**
  * The shop's front page (src/config/merchandising.ts): hero with the countdown to its holiday,

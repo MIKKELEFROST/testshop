@@ -25,6 +25,16 @@ function isVercelAppUrl(url: string): boolean {
 /** This shop's address: NEXT_PUBLIC_SITE_URL (see configuredSiteUrl), else the brand's own domain. */
 export const SITE_URL = (configuredSiteUrl() || storeConfig.siteUrl).replace(/\/+$/, "");
 
+/**
+ * A page's Open Graph data: its address (og:url, the same as its canonical) and the share
+ * image, the product's photo or else the shop's (app/opengraph-image.tsx). A page's
+ * `openGraph` replaces the whole object, file-based image included, so the shop's image is
+ * named here again.
+ */
+export function openGraphFor(url: string | undefined, images?: { url: string; alt: string }[]) {
+  return { url, images: images ?? [{ url: "/opengraph-image", width: 1200, height: 630, alt: storeConfig.name, type: "image/png" }] };
+}
+
 export function absoluteUrl(path: string): string {
   return path.startsWith("http") ? path : `${SITE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
 }

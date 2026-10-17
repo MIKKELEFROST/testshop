@@ -7,7 +7,7 @@ import { trustBoxesShown } from "@/config/trustpilot";
 import { formatThreshold } from "@/config/usps";
 import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoBlock, type InfoPage } from "@/content/info-pages";
 import { fillTokens, parseText, safeHref, shownPage } from "@/lib/info-text";
-import { JsonLd, plainText } from "@/lib/seo";
+import { JsonLd, openGraphFor, plainText } from "@/lib/seo";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 
 /** The information and legal pages, with the company's and the shop's details filled in. */
@@ -41,7 +41,12 @@ export async function infoMetadata(slug: string): Promise<Metadata> {
   const page = findInfoPage(slug);
   if (!page) return {};
   const values = await tokenValues();
-  return { title: fillTokens(page.title, values), description: fillTokens(page.description, values), alternates: { canonical: `/${slug}` } };
+  return {
+    title: fillTokens(page.title, values),
+    description: fillTokens(page.description, values),
+    alternates: { canonical: `/${slug}` },
+    openGraph: openGraphFor(`/${slug}`),
+  };
 }
 
 export async function InfoPageView({ slug }: { slug: string }) {

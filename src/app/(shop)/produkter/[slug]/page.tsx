@@ -13,7 +13,7 @@ import { storeConfig } from "@/config/store";
 import { homeSeasonFor, homeStoreFor, storeName, storeUrl } from "@/lib/home-store";
 import { productDescription } from "@/lib/meta-description";
 import { splitProductText } from "@/lib/product-text";
-import { breadcrumbData, JsonLd } from "@/lib/seo";
+import { breadcrumbData, JsonLd, openGraphFor } from "@/lib/seo";
 import { categoryPath, primaryCategory } from "@/lib/woocommerce/category-tree";
 import { getCategories, getProductBySlug } from "@/lib/woocommerce/products";
 import type { Product, ProductCategory } from "@/types/commerce";
@@ -41,13 +41,14 @@ export async function generateMetadata(props: PageProps<"/produkter/[slug]">): P
   if (!product) notFound();
   const tree = categories.ok ? categories.data : [];
   const image = product.images[0];
+  // Without the categories the home shop can't be told (see lib/home-store.ts): no canonical
+  // rather than a wrong one.
+  const canonical = categories.ok ? productUrl(product, tree) : undefined;
   return {
     title: product.name,
     description: productDescription(product, { shop: storeConfig.name, season: homeSeasonFor(product.categories, tree, product.webshops) }),
-    // Without the categories the home shop can't be told (see lib/home-store.ts): no canonical
-    // rather than a wrong one.
-    alternates: categories.ok ? { canonical: productUrl(product, tree) } : undefined,
-    openGraph: image ? { images: [{ url: image.src, alt: product.name }] } : undefined,
+    alternates: canonical ? { canonical } : undefined,
+    openGraph: openGraphFor(canonical, image ? [{ url: image.src, alt: product.name }] : undefined),
   };
 }
 

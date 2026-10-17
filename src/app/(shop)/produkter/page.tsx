@@ -6,9 +6,12 @@ import { CardBand, ProductGridSkeleton } from "@/components/products/product-car
 import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { pageHref } from "@/components/ui/pagination";
 import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
+import { allProductsDescription, pageDescription } from "@/lib/meta-description";
+import { openGraphFor } from "@/lib/seo";
 import { parsePage } from "@/lib/pagination";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
 import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
+import { storeConfig } from "@/config/store";
 import { parseSort, type ProductFilters, type SortKey } from "@/lib/woocommerce/products";
 
 export async function generateMetadata(props: PageProps<"/produkter">): Promise<Metadata> {
@@ -18,9 +21,13 @@ export async function generateMetadata(props: PageProps<"/produkter">): Promise<
   const filters = await resolveFilters(parseFilters(query));
   const result = await allProducts(page, parseSort(query.sorter), filters.query);
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
+  const canonical = pageHref("/produkter", page);
   return {
     title: page > 1 ? `Alle produkter – side ${page}` : "Alle produkter",
-    alternates: { canonical: pageHref("/produkter", page) },
+    // Its own description, not the front page's (without the products' number when they can't be read).
+    description: result.ok ? pageDescription(allProductsDescription(result.data.total, storeConfig.name), page) : undefined,
+    alternates: { canonical },
+    openGraph: openGraphFor(canonical),
     // A filtered view is not a page of its own for search engines (its links are followed), and
     // a page whose products couldn't be read is not one to show in search results.
     robots: activeFilterCount(filters.selection) > 0 || !result.ok ? { index: false, follow: true } : undefined,

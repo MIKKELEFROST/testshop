@@ -12,9 +12,9 @@ import { merchandising, shownInNav } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { categoryHomeStore, storeUrl } from "@/lib/home-store";
 import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
-import { categoryDescription } from "@/lib/meta-description";
+import { categoryDescription, pageDescription } from "@/lib/meta-description";
 import { parsePage } from "@/lib/pagination";
-import { breadcrumbData, JsonLd } from "@/lib/seo";
+import { breadcrumbData, JsonLd, openGraphFor } from "@/lib/seo";
 import { categoryPath, subcategories } from "@/lib/woocommerce/category-tree";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
 import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
@@ -33,12 +33,14 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Pr
   const page = parsePage(query.side);
   const products = await categoryProducts(category, page, parseSort(query.sorter), filters.query);
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();
+  // Each page of the listing is its own page (without the sorting). A category this shop
+  // hides, whose home is another shop, points there (e.g. Halloween in the Fastelavn shop).
+  const canonical = `${storeUrl(categoryHomeStore(category, categories.data))}${pageHref(`/kategori/${category.slug}`, page)}`;
   return {
     title: page > 1 ? `${category.name} – side ${page}` : category.name,
-    description: merchandising.categoryIntros[category.slug] || category.description || categoryDescription(category, storeConfig.name),
-    // Each page of the listing is its own page (without the sorting). A category this shop
-    // hides, whose home is another shop, points there (e.g. Halloween in the Fastelavn shop).
-    alternates: { canonical: `${storeUrl(categoryHomeStore(category, categories.data))}${pageHref(`/kategori/${category.slug}`, page)}` },
+    description: pageDescription(merchandising.categoryIntros[category.slug] || category.description || categoryDescription(category, storeConfig.name), page),
+    alternates: { canonical },
+    openGraph: openGraphFor(canonical),
     // A filtered view is not a page of its own for search engines (its links are followed), and
     // a page whose products couldn't be read is not one to show in search results.
     robots: activeFilterCount(filters.selection) > 0 || !products.ok ? { index: false, follow: true } : undefined,

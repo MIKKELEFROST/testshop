@@ -31,3 +31,11 @@ describe("SITE_URL", () => {
     expect((await siteUrl({ NEXT_PUBLIC_SITE_URL: "", NEXT_PUBLIC_STORE_ID: "halloween-kostumer-dk" })).product).toBe("https://halloweenkostumer.dk/produkter/heks");
   });
 });
+
+describe("openGraphFor", () => {
+  it("names the page's address and keeps the shop's share image unless the page has its own", async () => {
+    const { openGraphFor } = await import("./seo");
+    expect(openGraphFor("/faq")).toMatchObject({ url: "/faq", images: [{ url: "/opengraph-image", width: 1200, height: 630 }] });
+    expect(openGraphFor("https://x.dk/produkter/a", [{ url: "https://img/a.jpg", alt: "A" }]).images).toEqual([{ url: "https://img/a.jpg", alt: "A" }]);
+  });
+});

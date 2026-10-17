@@ -4,6 +4,7 @@ import { ThemeTiles } from "@/components/home/tiles";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { CardBand } from "@/components/products/product-card";
 import { merchandising, themesOverview } from "@/config/merchandising";
+import { openGraphFor } from "@/lib/seo";
 
 /** All the shop's theme pages as photo tiles (src/config/merchandising.ts): the themes, then the rest. */
 
@@ -11,6 +12,7 @@ export const metadata: Metadata = {
   title: "Temaer",
   description: merchandising.themesPage.intro,
   alternates: { canonical: "/tema" },
+  openGraph: openGraphFor("/tema"),
 };
 
 export default function ThemesPage() {

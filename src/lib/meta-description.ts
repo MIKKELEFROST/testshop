@@ -80,6 +80,19 @@ export function productDescription(
 }
 
 /**
+ * "Alle produkter": e.g. "Alle 6.284 varer hos Fastelavnskostumer.dk: kostumer, masker,
+ * parykker, tilbehør og pynt. 1-dags levering og gratis retur i 30 dage."
+ */
+export function allProductsDescription(total: number, shop: string): string {
+  return shorten(`Alle ${productCount(total)} hos ${shop}: kostumer, masker, parykker, tilbehør og pynt. 1-dags levering og gratis retur i 30 dage.`, DESCRIPTION_LENGTH);
+}
+
+/** A listing's page 2, 3 …: "Side 2: " before its description, so the pages' descriptions differ. */
+export function pageDescription(description: string, page: number): string {
+  return page > 1 ? shorten(`Side ${page}: ${description}`, DESCRIPTION_LENGTH) : description;
+}
+
+/**
  * A category's description when neither the shop (merchandising.categoryIntros) nor
  * WooCommerce has one, e.g. "Pigekostumer hos Fastelavnskostumer.dk: 812 varer med 1-dags
  * levering (bestil før kl. 19 på hverdage) og gratis retur i 30 dage."

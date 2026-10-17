@@ -9,8 +9,9 @@ import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { pageHref } from "@/components/ui/pagination";
 import { findCollection, merchandising } from "@/config/merchandising";
 import { activeFilterCount, parseFilters } from "@/lib/listing-filters";
+import { pageDescription } from "@/lib/meta-description";
 import { parsePage } from "@/lib/pagination";
-import { breadcrumbData, JsonLd } from "@/lib/seo";
+import { breadcrumbData, JsonLd, openGraphFor } from "@/lib/seo";
 import { getCollectionProducts, getCollectionScope } from "@/lib/woocommerce/collections";
 import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
 import { parseSort } from "@/lib/woocommerce/products";
@@ -32,10 +33,12 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promis
   const result = await getCollectionProducts(slug, { page, sort: parseSort(query.sorter), ...filters.query });
   if (result === null) notFound();
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
+  const canonical = collection.canonical ?? pageHref(`/tema/${collection.slug}`, page);
   return {
     title: page > 1 ? `${collection.title} – side ${page}` : collection.title,
-    description: collection.intro,
-    alternates: { canonical: collection.canonical ?? pageHref(`/tema/${collection.slug}`, page) },
+    description: pageDescription(collection.intro, page),
+    alternates: { canonical },
+    openGraph: openGraphFor(canonical),
     // A filtered view is not a page of its own for search engines (its links are followed), and
     // a page whose products couldn't be read is not one to show in search results.
     robots: activeFilterCount(filters.selection) > 0 || !result.ok ? { index: false, follow: true } : undefined,
