@@ -67,6 +67,30 @@ const timeout = () => new DOMException("The operation was aborted due to timeout
 const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 const pathOf = (call: unknown[]) => (call[0] as URL).pathname;
 
+/**
+ * Request timeouts on the fake clock (vitest's fake timers don't drive AbortSignal.timeout), and
+ * a host that answers every request after `latency(url)` ms unless the request is aborted first.
+ */
+function slowHost(latency: (url: URL) => number) {
+  vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(timeout()), ms);
+    return controller.signal;
+  });
+  const fetch = vi.fn(
+    (url: URL, init: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(Response.json({ ok: true })), latency(url));
+        init.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(init.signal!.reason);
+        });
+      }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+
 /** Opens the breaker: three reads in a row find the host too slow (one request each). */
 async function trip() {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeout()));
@@ -265,22 +289,62 @@ describe("the breaker for reads", () => {
     expect(fetch).toHaveBeenCalledTimes(6);
   });
 
-  it("fails a critical read that got no turn within 4 s", async () => {
+  it("lets critical reads wait for a trial that takes longer than their 4 s: it may close the breaker", async () => {
     await trip();
-    const { fetch, answers } = hang();
-    const trial = read();
-    await advance(2_000);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const waiting = caught(read());
-    await advance(3_999);
-    await advance(1);
-    expect((await waiting)?.code).toBe("circuit_open");
-    expect(fetch).toHaveBeenCalledTimes(1);
-    answers[0]!();
-    expect((await trial).data).toEqual({ ok: true });
+    const fetch = slowHost(() => 3_000);
+    const reads = Array.from({ length: 6 }, () => caught(read()));
+    await advance(2_000 + 3_000); // the trial is answered: the others go on (4 at a time)
+    expect(fetch).toHaveBeenCalledTimes(5);
+    await advance(6_000);
+    expect(await Promise.all(reads)).toEqual(Array(6).fill(undefined));
+    expect(fetch).toHaveBeenCalledTimes(6);
   });
 
-  it("sends a trial once, with a 5 s timeout, and the next one 2 s after a failed one", async () => {
+  it("closes when a trial is answered within the usual 10 s timeout, also after 5 s", async () => {
+    await trip();
+    const fetch = slowHost(() => 6_000);
+    const request = read();
+    await advance(2_000 + 6_000);
+    expect((await request).data).toEqual({ ok: true });
+    expect(AbortSignal.timeout).toHaveBeenCalledWith(10_000);
+    // Closed: a background read is sent.
+    const later = background();
+    await advance(6_000);
+    expect((await later).data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails a critical read that got no turn within 4 s once no trial is under way", async () => {
+    await trip();
+    const answers: ((response: Response) => void)[] = [];
+    const fetch = vi.fn((url: URL) => {
+      void url;
+      return new Promise<Response>((resolve) => answers.push(resolve));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const trial = caught(read());
+    await advance(2_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    let settled = false;
+    const waiting = caught(read()).finally(() => (settled = true));
+    await advance(5_000); // past its 4 s, but the trial is under way
+    expect(settled).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    answers[0]!(Response.json({ code: "http_508" }, { status: 508 }));
+    expect((await trial)?.status).toBe(508);
+    expect((await waiting)?.code).toBe("circuit_open");
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // A read that comes now waits 2 s for the next trial.
+    const next = read();
+    await advance(1_900);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await advance(100);
+    answers[1]!(Response.json({ ok: true }));
+    expect((await next).data).toEqual({ ok: true });
+  });
+
+  it("sends a trial once, with the usual timeout, and the next one 2 s after a failed one", async () => {
     await trip();
     const timeouts = vi.spyOn(AbortSignal, "timeout");
     const fetch = respond(508, 200);
@@ -288,33 +352,29 @@ describe("the breaker for reads", () => {
     await advance(2_000);
     expect((await first)?.status).toBe(508);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(timeouts).toHaveBeenLastCalledWith(5_000);
+    expect(timeouts).toHaveBeenLastCalledWith(10_000);
 
     const second = read();
     await advance(1_900);
     expect(fetch).toHaveBeenCalledTimes(1);
     await advance(100);
     expect((await second).data).toEqual({ ok: true });
-    // Closed: a read has the usual timeout again.
-    await settle(read());
-    expect(timeouts).toHaveBeenLastCalledWith(10_000);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("after its open period lets any read be the trial; the periods double up to a minute while trials fail", async () => {
-    await trip(); // open for 10 s
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeout()));
-    expect(failure((await settle(background())).error).code).toBe("circuit_open");
-    for (const wait of [10_000, 20_000, 40_000, 60_000]) {
-      await advance(wait);
-      expect(failure((await settle(background())).error).code).toBe("timeout"); // the trial fails: open twice as long
-    }
-    await advance(59_000);
-    expect(failure((await settle(background())).error).code).toBe("circuit_open");
-    await advance(1_000);
-    const fetch = respond(200, 200);
-    expect((await settle(background())).value?.data).toEqual({ ok: true });
-    expect((await settle(background())).value?.data).toEqual({ ok: true });
-    expect(fetch).toHaveBeenCalledTimes(2);
+  it("never lets a background read be the trial, however long it has been open: a critical read is the trial at once", async () => {
+    await trip();
+    await advance(60_000);
+    const fetch = slowHost((url) => (url.pathname.endsWith("/collection-data") ? 60_000 : 300));
+    // E.g. a listing's facets, which the host counts slowly, and then the listing itself.
+    const facets = caught(get("wc/store/v1/products/collection-data", "background"));
+    await advance(100);
+    const critical = [read(), read(), read()];
+    await advance(300);
+    expect((await facets)?.code).toBe("circuit_open");
+    await advance(300);
+    expect((await Promise.all(critical)).map((response) => response.data)).toEqual(Array(3).fill({ ok: true }));
+    expect(fetch.mock.calls.map(pathOf)).toEqual(Array(3).fill("/wp-json/wc/v3/products"));
   });
 
   it("stops the retries of reads under way once it opens: background reads fail, critical ones wait for a trial", async () => {

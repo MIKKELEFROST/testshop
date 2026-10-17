@@ -154,31 +154,33 @@ function handOverSlots() {
  * BREAKER_DOWNS reads within BREAKER_WINDOW_MS ended with the host overloaded (508, 429), not
  * answering in time or unreachable, the breaker opens:
  *
- * - Background reads fail at once; their pages keep their last good data or do without.
- * - Critical reads are sent one at a time, as trials: one every TRIAL_SPACING_MS at most,
- *   each once (no retry) and with a short timeout. A critical read waits up to BREAKER_WAIT_MS
- *   for its turn instead of failing at once; one that gets none fails (its page then retries
- *   by itself, see components/ui/catalog-retry.tsx).
- * - A trial's answer closes the breaker, and every waiting read goes on. After the open period
- *   (10 s, doubling up to 1 minute while trials fail) any read may be the trial.
+ * - Background reads fail at once; their pages keep their last good data or do without. They
+ *   are never the trial: a slow one (e.g. a listing's facets) would hold up the products.
+ * - Critical reads are sent one at a time, as trials: one at most TRIAL_SPACING_MS after the
+ *   last one ended, each once (no retry) and with the read's usual timeout (a host that
+ *   answers in 6 s must be able to close it). A critical read waits up to BREAKER_WAIT_MS
+ *   for its turn, and for as long as a trial is under way (its answer may close the breaker);
+ *   one that gets no turn fails (its page then retries by itself, see
+ *   components/ui/catalog-retry.tsx).
+ * - A trial's answer closes the breaker, and every waiting read goes on. Only a trial closes
+ *   it: until a critical read comes, background reads keep failing at once.
  *
  * Reads under way when it opened are not sent again: a background read fails, a critical one
  * waits for its turn. Writes (the quote, orders) are never held back.
  */
 const BREAKER_DOWNS = 3;
 const BREAKER_WINDOW_MS = 10_000;
-const BREAKER_MIN_MS = 10_000;
-const BREAKER_MAX_MS = 60_000;
 const TRIAL_SPACING_MS = 2_000;
 const BREAKER_WAIT_MS = 4_000;
-const TRIAL_TIMEOUT_MS = 5_000;
+/**
+ * How long a read waiting for the trial under way sleeps before it looks again. Only a safety
+ * net: the trial's end wakes it, and a trial ends within its slot wait plus its timeout.
+ */
+const TRIAL_WATCH_MS = 60_000;
 
 const breaker = {
   open: false,
-  /** Until then only critical reads are let through (as trials); after it, any read. */
-  openUntil: 0,
-  nextOpenMs: BREAKER_MIN_MS,
-  /** When the last trial ended (or the breaker opened): the next critical trial comes TRIAL_SPACING_MS later. */
+  /** When the last trial ended (or the breaker opened): the next trial comes TRIAL_SPACING_MS later. */
   lastTrialEnd: 0,
   /** A trial is under way. */
   trial: false,
@@ -192,21 +194,23 @@ type Outcome = "answered" | "down" | "other";
 
 /**
  * Whether a GET may be sent now, and whether as the trial. Closed: at once. Open: a background
- * read fails at once unless it may be the trial; a critical read waits (up to BREAKER_WAIT_MS)
- * until the breaker closes or it may be the trial, else fails.
+ * read fails at once; a critical read waits until the breaker closes or it may be the trial,
+ * for up to BREAKER_WAIT_MS and for as long as a trial is under way, else fails.
  */
 async function admitRead(path: string, priority: ReadPriority): Promise<{ trial: boolean }> {
   const deadline = Date.now() + BREAKER_WAIT_MS;
   for (;;) {
     if (!breaker.open) return { trial: false };
+    if (priority === "background") throw breakerOpen(path);
     const now = Date.now();
-    const nextTrial = priority === "critical" ? Math.min(breaker.openUntil, breaker.lastTrialEnd + TRIAL_SPACING_MS) : breaker.openUntil;
+    const nextTrial = breaker.lastTrialEnd + TRIAL_SPACING_MS;
     if (!breaker.trial && now >= nextTrial) {
       breaker.trial = true;
       return { trial: true };
     }
-    if (priority === "background" || now >= deadline) throw breakerOpen(path);
-    await breakerChange(Math.min(deadline, breaker.trial ? deadline : nextTrial) - now);
+    // Never give up while a trial is under way: its answer may close the breaker a moment later.
+    if (!breaker.trial && now >= deadline) throw breakerOpen(path);
+    await breakerChange(breaker.trial ? TRIAL_WATCH_MS : Math.min(deadline, nextTrial) - now);
   }
 }
 
@@ -227,7 +231,10 @@ function breakerOpen(path: string) {
   return new WooCommerceError(`WooCommerce was not asked (GET ${path}): it is overloaded or down`, 503, "circuit_open");
 }
 
-/** How a counted GET ended: answered (a trial's answer closes the breaker), down (counts towards opening it) or neither. */
+/**
+ * How a counted GET ended: answered (a trial's answer closes the breaker), down (counts towards
+ * opening it; after a trial, the next one comes TRIAL_SPACING_MS later) or neither.
+ */
 function settleRead(trial: boolean, outcome: Outcome) {
   const now = Date.now();
   if (trial) {
@@ -235,10 +242,7 @@ function settleRead(trial: boolean, outcome: Outcome) {
     breaker.lastTrialEnd = now;
     if (outcome === "answered") {
       breaker.open = false;
-      breaker.nextOpenMs = BREAKER_MIN_MS;
       breaker.downs = [];
-    } else if (outcome === "down") {
-      openBreaker(now);
     }
     for (const wake of [...breakerWaiters]) wake();
     return;
@@ -252,14 +256,7 @@ function settleRead(trial: boolean, outcome: Outcome) {
     breaker.open = true;
     breaker.downs = [];
     breaker.lastTrialEnd = now;
-    openBreaker(now);
   }
-}
-
-/** Starts an open period, each one twice as long as the last (up to BREAKER_MAX_MS) until a trial is answered. */
-function openBreaker(now: number) {
-  breaker.openUntil = now + breaker.nextOpenMs;
-  breaker.nextOpenMs = Math.min(breaker.nextOpenMs * 2, BREAKER_MAX_MS);
 }
 
 /**
@@ -300,7 +297,7 @@ export async function wooRequest<T extends z.ZodType>(
   const priority = options.priority ?? "critical";
   const policy = method === "GET" ? priority : (options.retry ?? null);
   const timeoutMs = options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS;
-  const send = async (trial: boolean) => {
+  const send = async () => {
     const response = await fetch(url, {
       method,
       headers: {
@@ -309,8 +306,7 @@ export async function wooRequest<T extends z.ZodType>(
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      // A trial asks quickly: reads wait for its answer.
-      signal: withTimeout(options.signal, trial ? Math.min(timeoutMs, TRIAL_TIMEOUT_MS) : timeoutMs),
+      signal: withTimeout(options.signal, timeoutMs),
       cache: "no-store",
     });
     return { response, json: await response.json().catch(() => undefined) };
@@ -318,7 +314,7 @@ export async function wooRequest<T extends z.ZodType>(
   const sendCounted = (trial: boolean) =>
     withGetSlot(priority, () => {
       if (!trial && breaker.open) throw new Readmit();
-      return send(trial);
+      return send();
     });
 
   for (let attempt = 1; ; attempt++) {
@@ -327,7 +323,7 @@ export async function wooRequest<T extends z.ZodType>(
     let outcome: Outcome = "other";
     let error: WooCommerceError;
     try {
-      const { response, json } = counted ? await sendCounted(trial) : await send(false);
+      const { response, json } = counted ? await sendCounted(trial) : await send();
       outcome = response.status === 508 || response.status === 429 ? "down" : "answered";
       if (response.ok || (options.acceptStatus ?? []).includes(response.status)) {
         const parsed = options.schema.safeParse(json);
