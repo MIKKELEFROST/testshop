@@ -28,8 +28,8 @@ Lageret er fælles: sælger begge webshops samme produkt, trækker de fra samme 
 
 | Webshop | Butiks-ID | DNA | Adresse |
 | --- | --- | --- | --- |
-| **Fastelavnskostumer.dk** | `piece-dk` | Fastelavn hele året: farverig og familievenlig, konfetti, logo med en kat i tønden, overskrifter i Fredoka. Forsiden tæller ned til fastelavnssøndag. | https://testshop-weld.vercel.app (Vercel-projekt `testshop`) |
-| **Halloweenkostumer.dk** | `halloween-kostumer-dk` | Halloween hele året: mørk header og footer (sort, orange og lilla), lyse produkt-, kurv- og kassesider, logo med et lysende græskar, overskrifter i Bebas Neue. Forsiden tæller ned til 31. oktober. | https://testshop-maskerade.vercel.app (Vercel-projekt `testshop-maskerade`) |
+| **Fastelavnskostumer.dk** | `piece-dk` | Fastelavn hele året: farverig og familievenlig, konfetti, logo med en kat i tønden, overskrifter i Fredoka. Forsiden tæller ned til fastelavnssøndag. | https://fastelavnskostumer.dk (Vercel-projekt `fastelavnskostumer.dk`, før `testshop`; også testshop-weld.vercel.app) |
+| **Halloweenkostumer.dk** | `halloween-kostumer-dk` | Halloween hele året: mørk header og footer (sort, orange og lilla), lyse produkt-, kurv- og kassesider, logo med et lysende græskar, overskrifter i Bebas Neue. Forsiden tæller ned til 31. oktober. | https://halloweenkostumer.dk (Vercel-projekt `halloweenkostumer.dk`, før `testshop-maskerade`; også testshop-maskerade.vercel.app) |
 
 Begge sælger hele Guircas sortiment, undtagen varerne kun for voksne, som kun Halloweenkostumer.dk sælger (se 18+ nedenfor). Det er fremhævningen, der er forskellig:
 

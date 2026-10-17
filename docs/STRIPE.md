@@ -78,7 +78,7 @@ Brug enhver fremtidig udløbsdato, en vilkårlig CVC og et vilkårligt postnumme
 
 Øverst i kassen viser Stripes Express Checkout Element knapperne Apple Pay og Google Pay. Kunden vælger adresse, fragt og e-mail i sin Wallet. Shoppen beregner pris, fragt og rabat i WooCommerce for den valgte adresse og opretter ordren gennem samme `/api/checkout` som formularen. Apple Pay og Google Pay vises derfor ikke også i betalingsfeltet længere nede.
 
-- **Registrér domænet** i Stripe under **Settings → Payment method domains**, både i testtilstand og i live-tilstand. Det gælder hvert domæne, f.eks. `testshop-weld.vercel.app` og senere `piece.dk`. `testshop-weld.vercel.app` er registreret i testtilstand. Previews (`*-git-*.vercel.app`) er ikke registreret og viser derfor ikke knapperne.
+- **Registrér domænet** i Stripe under **Settings → Payment method domains**, både i testtilstand og i live-tilstand. Det gælder hvert domæne, f.eks. `testshop-weld.vercel.app` og senere `piece.dk`. `testshop-weld.vercel.app`, `testshop-maskerade.vercel.app` og `halloweenkostumer.dk` er registreret i testtilstand (16-10-2026); `fastelavnskostumer.dk` mangler. Previews (`*-git-*.vercel.app`) er ikke registreret og viser derfor ikke knapperne.
 - Knapperne står på `always`. Apple Pay vises derfor også i Chrome på Mac, hvor kunden betaler ved at scanne med sin iPhone, og før kunden har et kort i Wallet. Apple Pay vises aldrig på Windows og Android. Der vises Google Pay i stedet, hvor det er understøttet.
 - I testtilstand kan du bruge dit rigtige kort i Wallet. Stripe trækker ingen penge.
 - Ordren får betalingsmetoden "Apple Pay (Stripe)" eller "Google Pay (Stripe)".
