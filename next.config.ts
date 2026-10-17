@@ -52,7 +52,12 @@ const nextConfig: NextConfig = {
     },
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // The projects' *.vercel.app addresses (and the previews) serve the whole shop too: keep
+      // them out of search engines, which should only know the shops' own domains.
+      { source: "/:path*", has: [{ type: "host", value: "(?<host>.+)\\.vercel\\.app" }], headers: [{ key: "X-Robots-Tag", value: "noindex" }] },
+    ];
   },
 };
 

@@ -1,5 +1,6 @@
 import { company } from "@/config/company";
 import { storeConfig, type StoreConfig } from "@/config/store";
+import { configuredSiteUrl } from "@/lib/seo";
 import type { StoreBrandingInput } from "@/lib/woocommerce/checkout-api";
 
 /**
@@ -26,7 +27,7 @@ type Seller = Pick<typeof company, "name" | "address" | "cvr" | "returnAddress" 
  */
 export function storeBranding(
   config: Pick<StoreConfig, "name" | "supportEmail" | "theme"> = storeConfig,
-  siteUrl: string | undefined = process.env.NEXT_PUBLIC_SITE_URL,
+  siteUrl: string | undefined = configuredSiteUrl(),
   seller: Seller = company,
 ): StoreBrandingInput {
   const branding: StoreBrandingInput = {

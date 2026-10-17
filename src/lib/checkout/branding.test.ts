@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { company } from "@/config/company";
 import { storeConfig } from "@/config/store";
 import { DEFAULT_EMAIL_COLOR, RETURN_DAYS, storeBranding } from "./branding";
@@ -61,6 +61,16 @@ describe("storeBranding", () => {
     for (const siteUrl of [undefined, "", "piece.dk", "ftp://piece.dk", "https://"]) {
       const branding = storeBranding(maskerade, siteUrl, seller);
       expect(branding).toEqual({ name: "Halloweenkostumer.dk", email: "hej@halloweenkostumer.dk", color: "#5b2b82", ...sellerFields });
+    }
+  });
+
+  it("links the e-mails to the shop's own domain in production, never its vercel.app address", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://testshop-weld.vercel.app");
+    vi.stubEnv("VERCEL_ENV", "production");
+    try {
+      expect(storeBranding().url).toBe(storeConfig.siteUrl);
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 

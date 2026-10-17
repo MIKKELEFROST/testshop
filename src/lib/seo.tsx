@@ -2,8 +2,28 @@ import { storeConfig } from "@/config/store";
 
 /** Structured data (schema.org JSON-LD) and absolute URLs for search engines. */
 
-/** This shop's address: NEXT_PUBLIC_SITE_URL (e.g. a preview's), else the brand's own domain. */
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || storeConfig.siteUrl).replace(/\/+$/, "");
+/**
+ * NEXT_PUBLIC_SITE_URL as set (e.g. a preview's address), but in production never a
+ * *.vercel.app address: the shops have their own domains (storeConfig.siteUrl), and with
+ * NEXT_PUBLIC_SITE_URL left at the project's vercel.app address the canonical addresses,
+ * sitemap and robots.txt sent search engines there (Fastelavnskostumer.dk, 17-10-2026).
+ */
+export function configuredSiteUrl(env: Record<string, string | undefined> = process.env): string | undefined {
+  const url = env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!url) return undefined;
+  return env.VERCEL_ENV === "production" && isVercelAppUrl(url) ? storeConfig.siteUrl : url;
+}
+
+function isVercelAppUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+
+/** This shop's address: NEXT_PUBLIC_SITE_URL (see configuredSiteUrl), else the brand's own domain. */
+export const SITE_URL = (configuredSiteUrl() || storeConfig.siteUrl).replace(/\/+$/, "");
 
 export function absoluteUrl(path: string): string {
   return path.startsWith("http") ? path : `${SITE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
