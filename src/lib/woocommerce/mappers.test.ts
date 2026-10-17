@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import doublePhotos from "@/config/guirca-double-photos.json";
 import { discountPercent } from "@/lib/pricing";
-import { mapCategory, mapProduct, mapProductSummary, productImages, withoutDoublePhotos, youtubeIds } from "./mappers";
+import { mapCategory, mapProduct, mapProductSummary, productImages, withoutDoublePhotos, withoutUploadedDoublePhotos, youtubeIds } from "./mappers";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 function product(overrides: Record<string, unknown> = {}) {
@@ -65,6 +65,28 @@ describe("product images", () => {
     // Another article's catalogue photo and other hosts don't count.
     expect(withoutDoublePhotos([g("1/1.jpg"), g("2/2_01.jpg")], none)).toEqual([g("1/1.jpg"), g("2/2_01.jpg")]);
     expect(withoutDoublePhotos(["https://test.piece.dk/4778/4778.jpg", g("4778/4778_07.jpg")], new Set(["4778"]))).toEqual(["https://test.piece.dk/4778/4778.jpg", g("4778/4778_07.jpg")]);
+  });
+
+  it("leaves out a Guirca main photo uploaded as the product's own image, by the same rule", () => {
+    const up = (file: string) => ({ src: `https://test.piece.dk/wp-content/uploads/2026/10/${file}`, alt: "" });
+    const files = (images: { src: string }[]) => images.map((i) => i.src.split("/").pop());
+    // The costume's catalogue photo among its own images (product 65 on test.piece.dk).
+    const vampire = product({ images: [up("78339-scaled.jpg"), up("78339_01.jpg"), up("78339_02.jpg")] });
+    expect(files(productImages(vampire))).toEqual(["78339_01.jpg", "78339_02.jpg"]);
+    // … or only among its supplier photos (product 54).
+    const unicorn = product({ images: [up("78224-scaled.jpg"), up("78224_02.jpg")], meta_data: [{ key: "_wchc_external_images", value: [g("78224/78224.jpg"), g("78224/78224_01.jpg")] }] });
+    expect(files(productImages(unicorn))).toEqual(["78224_02.jpg"]);
+    // In the list of doubles, with another photo of the article.
+    expect(files(withoutUploadedDoublePhotos([up("4778-1.jpg"), up("4778_07-scaled.jpg")], [], new Set(["4778"])))).toEqual(["4778_07-scaled.jpg"]);
+  });
+
+  it("keeps own images that only look like a Guirca main photo, and a lone main photo", () => {
+    const up = (file: string) => ({ src: `https://test.piece.dk/wp-content/uploads/${file}`, alt: "" });
+    const doubles = new Set(["2176"]);
+    // A number in the list of doubles, but no other photo of that article: the shop's own photo.
+    expect(withoutUploadedDoublePhotos([up("2176.jpg"), up("IMG_0001.jpg")], [], doubles)).toHaveLength(2);
+    expect(withoutUploadedDoublePhotos([up("78339-scaled.jpg")], [g("78339/78339_01.jpg")])).toHaveLength(1);
+    expect(withoutUploadedDoublePhotos([up("pirat.jpg"), up("78339_01.jpg")], [])).toHaveLength(2);
   });
 
   it("reads the list of main photos that show the product twice", () => {

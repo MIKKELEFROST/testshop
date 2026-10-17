@@ -66,17 +66,48 @@ export function withoutDoublePhotos(urls: string[], doubles: ReadonlySet<string>
 }
 
 /**
+ * A Guirca photo uploaded to WordPress as the product's own image: the article code and the
+ * photo's ending, e.g. `…/uploads/2026/10/78339-scaled.jpg` (the main photo; "-scaled" or "-1"
+ * is WordPress's) or `…/78339_01.jpg`.
+ */
+const UPLOADED_GUIRCA_PHOTO = /\/(\d+)(_\d\d)?(?:-scaled|-\d+)*\.(?:jpe?g|png|webp)$/i;
+
+function uploadedGuircaPhoto(src: string): RegExpExecArray | null {
+  try {
+    return UPLOADED_GUIRCA_PHOTO.exec(new URL(src).pathname);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The same rule for the product's own WooCommerce images (see withoutDoublePhotos): a Guirca
+ * main photo uploaded to WordPress is left out when the article's catalogue photo (`_01`) is
+ * among the product's photos (its own or its supplier photos), or when the article is in
+ * `doubles` and the product has another photo of it. Other images, and a lone main photo, stay.
+ */
+export function withoutUploadedDoublePhotos(images: ProductImage[], supplierLinks: string[], doubles: ReadonlySet<string> = DOUBLE_PHOTOS): ProductImage[] {
+  const photos = [...images.map((i) => uploadedGuircaPhoto(i.src)), ...supplierLinks.map((src) => GUIRCA_PHOTO.exec(src))].filter((m) => m !== null);
+  const withCatalogue = new Set(photos.filter((m) => m[2] === "_01").map((m) => m[1]));
+  const withOthers = new Set(photos.filter((m) => m[2] !== undefined).map((m) => m[1]));
+  const kept = images.filter((i) => {
+    const m = uploadedGuircaPhoto(i.src);
+    return !(m && m[2] === undefined && (withCatalogue.has(m[1]) || (doubles.has(m[1]) && withOthers.has(m[1]))));
+  });
+  return kept.length > 0 ? kept : images;
+}
+
+/**
  * The product's photos: its WooCommerce images, or else the supplier photos an import
- * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS, without a main
- * photo that shows the product twice, see withoutDoublePhotos).
+ * linked to (meta `_wchc_external_images`, only from SUPPLIER_IMAGE_HOSTS). Either way without
+ * a Guirca main photo that shows the product twice (see withoutDoublePhotos).
  */
 export function productImages(product: Pick<WcProduct, "name" | "images" | "meta_data">): ProductImage[] {
-  const own = product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null);
-  if (own.length > 0) return own;
   const external = meta(product, "_wchc_external_images");
-  if (!Array.isArray(external)) return [];
+  const links = Array.isArray(external) ? external.map((src) => supplierUrl(src)).filter((src): src is string => src !== null) : [];
+  const own = product.images.map((i) => image(i)).filter((i): i is ProductImage => i !== null);
+  if (own.length > 0) return withoutUploadedDoublePhotos(own, links);
   const alt = decodeEntities(product.name);
-  const links = external.map((src) => supplierUrl(src)).filter((src): src is string => src !== null);
   return withoutDoublePhotos(links).map((src) => ({ src, alt, fit: "contain" as const }));
 }
 
