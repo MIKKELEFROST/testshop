@@ -16,6 +16,16 @@ import { savedSubtotal, type CartLine } from "@/lib/cart/cart";
 import { cartShippingLabel, ESTIMATE_ADDRESS, type ClientQuote } from "@/lib/checkout/quote";
 import { formatPrice, fromMinorUnits, multiplyAmount, toMinorUnits } from "@/lib/money";
 
+/**
+ * The cart's area on /kurv. The server doesn't know the cart (it is in the browser), so until
+ * the browser has read it the page shows a skeleton; the area always keeps the height of a
+ * cart with one line, so the footer doesn't jump down when the cart appears (it did by 470 px
+ * on a phone: CLS 0.5). Bigger carts grow below the fold on phones.
+ */
+function CartArea({ children }: { children: ReactNode }) {
+  return <div className="mt-8 min-h-[640px] md:min-h-[575px] lg:min-h-[390px]">{children}</div>;
+}
+
 /** The /kurv page. Its parts are shared with the cart drawer. */
 export function CartView() {
   const { lines, hydrated } = useCart();
@@ -23,45 +33,58 @@ export function CartView() {
   const heading = useRef<HTMLHeadingElement>(null);
 
   if (!hydrated) {
-    return <div className="mt-8 h-40 animate-pulse rounded-[var(--radius-card)] bg-black/5" aria-hidden="true" />;
+    return (
+      <CartArea>
+        <div className="grid animate-pulse gap-10 lg:grid-cols-[minmax(0,1fr)_380px]" aria-hidden="true">
+          <div className="h-40 rounded-[var(--radius-card)] bg-black/5" />
+          <div className="h-80 rounded-[var(--radius-card)] bg-black/5" />
+        </div>
+      </CartArea>
+    );
   }
 
   if (lines.length === 0) {
-    return <EmptyCart className="mt-10 rounded-[var(--radius-card)] border border-line bg-surface px-6 py-16 text-center" />;
+    return (
+      <CartArea>
+        <EmptyCart className="rounded-[var(--radius-card)] border border-line bg-surface px-6 py-16 text-center" />
+      </CartArea>
+    );
   }
 
   return (
-    <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
-      <ul className="divide-y divide-line border-y border-line">
-        {lines.map((line) => (
-          <CartLineItem key={line.key} line={line} quote={quote} />
-        ))}
-      </ul>
+    <CartArea>
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <ul className="divide-y divide-line border-y border-line">
+          {lines.map((line) => (
+            <CartLineItem key={line.key} line={line} quote={quote} />
+          ))}
+        </ul>
 
-      <aside className="h-fit rounded-[var(--radius-card)] border border-line bg-surface p-6 lg:sticky lg:top-28" aria-labelledby="kurv-oversigt">
-        <h2 id="kurv-oversigt" ref={heading} className="text-lg font-semibold">
-          Oversigt
-        </h2>
-        <CartTotals quote={quote} loading={loading} className="mt-4" />
+        <aside className="h-fit rounded-[var(--radius-card)] border border-line bg-surface p-6 lg:sticky lg:top-28" aria-labelledby="kurv-oversigt">
+          <h2 id="kurv-oversigt" ref={heading} className="text-lg font-semibold">
+            Oversigt
+          </h2>
+          <CartTotals quote={quote} loading={loading} className="mt-4" />
 
-        {error && (
-          <div className="mt-4">
-            <CartQuoteError error={error} retrying={retrying} temporary={temporary} onRetry={retry} focusAfter={heading} />
+          {error && (
+            <div className="mt-4">
+              <CartQuoteError error={error} retrying={retrying} temporary={temporary} onRetry={retry} focusAfter={heading} />
+            </div>
+          )}
+
+          <DispatchCountdown className="mt-6 text-sm" />
+          <div className="mt-3">
+            <CheckoutButton canCheckout={canCheckout} loading={loading}>
+              Gå til kassen
+            </CheckoutButton>
           </div>
-        )}
-
-        <DispatchCountdown className="mt-6 text-sm" />
-        <div className="mt-3">
-          <CheckoutButton canCheckout={canCheckout} loading={loading}>
-            Gå til kassen
-          </CheckoutButton>
-        </div>
-        <Link href="/produkter" className="mt-4 block text-center text-sm text-muted underline underline-offset-4 hover:text-ink">
-          Fortsæt med at handle
-        </Link>
-        <TrustBox placement="cart" className="mt-6 border-t border-line pt-5" />
-      </aside>
-    </div>
+          <Link href="/produkter" className="mt-4 block text-center text-sm text-muted underline underline-offset-4 hover:text-ink">
+            Fortsæt med at handle
+          </Link>
+          <TrustBox placement="cart" className="mt-6 border-t border-line pt-5" />
+        </aside>
+      </div>
+    </CartArea>
   );
 }
 
