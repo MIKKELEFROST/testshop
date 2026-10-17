@@ -6,7 +6,7 @@ import { merchandising, type Collection } from "@/config/merchandising";
 import { storeConfig } from "@/config/store";
 import { versionAtLeast } from "@/lib/version";
 import type { Loadable, Product, ProductCategory, ProductList, ProductSummary } from "@/types/commerce";
-import { HOURS, MINUTES, fetched, orFailure, type CacheLife, type Read } from "./cache";
+import { CATALOG, CATALOG_LISTS, CATALOG_SLOW, fetched, orFailure, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { categoryPath, primaryCategory } from "./category-tree";
 import { decodeEntities, mapCategory, mapProduct, mapProductSummary, productImages } from "./mappers";
@@ -14,11 +14,12 @@ import { rankAccessories, rankSimilar, seasonFilter } from "./related";
 import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas";
 
 /**
- * Catalogue reads. Cached with `use cache: remote` (short lifetime + tags): one cache shared
- * by all server instances, so the WordPress host is asked once per lifetime instead of once
- * per cold instance (its web host refuses bursts with HTTP 508). Revalidated on demand by
- * WooCommerce webhooks (see /api/revalidate). Prices and stock shown here are informational:
- * the checkout always re-validates them against WooCommerce.
+ * Catalogue reads. Cached with `use cache: remote` (lifetimes in ./cache.ts, + tags): one
+ * cache shared by all server instances, kept for 30 days and refreshed in the background, so
+ * the WordPress host is asked once per refresh time instead of once per cold instance (its
+ * web host refuses bursts with HTTP 508). Revalidated on demand by WooCommerce webhooks (see
+ * /api/revalidate). Prices and stock shown here are informational: the checkout always
+ * re-validates them against WooCommerce.
  *
  * A failed refresh keeps the last good data (see ./cache.ts); the friendly error state is
  * only shown when nothing is cached. Reads a page can do without (related products, photos,
@@ -54,12 +55,6 @@ const SUMMARY_FIELDS = [
 
 /** Product cards for the related rows also need the themes, to rank them. */
 const RELATED_FIELDS = `${SUMMARY_FIELDS},tags`;
-
-/**
- * Category counts are recounted every 15 minutes (one small request per category), not
- * every minute like product lists.
- */
-const CATEGORY_LIFE: CacheLife = { stale: 300, revalidate: 900, expire: 86400 };
 
 /** How a listing is sorted (the `sorter` URL parameter); the first is the default. */
 export const SORTS = {
@@ -126,7 +121,7 @@ export async function getProducts(options: ProductQuery = {}): Promise<Loadable<
 async function readProducts(options: ProductQuery): Promise<Read<ProductList>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getProducts", MINUTES, async () => {
+  return fetched("getProducts", CATALOG_LISTS, async () => {
     const page = options.page ?? 1;
     const sort = SORTS[options.sort ?? "anbefalet"];
     const list = (ids: number[] | undefined) => (ids && ids.length > 0 ? ids.join(",") : undefined);
@@ -186,7 +181,7 @@ const ADULT_PAGES = 10;
 async function readAdultProductIds(): Promise<Read<number[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getAdultProductIds", HOURS, async () => {
+  return fetched("getAdultProductIds", CATALOG_SLOW, async () => {
     const categories = await getCategories();
     if (!categories.ok) throw new Error(categories.error);
     const adult = categories.data.filter((c) => ADULT_CATEGORY_SLUGS.includes(c.slug)).map((c) => c.id);
@@ -212,7 +207,7 @@ export async function getThemeIds(): Promise<Loadable<Map<string, number>>> {
 async function readThemeIds(): Promise<Read<Map<string, number>>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getThemeIds", CATEGORY_LIFE, async () => {
+  return fetched("getThemeIds", CATALOG_LISTS, async () => {
     const tags = new Map<string, number>();
     for (let page = 1; page <= 10; page++) {
       const { data, headers } = await wooRequest("wc/v3/products/tags", {
@@ -238,7 +233,7 @@ export async function getPluginFeatures(): Promise<{ categoryFilters: boolean }>
 
 async function readPluginFeatures(): Promise<Read<{ categoryFilters: boolean }>> {
   "use cache: remote";
-  return fetched("getPluginFeatures", HOURS, async () => {
+  return fetched("getPluginFeatures", CATALOG_SLOW, async () => {
     const { data } = await wooRequest("wc-headless/v1/status", { schema: z.object({ version: z.string() }).loose() });
     return { categoryFilters: versionAtLeast(data.version, "1.4.0") };
   });
@@ -287,7 +282,7 @@ export async function getAllProductSlugs(): Promise<Loadable<ProductSlug[]>> {
 async function readAllProductSlugs(): Promise<Read<ProductSlug[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getAllProductSlugs", HOURS, async () => {
+  return fetched("getAllProductSlugs", CATALOG_SLOW, async () => {
     const read = (page: number) =>
       wooRequest("wc/v3/products", {
         query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug,categories,webshops" },
@@ -324,7 +319,7 @@ export async function getProductBySlug(slug: string): Promise<Loadable<Product |
 async function readProductBySlug(slug: string): Promise<Read<Product | null>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getProductBySlug", MINUTES, async () => {
+  return fetched("getProductBySlug", CATALOG, async () => {
     const { data } = await wooRequest("wc/v3/products", {
       query: { ...SHOP, slug, status: "publish" },
       schema: z.array(wcProductSchema),
@@ -351,9 +346,8 @@ export type ProductPhoto = Pick<ProductSummary, "id" | "slug" | "name" | "image"
 
 /**
  * The photo of a product chosen in src/config/merchandising.ts (a hero photo or a tile's).
- * One small request for its photos only (no text, no sizes), kept for an hour: these pages
- * are regenerated every minute, the photos rarely change, and a product webhook still
- * refreshes them. Null for an unknown or unpublished product, or when WooCommerce can't be read.
+ * One small request for its photos only (no text, no sizes), refreshed hourly: the photos
+ * rarely change, and a product webhook still refreshes them. Null for an unknown or unpublished product, or when WooCommerce can't be read.
  */
 export async function getProductPhoto(slug: string): Promise<ProductPhoto | null> {
   const result = await readProductPhoto(slug).catch(orFailure);
@@ -363,7 +357,7 @@ export async function getProductPhoto(slug: string): Promise<ProductPhoto | null
 async function readProductPhoto(slug: string): Promise<Read<ProductPhoto | null>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getProductPhoto", HOURS, async () => {
+  return fetched("getProductPhoto", CATALOG_SLOW, async () => {
     const { data } = await wooRequest("wc/v3/products", {
       // meta_data: the supplier photos of a product without its own (see productImages).
       query: { ...SHOP, slug, status: "publish", _fields: "id,slug,name,images,meta_data" },
@@ -398,7 +392,7 @@ export async function getRelatedProducts(product: Pick<Product, "id" | "name" | 
 async function readRelatedProducts(product: Pick<Product, "id" | "name" | "tags" | "audience" | "categories">): Promise<Read<RelatedProducts>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG, productTag(product.id));
-  return fetched("getRelatedProducts", HOURS, async () => {
+  return fetched("getRelatedProducts", CATALOG_SLOW, async () => {
     const [categories, plugin] = await Promise.all([getCategories(), getPluginFeatures()]);
     if (!categories.ok) throw new Error(categories.error);
     const tree = categories.data;
@@ -470,7 +464,7 @@ export async function getCategories(): Promise<Loadable<ProductCategory[]>> {
 async function readCategories(): Promise<Read<ProductCategory[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getCategories", CATEGORY_LIFE, async () => {
+  return fetched("getCategories", CATALOG_LISTS, async () => {
     const categories: z.infer<typeof wcCategorySchema>[] = [];
     for (let page = 1; page <= 10; page++) {
       const { data, headers } = await wooRequest("wc/v3/products/categories", {

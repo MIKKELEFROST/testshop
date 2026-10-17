@@ -11,13 +11,13 @@ import {
   type FilterSelection,
   type SizeTerm,
 } from "@/lib/listing-filters";
-import { HOURS, fetched, orFailure, type Read } from "./cache";
+import { CATALOG_SLOW, fetched, orFailure, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { decodeEntities } from "./mappers";
 import { CATALOG_TAG, SIZE_ATTRIBUTE, type ProductFilters } from "./products";
 
 /**
- * What the listing filters need from WooCommerce, cached for an hour so the filters add almost
+ * What the listing filters need from WooCommerce, refreshed hourly so the filters add almost
  * nothing to the load on the WordPress host (as background reads: without them a listing
  * offers every choice): the size terms (one list for the shop) and, per
  * listing, which sizes, prices and stock statuses it has (one request to WooCommerce's Store
@@ -92,7 +92,7 @@ async function getSizeTerms(): Promise<SizeTerm[]> {
 async function readSizeTerms(): Promise<Read<SizeTerm[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getSizeTerms", HOURS, async () => {
+  return fetched("getSizeTerms", CATALOG_SLOW, async () => {
     const { data: attributes } = await wooRequest("wc/v3/products/attributes", {
       query: { _fields: "id,slug" },
       schema: z.array(z.object({ id: z.number(), slug: z.string() })),
@@ -145,7 +145,7 @@ async function getFacets(scope: ListingScope): Promise<Facets | null> {
 async function readFacets(scope: ListingScope): Promise<Read<Facets>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getListingFacets", HOURS, async () => {
+  return fetched("getListingFacets", CATALOG_SLOW, async () => {
     // The Store API counts all of WooCommerce's products, not only this webshop's, and knows
     // nothing of the plugin's category filters; close enough to tell which choices make sense.
     const { data } = await wooRequest("wc/store/v1/products/collection-data", {

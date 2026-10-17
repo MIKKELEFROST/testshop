@@ -18,11 +18,33 @@ import { describeError } from "@/lib/log";
 
 export type CacheLife = { stale: number; revalidate: number; expire: number };
 
-/** Next.js's "minutes" profile: refreshed after a minute. */
-export const MINUTES: CacheLife = { stale: 300, revalidate: 60, expire: 3600 };
+/**
+ * How long an entry is kept without a refresh: 30 days. Until then a page view is served the
+ * entry at once (stale-while-revalidate) and refreshes it in the background once it is older
+ * than `revalidate`; a failed refresh keeps it (see `fetched`). So a product read once is
+ * never cold again in that deployment (a deploy starts a new cache), and WooCommerce is asked
+ * at most once per `revalidate` for it, only while it is viewed. Product webhooks (see
+ * /api/revalidate) refresh a changed product at once.
+ */
+const KEEP = 30 * 86_400;
 
-/** Next.js's "hours" profile: refreshed after an hour. */
-export const HOURS: CacheLife = { stale: 300, revalidate: 3600, expire: 86400 };
+/** A product page's product: refreshed 5 minutes after it was read, when it is viewed. */
+export const CATALOG: CacheLife = { stale: 300, revalidate: 300, expire: KEEP };
+
+/**
+ * Product lists (category pages, theme pages, front page rows, search) and the menu's
+ * categories: refreshed after 15 minutes. Prices and stock on cards are informational (the
+ * cart and the checkout ask WooCommerce), and the front page and theme pages are rebuilt
+ * from these, so a shorter time would only ask WooCommerce more often.
+ */
+export const CATALOG_LISTS: CacheLife = { stale: 300, revalidate: 900, expire: KEEP };
+
+/**
+ * What rarely changes, or a page can do without for a while: related products, photos for the
+ * front page, filter choices, shipping amounts, the sitemap, the plugin's version. Refreshed
+ * after an hour.
+ */
+export const CATALOG_SLOW: CacheLife = { stale: 300, revalidate: 3600, expire: KEEP };
 
 /**
  * Lifetime for a read that failed while building: retried after 30 s. (Kept at the 5-minute

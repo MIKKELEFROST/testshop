@@ -2,7 +2,7 @@ import "server-only";
 import { cacheTag } from "next/cache";
 import { z } from "zod";
 import { storeConfig } from "@/config/store";
-import { HOURS, fetched, orFailure, type Read } from "./cache";
+import { CATALOG_SLOW, fetched, orFailure, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { CATALOG_TAG } from "./products";
 import { wcShippingLocationSchema, wcShippingMethodSchema, wcShippingZoneSchema } from "./schemas";
@@ -24,7 +24,7 @@ export async function getFreeShippingFrom(): Promise<string | null> {
 async function readFreeShippingFrom(): Promise<Read<string | null>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
-  return fetched("getFreeShippingFrom", HOURS, async () => {
+  return fetched("getFreeShippingFrom", CATALOG_SLOW, async () => {
     const { data: zones } = await wooRequest("wc/v3/shipping/zones", { schema: z.array(wcShippingZoneSchema), priority: "background" });
     const amounts: number[] = [];
     for (const zone of zones) {
