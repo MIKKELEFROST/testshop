@@ -53,7 +53,7 @@ Storefronten beregner **ingen** moms eller fragt selv. Den viser WooCommerces ta
    - Status: Aktiv.
 3. Tjek under **Webhooks → (webhooken) → Logs**, at en ændring af et produkt får svar 200 (`{"ok":true,…}`).
 
-Hvad en levering gør (`src/app/api/revalidate/route.ts`): produktets egne poster (produktside, relaterede varer, foto; for en variant dens produkt) markeres forældede med det samme. Hele kataloget (lister, menuens antal, sitemap) kun, når varer kan komme til eller forsvinde (oprettet, slettet, gendannet eller ikke længere udgivet), og højst hver 5. minut, så en import af tusindvis af varer ikke får hver liste læst igen efter hver vare. Næste visning får den gamle udgave med det samme, mens den nye hentes.
+Hvad en levering gør (`src/app/api/revalidate/route.ts`): produktets egne poster (produktside, relaterede varer, foto; for en variant dens produkt) markeres forældede med det samme. Hele kataloget (lister, menuens antal, sitemap) kun, når varer kan komme til eller forsvinde (oprettet, slettet, gendannet eller ikke længere udgivet), og højst hver 5. minut, så en import af tusindvis af varer ikke får hver liste læst igen efter hver vare. Næste visning får den gamle udgave med det samme, mens den nye hentes. Undtagen for en slettet eller ikke længere udgivet vare: dens egne poster udløber med det samme, så næste visning svarer 404 i stedet for at vise den gamle vare.
 
 ## 5. Hvad pluginet gør (endpoints)
 

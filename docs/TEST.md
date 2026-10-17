@@ -224,6 +224,20 @@ Lokale dev-servere for begge webshops på test.piece.dk med en testopsætning (`
 - **Per-adresse-cache af produktsider** (`generateStaticParams`) er prøvet og fravalgt: den første visnings fejlede læsning blev gemt med siden og vist for alle i 15 min. (se [ARKITEKTUR.md](ARKITEKTUR.md#caching)).
 - **Kurvens layout-skift** (Playwright, 390 og 1440 px, 0, 1 og 2 varer): CLS 0,51 / 0,74 / 0,15 før, 0,000 nu mens prisberegningen venter og 0,03, når den svarer.
 - **Delingsdata:** alle sider med kanonisk adresse har `og:url` og stadig et `og:image`; `*.vercel.app` svarer med `X-Robots-Tag: noindex`.
+- **Rettelser efter review (17-10-2026):** afbryderens prøve havde 5 sek. timeout, så en vært, der svarede på 5-10 sek., aldrig lukkede den (alle kritiske læsninger fejlede i et forløb på 86 sek.); ventende læsninger gav op efter 4 sek., selv om prøven svarede et øjeblik senere; og en langsom baggrundslæsning (en listes filtertal) kunne være prøven og holde varerne tilbage. Nu har prøven den normale timeout, læsninger venter, så længe en prøve er i gang, og kun kritiske læsninger er prøver. Tjekket sådan:
+
+| Tjek | Før | Nu |
+| --- | --- | --- |
+| Unit-test (timeouts på det falske ur): afbryderen åben, værten svarer på 6 sek. | 10 af 10 kritiske læsninger fejlede over 86 sek. | Varen efter 8 sek., afbryderen lukket |
+| Unit-test: 6 samtidige kritiske læsninger, prøven tager 2,5-3 sek. | 5 af 6 fejlede ("circuit_open") | 6 af 6 vises |
+| Unit-test: en hængende filtertal-læsning, derefter 3 kritiske læsninger | De 3 fejlede efter 4,1 sek. | Filtertallene fejler med det samme, varerne vises efter 0,3-0,7 sek. |
+| Produktionsbuild mod den lokale kopi: 3 timeouts åbner afbryderen, så svarer værten på 6 sek. | Fejlbesked | Den kolde vare vises |
+| Googlebot på `/kategori/masker?str=5-6-aar`, størrelseslisten svarer 508 (kold cache) | 200, alle størrelser, ingen robots (kunne indekseres) | 200, "Vi henter varerne …", `noindex, follow`, ingen ufiltreret læsning; bagefter med filteret |
+| `?str=` med en ukendt størrelse | Kunne indekseres | `noindex, follow` |
+| Playwright 390 px, mobil: offline under "Vi henter produktet …", så online igen | Browserens "No internet", som ikke kom sig | Butikken bliver stående; varen vises efter genforbindelse uden genindlæsning; forsøgene (3-96 sek.) og "Prøv igen" som før |
+| Webhook for en slettet eller afpubliceret vare | Varen med køb-knap ved næste visning, måske uger senere | Varens poster udløber med det samme (`{ expire: 0 }`): næste visning er 404 |
+
+`npm test` 413 tests, integrationstestene 70/70 med begge ordrelagre.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
