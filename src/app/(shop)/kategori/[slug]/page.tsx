@@ -17,13 +17,14 @@ import { parsePage } from "@/lib/pagination";
 import { breadcrumbData, JsonLd, openGraphFor } from "@/lib/seo";
 import { categoryPath, subcategories } from "@/lib/woocommerce/category-tree";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
+import { filteredListing, getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
 import { getCategories, parseSort, type ProductFilters, type SortKey } from "@/lib/woocommerce/products";
 import type { ProductCategory } from "@/types/commerce";
 
 export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Promise<Metadata> {
   const [{ slug }, query] = await Promise.all([props.params, props.searchParams]);
-  const [categories, filters] = await Promise.all([getCategories(), resolveFilters(parseFilters(query))]);
+  const chosen = parseFilters(query);
+  const [categories, filters] = await Promise.all([getCategories(), resolveFilters(chosen)]);
   // Without WooCommerce, a plain title, kept out of search results (see the product page).
   if (!categories.ok) return { title: "Kategori", robots: { index: false, follow: true } };
   // An unknown category or a page past the last one. Search engines get the metadata before
@@ -31,7 +32,7 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Pr
   const category = categories.data.find((c) => c.slug === slug);
   if (!category) notFound();
   const page = parsePage(query.side);
-  const products = await categoryProducts(category, page, parseSort(query.sorter), filters.query);
+  const products = await filteredListing(filters, (filtered) => categoryProducts(category, page, parseSort(query.sorter), filtered));
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();
   // Each page of the listing is its own page (without the sorting). A category this shop
   // hides, whose home is another shop, points there (e.g. Halloween in the Fastelavn shop).
@@ -41,9 +42,10 @@ export async function generateMetadata(props: PageProps<"/kategori/[slug]">): Pr
     description: pageDescription(merchandising.categoryIntros[category.slug] || category.description || categoryDescription(category, storeConfig.name), page),
     alternates: { canonical },
     openGraph: openGraphFor(canonical),
-    // A filtered view is not a page of its own for search engines (its links are followed), and
-    // a page whose products couldn't be read is not one to show in search results.
-    robots: activeFilterCount(filters.selection) > 0 || !products.ok ? { index: false, follow: true } : undefined,
+    // A filtered view (any filter in the address, applied or not) is not a page of its own for
+    // search engines (its links are followed), and a page whose products couldn't be read is
+    // not one to show in search results.
+    robots: activeFilterCount(chosen) > 0 || !products.ok ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -90,7 +92,7 @@ async function CategoryContent({
   if (!category) notFound();
 
   const [products, options] = await Promise.all([
-    categoryProducts(category, page, sort, filters.query),
+    filteredListing(filters, (filtered) => categoryProducts(category, page, sort, filtered)),
     getFilterOptions({ categoryIds: [category.id] }, filters.selection),
   ]);
   if (products.ok && products.data.products.length === 0 && page > 1) notFound();

@@ -14,15 +14,15 @@ import {
 import { CATALOG_SLOW, fetched, orFailure, type Read } from "./cache";
 import { wooRequest } from "./client";
 import { decodeEntities } from "./mappers";
-import { CATALOG_TAG, SIZE_ATTRIBUTE, type ProductFilters } from "./products";
+import { CATALOG_TAG, CATALOG_UNAVAILABLE, SIZE_ATTRIBUTE, type ProductFilters } from "./products";
 
 /**
  * What the listing filters need from WooCommerce, refreshed hourly so the filters add almost
- * nothing to the load on the WordPress host (as background reads: without them a listing
- * offers every choice): the size terms (one list for the shop) and, per
- * listing, which sizes, prices and stock statuses it has (one request to WooCommerce's Store
- * API, which counts them in the database). The filtered products themselves are read through
- * the cached getProducts like any listing page.
+ * nothing to the load on the WordPress host: the size terms (one list for the shop, a critical
+ * read: a chosen size can't be applied without them) and, per listing, which sizes, prices and
+ * stock statuses it has (one request to WooCommerce's Store API, which counts them in the
+ * database; a background read: without it a listing offers every choice). The filtered
+ * products themselves are read through the cached getProducts like any listing page.
  */
 
 /** The products a listing shows, as far as its filter choices go: its categories and themes. */
@@ -30,13 +30,19 @@ export type ListingScope = { categoryIds?: number[]; tagIds?: number[] };
 
 /**
  * The chosen filters as a product query, and the selection without what this shop doesn't
- * know (e.g. a size that no longer exists).
+ * know (e.g. a size that no longer exists). `error` when a chosen size couldn't be looked up
+ * (WooCommerce can't be read): the page must then not show the listing unfiltered as if it
+ * were filtered (see filteredListing).
  */
-export async function resolveFilters(selection: FilterSelection): Promise<{ query: ProductFilters; selection: FilterSelection }> {
+export type ResolvedFilters = { query: ProductFilters; selection: FilterSelection; error?: string };
+
+export async function resolveFilters(selection: FilterSelection): Promise<ResolvedFilters> {
   const query: ProductFilters = {};
   const known: FilterSelection = {};
   if (selection.size) {
-    const option = findSizeOption(sizeGroups(await getSizeTerms()), selection.size);
+    const terms = await readSizeTerms().catch(orFailure);
+    if (!terms.ok) return { query, selection: known, error: CATALOG_UNAVAILABLE };
+    const option = findSizeOption(sizeGroups(terms.data), selection.size);
     if (option) {
       query.sizeTermIds = [...option.termIds].sort((a, b) => a - b);
       known.size = option.key;
@@ -53,6 +59,15 @@ export async function resolveFilters(selection: FilterSelection): Promise<{ quer
     known.inStock = true;
   }
   return { query, selection: known };
+}
+
+/**
+ * A listing read with the resolved filters, or the failure when a chosen filter couldn't be
+ * applied: never the unfiltered listing in its place. The page then shows its retry state
+ * (and `noindex`), as when the listing itself can't be read.
+ */
+export async function filteredListing<T>(filters: ResolvedFilters, read: (query: ProductFilters) => Promise<T>): Promise<T | { ok: false; error: string }> {
+  return filters.error ? { ok: false, error: filters.error } : read(filters.query);
 }
 
 /**
@@ -93,10 +108,10 @@ async function readSizeTerms(): Promise<Read<SizeTerm[]>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
   return fetched("getSizeTerms", CATALOG_SLOW, async () => {
+    // Critical reads: a listing with a chosen size can't be shown without them.
     const { data: attributes } = await wooRequest("wc/v3/products/attributes", {
       query: { _fields: "id,slug" },
       schema: z.array(z.object({ id: z.number(), slug: z.string() })),
-      priority: "background",
     });
     const attribute = attributes.find((a) => a.slug === SIZE_ATTRIBUTE);
     if (!attribute) return [];
@@ -105,7 +120,6 @@ async function readSizeTerms(): Promise<Read<SizeTerm[]>> {
       const { data, headers } = await wooRequest(`wc/v3/products/attributes/${attribute.id}/terms`, {
         query: { per_page: 100, page, hide_empty: true, _fields: "id,name" },
         schema: z.array(z.object({ id: z.number(), name: z.string() })),
-        priority: "background",
       });
       terms.push(...data.map((t) => ({ id: t.id, name: decodeEntities(t.name) })));
       if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;

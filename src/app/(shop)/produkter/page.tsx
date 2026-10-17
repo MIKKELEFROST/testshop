@@ -10,7 +10,7 @@ import { allProductsDescription, pageDescription } from "@/lib/meta-description"
 import { openGraphFor } from "@/lib/seo";
 import { parsePage } from "@/lib/pagination";
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
-import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
+import { filteredListing, getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
 import { storeConfig } from "@/config/store";
 import { parseSort, type ProductFilters, type SortKey } from "@/lib/woocommerce/products";
 
@@ -18,8 +18,9 @@ export async function generateMetadata(props: PageProps<"/produkter">): Promise<
   const query = await props.searchParams;
   // As on category pages, search engines get the metadata first: a 404 for a page past the last one.
   const page = parsePage(query.side);
-  const filters = await resolveFilters(parseFilters(query));
-  const result = await allProducts(page, parseSort(query.sorter), filters.query);
+  const chosen = parseFilters(query);
+  const filters = await resolveFilters(chosen);
+  const result = await filteredListing(filters, (filtered) => allProducts(page, parseSort(query.sorter), filtered));
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
   const canonical = pageHref("/produkter", page);
   return {
@@ -28,9 +29,10 @@ export async function generateMetadata(props: PageProps<"/produkter">): Promise<
     description: result.ok ? pageDescription(allProductsDescription(result.data.total, storeConfig.name), page) : undefined,
     alternates: { canonical },
     openGraph: openGraphFor(canonical),
-    // A filtered view is not a page of its own for search engines (its links are followed), and
-    // a page whose products couldn't be read is not one to show in search results.
-    robots: activeFilterCount(filters.selection) > 0 || !result.ok ? { index: false, follow: true } : undefined,
+    // A filtered view (any filter in the address, applied or not) is not a page of its own for
+    // search engines (its links are followed), and a page whose products couldn't be read is
+    // not one to show in search results.
+    robots: activeFilterCount(chosen) > 0 || !result.ok ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -63,7 +65,10 @@ async function AllProducts({ searchParams }: { searchParams: Promise<Record<stri
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
   const filters = await resolveFilters(parseFilters(query));
-  const [result, options] = await Promise.all([allProducts(page, sort, filters.query), getFilterOptions({}, filters.selection)]);
+  const [result, options] = await Promise.all([
+    filteredListing(filters, (filtered) => allProducts(page, sort, filtered)),
+    getFilterOptions({}, filters.selection),
+  ]);
   if (!result.ok) {
     return (
       <div className="mt-8">

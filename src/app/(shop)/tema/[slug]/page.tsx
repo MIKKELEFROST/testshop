@@ -13,7 +13,7 @@ import { pageDescription } from "@/lib/meta-description";
 import { parsePage } from "@/lib/pagination";
 import { breadcrumbData, JsonLd, openGraphFor } from "@/lib/seo";
 import { getCollectionProducts, getCollectionScope } from "@/lib/woocommerce/collections";
-import { getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
+import { filteredListing, getFilterOptions, resolveFilters } from "@/lib/woocommerce/filters";
 import { parseSort } from "@/lib/woocommerce/products";
 
 /** A theme page (src/config/merchandising.ts): e.g. "Prinsesser og prinser" or "Halloweenkostumer til damer". */
@@ -29,8 +29,9 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promis
   // As on category pages, search engines get the metadata first: a 404 for an unknown theme
   // or a page past the last one.
   const page = parsePage(query.side);
-  const filters = await resolveFilters(parseFilters(query));
-  const result = await getCollectionProducts(slug, { page, sort: parseSort(query.sorter), ...filters.query });
+  const chosen = parseFilters(query);
+  const filters = await resolveFilters(chosen);
+  const result = await filteredListing(filters, (filtered) => getCollectionProducts(slug, { page, sort: parseSort(query.sorter), ...filtered }));
   if (result === null) notFound();
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
   const canonical = collection.canonical ?? pageHref(`/tema/${collection.slug}`, page);
@@ -39,9 +40,10 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promis
     description: pageDescription(collection.intro, page),
     alternates: { canonical },
     openGraph: openGraphFor(canonical),
-    // A filtered view is not a page of its own for search engines (its links are followed), and
-    // a page whose products couldn't be read is not one to show in search results.
-    robots: activeFilterCount(filters.selection) > 0 || !result.ok ? { index: false, follow: true } : undefined,
+    // A filtered view (any filter in the address, applied or not) is not a page of its own for
+    // search engines (its links are followed), and a page whose products couldn't be read is
+    // not one to show in search results.
+    robots: activeFilterCount(chosen) > 0 || !result.ok ? { index: false, follow: true } : undefined,
   };
 }
 
@@ -80,7 +82,7 @@ async function ThemeContent({
   const sort = parseSort(query.sorter);
   const filters = await resolveFilters(parseFilters(query));
   const [result, options] = await Promise.all([
-    getCollectionProducts(slug, { page, sort, ...filters.query }),
+    filteredListing(filters, (filtered) => getCollectionProducts(slug, { page, sort, ...filtered })),
     getCollectionScope(slug).then((scope) => getFilterOptions(scope, filters.selection)),
   ]);
   if (result === null) notFound();

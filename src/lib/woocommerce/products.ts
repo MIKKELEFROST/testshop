@@ -34,11 +34,12 @@ import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas"
 export const CATALOG_TAG = "wc-catalog";
 export const productTag = (id: number) => `wc-product-${id}`;
 
-const UNAVAILABLE = "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt.";
+/** What a page shows where its products would be when WooCommerce couldn't be read. */
+export const CATALOG_UNAVAILABLE = "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt.";
 
 /** A read as the pages take it: the friendly error message when it failed. */
 function loadable<T>(result: Read<T>): Loadable<T> {
-  return result.ok ? result : { ok: false, error: UNAVAILABLE };
+  return result.ok ? result : { ok: false, error: CATALOG_UNAVAILABLE };
 }
 
 const SHOP = { wchc_shop: storeConfig.id };

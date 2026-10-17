@@ -4,18 +4,18 @@ import type { z } from "zod";
 type Route = (path: string, query: Record<string, unknown>) => unknown;
 
 let route: Route = () => [];
-const requests: { path: string; query: Record<string, unknown> }[] = [];
+const requests: { path: string; query: Record<string, unknown>; priority?: string }[] = [];
 
 vi.mock("next/cache", () => ({ cacheLife: () => {}, cacheTag: () => {} }));
 vi.mock("./client", () => ({
-  wooRequest: async (path: string, options: { query?: Record<string, unknown>; schema: z.ZodType }) => {
+  wooRequest: async (path: string, options: { query?: Record<string, unknown>; schema: z.ZodType; priority?: string }) => {
     const query = options.query ?? {};
-    requests.push({ path, query });
+    requests.push({ path, query, priority: options.priority });
     return { status: 200, data: options.schema.parse(await route(path, query)), headers: new Headers() };
   },
 }));
 
-const { getFilterOptions, resolveFilters } = await import("./filters");
+const { filteredListing, getFilterOptions, resolveFilters } = await import("./filters");
 
 const TERMS = [
   { id: 21, name: "3-4 år" },
@@ -66,18 +66,33 @@ describe("resolveFilters", () => {
     expect((await resolveFilters({ price: "under-100" })).query).toEqual({ maxPrice: 99.99 });
     expect((await resolveFilters({ price: "over-500" })).query).toEqual({ minPrice: 500 });
     expect(requests.find((r) => r.path === "wc/v3/products/attributes/1/terms")?.query).toMatchObject({ hide_empty: true });
+    // Critical reads: a chosen size can't be applied without them (not "background", which fails
+    // at once while the breaker is open).
+    expect(requests.filter((r) => r.path.startsWith("wc/v3/products/attributes")).map((r) => r.priority)).toEqual([undefined, undefined]);
   });
 
-  it("drops a size the shop doesn't have (or can't read), and asks nothing without a size", async () => {
+  it("drops a size the shop doesn't have, and asks nothing without a size", async () => {
     route = shop();
     expect(await resolveFilters({ size: "xl", price: "under-100" })).toEqual({ query: { maxPrice: 99.99 }, selection: { price: "under-100" } });
-    route = () => {
-      throw new Error("WooCommerce is unreachable");
-    };
-    expect(await resolveFilters({ size: "5-6-aar" })).toEqual({ query: {}, selection: {} });
     requests.length = 0;
     expect(await resolveFilters({})).toEqual({ query: {}, selection: {} });
     expect(requests).toEqual([]);
+  });
+
+  it("says so when a chosen size can't be looked up, so the page doesn't show every size as if filtered", async () => {
+    route = () => {
+      throw new Error("WooCommerce is unreachable");
+    };
+    const filters = await resolveFilters({ size: "5-6-aar", price: "under-100" });
+    expect(filters.error).toBe("Vi kan ikke hente produkterne lige nu. Prøv igen om lidt.");
+    const read = vi.fn(async () => ({ ok: true as const, data: [] }));
+    expect(await filteredListing(filters, read)).toEqual({ ok: false, error: filters.error });
+    expect(read).not.toHaveBeenCalled();
+    // Without a size the terms aren't needed: the listing is read with the other filters.
+    const priced = await resolveFilters({ price: "under-100" });
+    expect(priced.error).toBeUndefined();
+    expect(await filteredListing(priced, read)).toEqual({ ok: true, data: [] });
+    expect(read).toHaveBeenCalledWith({ maxPrice: 99.99 });
   });
 });
 
