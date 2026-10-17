@@ -21,7 +21,9 @@ import { wcCategorySchema, wcProductSchema, wcVariationSchema } from "./schemas"
  * the checkout always re-validates them against WooCommerce.
  *
  * A failed refresh keeps the last good data (see ./cache.ts); the friendly error state is
- * only shown when nothing is cached.
+ * only shown when nothing is cached. Reads a page can do without (related products, photos,
+ * the sitemap) are "background" reads for the client (./client.ts): they never hold up the
+ * product, listing or menu reads a page needs.
  *
  * Only this storefront's products are read: `wchc_shop` limits the results to the products
  * of its webshop in WooCommerce (Headless Checkout Bridge 1.2+). A store ID that is not a
@@ -275,7 +277,8 @@ export type ProductSlug = { slug: string; categoryIds: number[]; webshops: strin
 
 /**
  * All this shop's published products, with their category IDs and webshops (the sitemap
- * lists those whose home is this shop, see lib/home-store.ts); refreshed every hour.
+ * lists those whose home is this shop, see lib/home-store.ts); refreshed every hour, as
+ * background reads (a failed refresh keeps the last sitemap).
  */
 export async function getAllProductSlugs(): Promise<Loadable<ProductSlug[]>> {
   return loadable(await readAllProductSlugs().catch(orFailure));
@@ -288,6 +291,7 @@ async function readAllProductSlugs(): Promise<Read<ProductSlug[]>> {
     const read = (page: number) =>
       wooRequest("wc/v3/products", {
         query: { ...SHOP, status: "publish", per_page: 100, page, orderby: "id", order: "asc", _fields: "slug,categories,webshops" },
+        priority: "background",
         schema: z.array(
           z.object({
             slug: z.string(),
@@ -297,11 +301,11 @@ async function readAllProductSlugs(): Promise<Read<ProductSlug[]>> {
         ),
         timeoutMs: 30_000,
       });
-    // Page 1 tells how many pages there are (about 90); the others are read a few at a time,
-    // so the sitemap is ready in seconds instead of a minute and a half.
+    // Page 1 tells how many pages there are (about 90); the others are read two at a time, so
+    // the sitemap is ready in well under a minute and leaves read slots to the pages.
     const first = await read(1);
     const pages = Math.min(Number(first.headers.get("x-wp-totalpages") ?? 1), 200);
-    const rest = await mapWithLimit(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => i + 2), 3, read);
+    const rest = await mapWithLimit(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => i + 2), 2, read);
     return [first, ...rest].flatMap((response) => response.data.map((p) => ({ slug: p.slug, categoryIds: p.categories.map((c) => c.id), webshops: p.webshops })));
   });
 }
@@ -364,6 +368,7 @@ async function readProductPhoto(slug: string): Promise<Read<ProductPhoto | null>
       // meta_data: the supplier photos of a product without its own (see productImages).
       query: { ...SHOP, slug, status: "publish", _fields: "id,slug,name,images,meta_data" },
       schema: z.array(wcProductSchema.pick({ id: true, slug: true, name: true, images: true, meta_data: true })),
+      priority: "background",
     });
     const product = data[0];
     if (!product) return null;
@@ -422,7 +427,10 @@ async function readRelatedProducts(product: Pick<Product, "id" | "name" | "tags"
         // costume category), with the same season filter.
         const others = product.categories.filter((c) => !kindOf.has(c.id)).map((c) => c.id);
         if (others.length > 0) {
-          const nearby = (await candidates({ category: others.join(","), per_page: 100 })).filter(isAccessory);
+          // Plugin 1.4 reads only the accessories among them; an older plugin reads the 100
+          // best sellers there, and the accessories are picked out of those.
+          const query: Record<string, string | number> = plugin.categoryFilters ? { wchc_in_any_category: [...rootIds].join(","), per_page: 24 } : { per_page: 100 };
+          const nearby = (await candidates({ category: others.join(","), ...query })).filter(isAccessory);
           accessories = rankAccessories(product, [...byTheme, ...nearby], accessoryKind, RELATED_LIMIT);
         }
       }
@@ -444,11 +452,12 @@ async function readRelatedProducts(product: Pick<Product, "id" | "name" | "tags"
   });
 }
 
-/** This shop's published products for a related row, best sellers first. */
+/** This shop's published products for a related row, best sellers first (the page does without them when they can't be read). */
 async function relatedQuery(query: Record<string, string | number>, excludeId: number): Promise<ProductSummary[]> {
   const { data } = await wooRequest("wc/v3/products", {
     query: { ...SHOP, status: "publish", orderby: "popularity", exclude: excludeId, _fields: RELATED_FIELDS, ...query },
     schema: z.array(wcProductSchema),
+    priority: "background",
   });
   return data.map(mapProductSummary).filter((p) => !p.adult);
 }

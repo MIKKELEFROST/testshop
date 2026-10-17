@@ -4,7 +4,7 @@ import { z } from "zod";
 type Client = typeof import("./client");
 type CheckoutApi = typeof import("./checkout-api");
 
-// Fresh modules for each test: the breaker belongs to the server instance (module state).
+// Fresh modules for each test: the breaker and the read slots belong to the server instance (module state).
 let WooCommerceError: Client["WooCommerceError"];
 let wooRequest: Client["wooRequest"];
 let createOrder: CheckoutApi["createOrder"];
@@ -21,12 +21,27 @@ function respond(...statuses: number[]) {
   return fetch;
 }
 
-/** A fetch whose requests stay open until answered. */
+/** A fetch whose requests stay open until answered, each on its own. */
 function hang() {
   const answers: (() => void)[] = [];
-  const fetch = vi.fn(() => new Promise<Response>((resolve) => answers.push(() => resolve(Response.json({ ok: true })))));
+  const fetch = vi.fn((url: URL) => {
+    void url;
+    return new Promise<Response>((resolve) => answers.push(() => resolve(Response.json({ ok: true }))));
+  });
   vi.stubGlobal("fetch", fetch);
   return { fetch, answers };
+}
+
+/** A fetch whose requests stay open until `release()`; after that every request is answered at once. */
+function hold() {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const fetch = vi.fn(async () => {
+    await gate;
+    return Response.json({ ok: true });
+  });
+  vi.stubGlobal("fetch", fetch);
+  return { fetch, release };
 }
 
 /** Runs the request to the end, fast-forwarding the waits between attempts. */
@@ -40,9 +55,23 @@ async function settle<T>(request: Promise<T>): Promise<{ value?: T; error?: unkn
 }
 
 const okSchema = z.object({ ok: z.literal(true) });
-const read = () => wooRequest("wc/v3/products", { schema: okSchema });
+const get = (path: string, priority?: "critical" | "background") => wooRequest(path, { schema: okSchema, priority });
+/** A critical read (the default): e.g. a product. */
+const read = () => get("wc/v3/products");
+/** A background read: e.g. related products. */
+const background = () => get("wc/v3/products/related", "background");
 const failure = (error: unknown) => error as InstanceType<Client["WooCommerceError"]>;
+/** The request's error, or undefined when it succeeded. */
+const caught = (request: Promise<unknown>) => request.then(() => undefined, (error: unknown) => failure(error));
 const timeout = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
+const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+const pathOf = (call: unknown[]) => (call[0] as URL).pathname;
+
+/** Opens the breaker: three reads in a row find the host too slow (one request each). */
+async function trip() {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeout()));
+  for (let i = 0; i < 3; i++) expect(failure((await settle(read())).error).code).toBe("timeout");
+}
 
 beforeEach(async () => {
   vi.stubEnv("WOOCOMMERCE_URL", "https://woo.example");
@@ -58,6 +87,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("wooRequest retries", () => {
@@ -68,14 +98,16 @@ describe("wooRequest retries", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("asks a busy host (508, 429) only once more", async () => {
+  it("asks a busy host (508, 429) twice more for a critical read, once more for a background read", async () => {
     for (const busy of [508, 429]) {
       vi.resetModules();
       ({ wooRequest } = await import("./client"));
-      const fetch = respond(busy, busy, 200);
-      const { error } = await settle(read());
-      expect(failure(error).status).toBe(busy);
-      expect(fetch).toHaveBeenCalledTimes(2);
+      const critical = respond(busy, busy, busy, 200);
+      expect(failure((await settle(read())).error).status).toBe(busy);
+      expect(critical).toHaveBeenCalledTimes(3);
+      const later = respond(busy, busy, 200);
+      expect(failure((await settle(background())).error).status).toBe(busy);
+      expect(later).toHaveBeenCalledTimes(2);
     }
   });
 
@@ -156,109 +188,216 @@ describe("wooRequest retries", () => {
 });
 
 describe("the breaker for reads", () => {
-  it("does not ask WooCommerce again within 30 s of a read that found it overloaded", async () => {
-    const fetch = respond(508, 508, 200);
+  it("stays closed after one or two reads that found the host down: the next read is sent", async () => {
+    const fetch = respond(508, 508, 508, 508, 508, 508, 200, 200);
     expect(failure((await settle(read())).error).status).toBe(508);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(failure((await settle(read())).error).status).toBe(508);
+    expect((await settle(read())).value?.data).toEqual({ ok: true });
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(8);
+  });
 
-    await vi.advanceTimersByTimeAsync(28_000);
-    const { error } = await settle(read());
+  it("opens after three within 10 s; background reads then fail at once without asking", async () => {
+    await trip();
+    const fetch = respond(200);
+    const { error } = await settle(background());
     expect(failure(error).code).toBe("circuit_open");
     expect(failure(error).retryable).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("forgets a read that found the host down more than 10 s ago", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeout()));
+    await settle(read());
+    await settle(read());
+    await advance(10_001);
+    await settle(read());
+    const fetch = respond(200);
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens after timeouts and dropped connections, but not after answers that are just errors", async () => {
+    const fetch = respond(404, 400, 500, 500, 500, 200);
+    expect(failure((await settle(read())).error).status).toBe(404);
+    expect(failure((await settle(read())).error).status).toBe(400);
+    expect(failure((await settle(read())).error).status).toBe(500);
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(6);
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    for (let i = 0; i < 3; i++) expect(failure((await settle(read())).error).code).toBe("network_error");
+    expect(failure((await settle(background())).error).code).toBe("circuit_open");
+  });
+
+  it("sends a critical read as a trial 2 s after it opened instead of failing it; the answer closes it", async () => {
+    await trip();
+    const fetch = respond(200, 200);
+    const request = read();
+    await advance(1_900);
+    expect(fetch).not.toHaveBeenCalled();
+    await advance(100);
+    expect((await request).data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    // Closed again: background reads are sent.
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("then lets one probe through, waits twice as long after another failure, and closes on success", async () => {
-    const fetch = respond(508, 508, 508, 200, 200);
-    await settle(read());
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    // The probe asks once.
-    expect(failure((await settle(read())).error).status).toBe(508);
-    expect(fetch).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(58_000);
-    expect(failure((await settle(read())).error).code).toBe("circuit_open");
-    expect(fetch).toHaveBeenCalledTimes(3);
-
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect((await settle(read())).value?.data).toEqual({ ok: true });
-    expect((await settle(read())).value?.data).toEqual({ ok: true });
-    expect(fetch).toHaveBeenCalledTimes(5);
-  });
-
-  it("waits at most 2 minutes between probes", async () => {
-    const fetch = respond(508, 508, 508, 508, 508, 200);
-    await settle(read()); // open for 30 s
-    for (const wait of [30_000, 60_000, 120_000]) {
-      await vi.advanceTimersByTimeAsync(wait);
-      await settle(read()); // the probe fails: open for 60 s, 120 s, 120 s
-    }
-    expect(fetch).toHaveBeenCalledTimes(5);
-    await vi.advanceTimersByTimeAsync(119_000);
-    expect(failure((await settle(read())).error).code).toBe("circuit_open");
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect((await settle(read())).value?.data).toEqual({ ok: true });
-  });
-
-  it("lets only one probe through at a time", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeout()));
-    expect(failure((await settle(read())).error).code).toBe("timeout");
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    const { fetch, answers } = hang();
-    const probe = read();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(failure((await settle(read())).error).code).toBe("circuit_open");
-    answers[0]!();
-    expect((await probe).data).toEqual({ ok: true });
+  it("lets critical reads wait for the trial under way, then go on as soon as it is answered", async () => {
+    await trip();
+    let answerTrial!: () => void;
+    let calls = 0;
+    const fetch = vi.fn((url: URL) => {
+      void url;
+      if (++calls === 1) return new Promise<Response>((resolve) => (answerTrial = () => resolve(Response.json({ ok: true }))));
+      return Promise.resolve(Response.json({ ok: true }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const reads = Array.from({ length: 6 }, () => caught(read()));
+    await advance(2_000);
     expect(fetch).toHaveBeenCalledTimes(1);
-    respond(200);
-    expect((await settle(read())).value?.data).toEqual({ ok: true });
+    await advance(1_500); // the others wait, they don't fail
+    expect(fetch).toHaveBeenCalledTimes(1);
+    answerTrial();
+    const results = await Promise.all(reads);
+    expect(results).toEqual(Array(6).fill(undefined));
+    expect(fetch).toHaveBeenCalledTimes(6);
   });
 
-  it("opens after a dropped connection, but not after an answer that is just an error", async () => {
-    const fetch = respond(404, 500, 500, 500);
-    expect(failure((await settle(read())).error).status).toBe(404);
-    expect(failure((await settle(read())).error).status).toBe(500);
+  it("fails a critical read that got no turn within 4 s", async () => {
+    await trip();
+    const { fetch, answers } = hang();
+    const trial = read();
+    await advance(2_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const waiting = caught(read());
+    await advance(3_999);
+    await advance(1);
+    expect((await waiting)?.code).toBe("circuit_open");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    answers[0]!();
+    expect((await trial).data).toEqual({ ok: true });
+  });
+
+  it("sends a trial once, with a 5 s timeout, and the next one 2 s after a failed one", async () => {
+    await trip();
+    const timeouts = vi.spyOn(AbortSignal, "timeout");
+    const fetch = respond(508, 200);
+    const first = caught(read());
+    await advance(2_000);
+    expect((await first)?.status).toBe(508);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(timeouts).toHaveBeenLastCalledWith(5_000);
+
+    const second = read();
+    await advance(1_900);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await advance(100);
+    expect((await second).data).toEqual({ ok: true });
+    // Closed: a read has the usual timeout again.
+    await settle(read());
+    expect(timeouts).toHaveBeenLastCalledWith(10_000);
+  });
+
+  it("after its open period lets any read be the trial; the periods double up to a minute while trials fail", async () => {
+    await trip(); // open for 10 s
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeout()));
+    expect(failure((await settle(background())).error).code).toBe("circuit_open");
+    for (const wait of [10_000, 20_000, 40_000, 60_000]) {
+      await advance(wait);
+      expect(failure((await settle(background())).error).code).toBe("timeout"); // the trial fails: open twice as long
+    }
+    await advance(59_000);
+    expect(failure((await settle(background())).error).code).toBe("circuit_open");
+    await advance(1_000);
+    const fetch = respond(200, 200);
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops the retries of reads under way once it opens: background reads fail, critical ones wait for a trial", async () => {
+    const busy = () => Response.json({ code: "http_508" }, { status: 508 });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(timeout())
+      .mockRejectedValueOnce(timeout())
+      .mockResolvedValueOnce(busy())
+      .mockResolvedValueOnce(busy())
+      .mockRejectedValueOnce(timeout())
+      .mockResolvedValue(Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetch);
+    await settle(read());
+    await settle(read());
+    // Both find the host busy and wait to ask again; meanwhile a third read opens the breaker.
+    const later = caught(background());
+    const critical = read();
+    await advance(0);
     expect(fetch).toHaveBeenCalledTimes(4);
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-    expect(failure((await settle(read())).error).code).toBe("network_error");
-    expect(failure((await settle(read())).error).code).toBe("circuit_open");
+    expect(failure((await settle(read())).error).code).toBe("timeout");
+
+    expect((await later)?.code).toBe("circuit_open");
+    expect((await critical).data).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledTimes(6); // the critical read's retry was the trial
   });
 
-  it("stops the retries of reads under way once one of them has opened it", async () => {
-    // Both find the host busy; the first to give up opens the breaker, so the other's retry is not sent.
-    const fetch = respond(508, 508, 508, 200);
-    const { value } = await settle(Promise.allSettled([read(), read()]));
-    const codes = value!.map((result) => (result.status === "rejected" ? failure(result.reason).code : "ok"));
-    expect(codes.sort()).toEqual(["circuit_open", "http_508"]);
-    expect(fetch).toHaveBeenCalledTimes(3);
+  it("does not send a read that got a slot only after it opened, unless as the trial", async () => {
+    // Up to 4 reads at a time: the others wait for a slot, and the breaker can open meanwhile.
+    let healthy = false;
+    const pending: { resolve: (response: Response) => void; reject: (error: unknown) => void }[] = [];
+    const fetch = vi.fn((url: URL) => {
+      void url;
+      if (healthy) return Promise.resolve(Response.json({ ok: true }));
+      return new Promise<Response>((resolve, reject) => pending.push({ resolve, reject }));
+    });
+    vi.stubGlobal("fetch", fetch);
+    const reads = Array.from({ length: 8 }, () => caught(read()));
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    for (let i = 0; i < 3; i++) {
+      pending[i]!.reject(timeout());
+      await advance(0);
+    }
+    // Three timeouts opened it; a read whose slot came free after that was not sent.
+    const sent = fetch.mock.calls.length;
+    expect(sent).toBeLessThanOrEqual(7);
+    pending[3]!.resolve(Response.json({ ok: true })); // sent before it opened: its answer does not close it
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(sent);
+    await advance(2_000);
+    expect(fetch).toHaveBeenCalledTimes(sent + 1); // one of them, as the trial
+
+    healthy = true;
+    for (const request of pending.slice(4)) request.resolve(Response.json({ ok: true }));
+    const results = await Promise.all(reads);
+    expect(results.filter((error) => error !== undefined).map((error) => error.code)).toEqual(["timeout", "timeout", "timeout"]);
+    expect(fetch).toHaveBeenCalledTimes(8);
   });
 
-  it("stays open when a read sent before it opened answers: only the probe closes it", async () => {
+  it("stays open when a read sent before it opened answers: only a trial closes it", async () => {
     // At the host's entry-process limit, requests it has already admitted still finish while new ones get 508.
     const fetch = vi.fn(async (url: URL) => {
       if (url.pathname.endsWith("/slow")) {
         await new Promise((resolve) => setTimeout(resolve, 3_000));
         return Response.json({ ok: true });
       }
-      return Response.json({ code: "http_508" }, { status: 508 });
+      throw timeout();
     });
     vi.stubGlobal("fetch", fetch);
-    const slow = wooRequest("wc/v3/slow", { schema: okSchema });
-    expect(failure((await settle(read())).error).status).toBe(508); // 508 twice: the breaker opens
-    expect((await slow).data).toEqual({ ok: true }); // answers after that
-    expect(fetch).toHaveBeenCalledTimes(3);
-
-    expect(failure((await settle(read())).error).code).toBe("circuit_open");
-    expect(fetch).toHaveBeenCalledTimes(3);
+    const slow = get("wc/v3/slow");
+    const failed = await Promise.all([read(), read(), read()].map(caught));
+    expect(failed.map((error) => error?.code)).toEqual(["timeout", "timeout", "timeout"]);
+    await advance(3_000);
+    expect((await slow).data).toEqual({ ok: true }); // answers after it opened
+    expect(failure((await settle(background())).error).code).toBe("circuit_open");
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 
   it("never holds back writes, nor reading a paying customer's order", async () => {
-    respond(508, 508);
-    await settle(read());
+    await trip();
     const fetch = respond(200, 200, 200);
-    expect(failure((await settle(read())).error).code).toBe("circuit_open");
+    expect(failure((await settle(background())).error).code).toBe("circuit_open");
     await settle(fetchQuote({ store_id: "piece-dk", items: [], address: {} }));
     await settle(createOrder({} as Parameters<typeof createOrder>[0]));
     await settle(getOrderDetails(1, "wc_order_x"));
@@ -266,33 +405,75 @@ describe("the breaker for reads", () => {
   });
 });
 
-describe("the read queue", () => {
-  it("gives up after 5 s without a free slot, without asking WooCommerce or opening the breaker", async () => {
+describe("the read slots", () => {
+  it("lets a critical read wait 12 s for a free slot and a background read 3 s, without asking WooCommerce or opening the breaker", async () => {
     const { fetch, answers } = hang();
     const running = [read(), read(), read(), read()];
-    await vi.advanceTimersByTimeAsync(0);
+    await advance(0);
     expect(fetch).toHaveBeenCalledTimes(4);
 
-    const queued = read().catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(5_000);
-    const error = await queued;
-    expect(failure(error).code).toBe("busy");
-    expect(failure(error).retryable).toBe(true);
+    const later = caught(background());
+    const critical = caught(read());
+    await advance(3_000);
+    expect((await later)?.code).toBe("busy");
+    await advance(9_000);
+    const error = await critical;
+    expect(error?.code).toBe("busy");
+    expect(error?.retryable).toBe(true);
     expect(fetch).toHaveBeenCalledTimes(4);
 
     for (const answer of answers) answer();
     await Promise.all(running);
     respond(200);
-    expect((await settle(read())).value?.data).toEqual({ ok: true });
+    expect((await settle(background())).value?.data).toEqual({ ok: true });
+  });
+
+  it("keeps one of the four slots for critical reads", async () => {
+    const { fetch, release } = hold();
+    const later = [background(), background(), background(), background()];
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const critical = read();
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(pathOf(fetch.mock.calls[3]!)).toBe("/wp-json/wc/v3/products");
+    release();
+    await Promise.all([...later, critical]);
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("gives a freed slot to a waiting critical read before background reads that waited longer", async () => {
+    const { fetch, answers } = hang();
+    const running = [read(), read(), read(), read()];
+    await advance(0);
+    const later = background();
+    await advance(0);
+    const critical = read();
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    answers[0]!();
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(5);
+    expect(pathOf(fetch.mock.calls[4]!)).toBe("/wp-json/wc/v3/products");
+    // The background read gets a slot once two are free (one stays kept for critical reads).
+    answers[1]!();
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(5);
+    answers[2]!();
+    await advance(0);
+    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(pathOf(fetch.mock.calls[5]!)).toBe("/wp-json/wc/v3/products/related");
+    for (const answer of answers.slice(3)) answer();
+    await Promise.all([...running, later, critical]);
   });
 
   it("starts a queued read as soon as a slot is free", async () => {
     const { fetch, answers } = hang();
     const running = [read(), read(), read(), read(), read()];
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advance(1_000);
     expect(fetch).toHaveBeenCalledTimes(4);
     answers[0]!();
-    await vi.advanceTimersByTimeAsync(0);
+    await advance(0);
     expect(fetch).toHaveBeenCalledTimes(5);
     for (const answer of answers.slice(1)) answer();
     await Promise.all(running);
@@ -301,9 +482,9 @@ describe("the read queue", () => {
   it("does not queue reading a paying customer's order behind slow catalogue reads", async () => {
     const { fetch, answers } = hang();
     const running = [read(), read(), read(), read()];
-    await vi.advanceTimersByTimeAsync(0);
+    await advance(0);
     const order = getOrderDetails(1, "wc_order_x").catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(0);
+    await advance(0);
     expect(fetch).toHaveBeenCalledTimes(5);
     for (const answer of answers) answer();
     await Promise.all([...running, order]);

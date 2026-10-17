@@ -18,7 +18,8 @@ import { CATALOG_TAG, SIZE_ATTRIBUTE, type ProductFilters } from "./products";
 
 /**
  * What the listing filters need from WooCommerce, cached for an hour so the filters add almost
- * nothing to the load on the WordPress host: the size terms (one list for the shop) and, per
+ * nothing to the load on the WordPress host (as background reads: without them a listing
+ * offers every choice): the size terms (one list for the shop) and, per
  * listing, which sizes, prices and stock statuses it has (one request to WooCommerce's Store
  * API, which counts them in the database). The filtered products themselves are read through
  * the cached getProducts like any listing page.
@@ -95,6 +96,7 @@ async function readSizeTerms(): Promise<Read<SizeTerm[]>> {
     const { data: attributes } = await wooRequest("wc/v3/products/attributes", {
       query: { _fields: "id,slug" },
       schema: z.array(z.object({ id: z.number(), slug: z.string() })),
+      priority: "background",
     });
     const attribute = attributes.find((a) => a.slug === SIZE_ATTRIBUTE);
     if (!attribute) return [];
@@ -103,6 +105,7 @@ async function readSizeTerms(): Promise<Read<SizeTerm[]>> {
       const { data, headers } = await wooRequest(`wc/v3/products/attributes/${attribute.id}/terms`, {
         query: { per_page: 100, page, hide_empty: true, _fields: "id,name" },
         schema: z.array(z.object({ id: z.number(), name: z.string() })),
+        priority: "background",
       });
       terms.push(...data.map((t) => ({ id: t.id, name: decodeEntities(t.name) })));
       if (page >= Number(headers.get("x-wp-totalpages") ?? 1)) break;
@@ -155,6 +158,7 @@ async function readFacets(scope: ListingScope): Promise<Read<Facets>> {
         tag: scope.tagIds?.join(","),
       },
       schema: facetsSchema,
+      priority: "background",
     });
     // Prices come in the currency's minor unit (øre): "900" is 9 kr.
     const range = data.price_range;

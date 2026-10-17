@@ -7,9 +7,13 @@ import { wooEnv } from "@/lib/env";
  *
  * - Credentials are sent as HTTP Basic auth over HTTPS and never leave the server.
  * - Every request has a timeout. GETs are retried on network errors/5xx, a busy host (508,
- *   429) only once and a timeout not at all; POSTs only when marked `retry`.
- * - While the host is down or overloaded, GETs fail at once instead of adding to its load
- *   (the breaker below).
+ *   429) once or twice and a timeout not at all; POSTs only when marked `retry`.
+ * - Reads (GET) have a priority: "critical" for what a page cannot show without (a product,
+ *   a listing, the categories), "background" for what it can do without (related products,
+ *   filter choices, photos, shipping amounts, the sitemap). Critical reads go first.
+ * - While the host is overloaded, background reads fail at once and critical reads are sent
+ *   one at a time (the breaker below), so the shop never adds to its load but a page that
+ *   needs a product still gets it as soon as the host answers again.
  * - Responses are validated with Zod, so unexpected payloads fail loudly instead of
  *   leaking into pricing logic.
  * - Errors never include credentials, request bodies or customer data.
@@ -33,6 +37,8 @@ export class WooCommerceError extends Error {
   }
 }
 
+export type ReadPriority = "critical" | "background";
+
 type RequestOptions<T extends z.ZodType> = {
   method?: "GET" | "POST" | "PUT";
   query?: Record<string, string | number | boolean | undefined>;
@@ -51,6 +57,13 @@ type RequestOptions<T extends z.ZodType> = {
   /** Stops the request and its retries, e.g. when the browser that asked for it has gone. */
   signal?: AbortSignal;
   /**
+   * GETs: "critical" (the default) when the page can't do without the answer; "background"
+   * when it can (it shows less, or its last good copy). Background reads leave one read slot to
+   * critical ones, wait less for a slot, ask a busy host only once more and fail at once while
+   * the breaker is open.
+   */
+  priority?: ReadPriority;
+  /**
    * GETs: sent at once, even while the breaker is open or the read slots are taken, and not
    * counted by it. Only for a paying customer's own order, never for catalogue reads.
    */
@@ -61,8 +74,11 @@ export type WooResponse<T> = { status: number; data: T; headers: Headers };
 
 /** Waits before the second and third attempt after a dropped connection or a 5xx. */
 const RETRY_DELAYS_MS = [250, 750];
-/** Wait before the one retry after the host said it is overloaded (508, 429). */
-const OVERLOADED_RETRY_MS = 1500;
+/**
+ * Waits before asking again after the host said it is overloaded (508, 429): critical reads
+ * twice, background reads once. Such an answer costs the host next to nothing (no PHP runs).
+ */
+const BUSY_RETRY_MS: Record<ReadPriority, number[]> = { critical: [1500, 3000], background: [1500] };
 
 /**
  * At most this many reads (GET) at a time from one server instance. The shop's web host
@@ -71,96 +87,192 @@ const OVERLOADED_RETRY_MS = 1500;
  * customer's order are not queued.
  */
 const MAX_CONCURRENT_GETS = 4;
-/** A read gives up after waiting this long for a free slot, so no page queues for a minute. */
-const MAX_SLOT_WAIT_MS = 5000;
+/** Slots only critical reads may take: related rows or filters never hold up a product. */
+const CRITICAL_ONLY_SLOTS = 1;
+/**
+ * A read gives up after waiting this long for a free slot: a critical read waits longer (the
+ * page needs it; a slow host frees slots every second or two), a background one gives up soon
+ * (its page does without it).
+ */
+const SLOT_WAIT_MS: Record<ReadPriority, number> = { critical: 12_000, background: 3_000 };
 let activeGets = 0;
-const waitingGets: (() => void)[] = [];
+/** Reads waiting for a slot, in order; a freed slot goes to a critical one first. */
+const waitingGets: Record<ReadPriority, (() => void)[]> = { critical: [], background: [] };
 
-async function withGetSlot<T>(run: () => Promise<T>): Promise<T> {
-  const deadline = Date.now() + MAX_SLOT_WAIT_MS;
-  while (activeGets >= MAX_CONCURRENT_GETS) await waitForSlot(deadline);
-  activeGets++;
+async function withGetSlot<T>(priority: ReadPriority, run: () => Promise<T>): Promise<T> {
+  await takeSlot(priority);
   try {
     return await run();
   } finally {
     activeGets--;
-    waitingGets.shift()?.();
+    handOverSlots();
   }
 }
 
-function waitForSlot(deadline: number): Promise<void> {
+function slotFree(priority: ReadPriority): boolean {
+  return activeGets < MAX_CONCURRENT_GETS - (priority === "critical" ? 0 : CRITICAL_ONLY_SLOTS);
+}
+
+/** A free slot, or a place in the queue. (When a slot is free, nobody of that priority waits: see handOverSlots.) */
+function takeSlot(priority: ReadPriority): Promise<void> {
+  if (slotFree(priority)) {
+    activeGets++;
+    return Promise.resolve();
+  }
+  const queue = waitingGets[priority];
   return new Promise((resolve, reject) => {
     const wake = () => {
       clearTimeout(timer);
       resolve();
     };
     const timer = setTimeout(() => {
-      waitingGets.splice(waitingGets.indexOf(wake), 1);
+      queue.splice(queue.indexOf(wake), 1);
       reject(new WooCommerceError("Too many WooCommerce reads are waiting", 503, "busy"));
-    }, Math.max(0, deadline - Date.now()));
-    waitingGets.push(wake);
+    }, SLOT_WAIT_MS[priority]);
+    queue.push(wake);
   });
+}
+
+/** Gives free slots to waiting reads, critical ones first; the slot is taken on their behalf. */
+function handOverSlots() {
+  for (;;) {
+    const queue =
+      waitingGets.critical.length > 0 && slotFree("critical")
+        ? waitingGets.critical
+        : waitingGets.background.length > 0 && slotFree("background")
+          ? waitingGets.background
+          : null;
+    if (!queue) return;
+    activeGets++;
+    queue.shift()!();
+  }
 }
 
 /**
  * The breaker for reads (GET), per server instance. Failed reads are not cached (see
- * cache.ts), so during an outage every page view would ask WooCommerce again. When a GET ends
- * with the host overloaded (508, 429), not answering in time or unreachable, GETs fail at once
- * for 30 s, doubling up to 2 minutes while the host stays down; cached pages keep their last
- * good data meanwhile. Then one GET is let through as a probe: only its good answer closes the
- * breaker, another such failure opens it again. Writes (the quote, orders) are never held back.
+ * cache.ts), so while the host is overloaded every page view could ask it again. When
+ * BREAKER_DOWNS reads within BREAKER_WINDOW_MS ended with the host overloaded (508, 429), not
+ * answering in time or unreachable, the breaker opens:
+ *
+ * - Background reads fail at once; their pages keep their last good data or do without.
+ * - Critical reads are sent one at a time, as trials: one every TRIAL_SPACING_MS at most,
+ *   each once (no retry) and with a short timeout. A critical read waits up to BREAKER_WAIT_MS
+ *   for its turn instead of failing at once; one that gets none fails (its page then retries
+ *   by itself, see components/ui/catalog-retry.tsx).
+ * - A trial's answer closes the breaker, and every waiting read goes on. After the open period
+ *   (10 s, doubling up to 1 minute while trials fail) any read may be the trial.
+ *
+ * Reads under way when it opened are not sent again: a background read fails, a critical one
+ * waits for its turn. Writes (the quote, orders) are never held back.
  */
-const BREAKER_MIN_MS = 30_000;
-const BREAKER_MAX_MS = 120_000;
-const breaker = { tripped: false, openUntil: 0, nextOpenMs: BREAKER_MIN_MS, probing: false };
+const BREAKER_DOWNS = 3;
+const BREAKER_WINDOW_MS = 10_000;
+const BREAKER_MIN_MS = 10_000;
+const BREAKER_MAX_MS = 60_000;
+const TRIAL_SPACING_MS = 2_000;
+const BREAKER_WAIT_MS = 4_000;
+const TRIAL_TIMEOUT_MS = 5_000;
 
-/** Lets a GET through (as the probe once the breaker has waited), or throws while it is open. */
-function admitRead(path: string): { probe: boolean } {
-  if (!breaker.tripped) return { probe: false };
-  if (breaker.probing || Date.now() < breaker.openUntil) throw breakerOpen(path);
-  breaker.probing = true;
-  return { probe: true };
-}
+const breaker = {
+  open: false,
+  /** Until then only critical reads are let through (as trials); after it, any read. */
+  openUntil: 0,
+  nextOpenMs: BREAKER_MIN_MS,
+  /** When the last trial ended (or the breaker opened): the next critical trial comes TRIAL_SPACING_MS later. */
+  lastTrialEnd: 0,
+  /** A trial is under way. */
+  trial: false,
+  /** When recent reads (while it was closed) found the host down. */
+  downs: [] as number[],
+};
+/** Critical reads waiting for their turn while the breaker is open. */
+const breakerWaiters = new Set<() => void>();
 
-function breakerOpen(path: string) {
-  return new WooCommerceError(`WooCommerce was not asked (GET ${path}): it failed moments ago`, 503, "circuit_open");
-}
+type Outcome = "answered" | "down" | "other";
 
-/** How a counted GET ended: answered (the probe's answer closes the breaker), down (opens it) or neither. */
-function settleRead(probe: boolean, outcome: "answered" | "down" | "other") {
-  if (probe) breaker.probing = false;
-  // A read sent before the breaker opened says nothing about the host since: at its
-  // entry-process limit, requests it has already admitted still finish while new ones get 508.
-  if (outcome === "answered" && (probe || !breaker.tripped)) {
-    breaker.tripped = false;
-    breaker.nextOpenMs = BREAKER_MIN_MS;
-  } else if (outcome === "down" && (!breaker.tripped || probe)) {
-    // Once per period: reads already under way when it opened do not make it longer.
-    breaker.tripped = true;
-    breaker.openUntil = Date.now() + breaker.nextOpenMs;
-    breaker.nextOpenMs = Math.min(breaker.nextOpenMs * 2, BREAKER_MAX_MS);
+/**
+ * Whether a GET may be sent now, and whether as the trial. Closed: at once. Open: a background
+ * read fails at once unless it may be the trial; a critical read waits (up to BREAKER_WAIT_MS)
+ * until the breaker closes or it may be the trial, else fails.
+ */
+async function admitRead(path: string, priority: ReadPriority): Promise<{ trial: boolean }> {
+  const deadline = Date.now() + BREAKER_WAIT_MS;
+  for (;;) {
+    if (!breaker.open) return { trial: false };
+    const now = Date.now();
+    const nextTrial = priority === "critical" ? Math.min(breaker.openUntil, breaker.lastTrialEnd + TRIAL_SPACING_MS) : breaker.openUntil;
+    if (!breaker.trial && now >= nextTrial) {
+      breaker.trial = true;
+      return { trial: true };
+    }
+    if (priority === "background" || now >= deadline) throw breakerOpen(path);
+    await breakerChange(Math.min(deadline, breaker.trial ? deadline : nextTrial) - now);
   }
 }
 
-/** The host is overloaded, too slow or unreachable (rather than answering with an error). */
-function isDown(error: unknown): boolean {
-  return (
-    error instanceof WooCommerceError &&
-    (error.status === 508 || error.status === 429 || error.code === "timeout" || error.code === "network_error")
-  );
+/** Resolves after `ms`, or sooner when a trial ends. */
+function breakerChange(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      breakerWaiters.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, Math.max(0, ms));
+    breakerWaiters.add(done);
+  });
+}
+
+function breakerOpen(path: string) {
+  return new WooCommerceError(`WooCommerce was not asked (GET ${path}): it is overloaded or down`, 503, "circuit_open");
+}
+
+/** How a counted GET ended: answered (a trial's answer closes the breaker), down (counts towards opening it) or neither. */
+function settleRead(trial: boolean, outcome: Outcome) {
+  const now = Date.now();
+  if (trial) {
+    breaker.trial = false;
+    breaker.lastTrialEnd = now;
+    if (outcome === "answered") {
+      breaker.open = false;
+      breaker.nextOpenMs = BREAKER_MIN_MS;
+      breaker.downs = [];
+    } else if (outcome === "down") {
+      openBreaker(now);
+    }
+    for (const wake of [...breakerWaiters]) wake();
+    return;
+  }
+  // A read that ends while the breaker is open was sent before it opened: at its entry-process
+  // limit, the host still finishes requests it has already admitted while new ones get 508.
+  if (outcome !== "down" || breaker.open) return;
+  breaker.downs = breaker.downs.filter((time) => time > now - BREAKER_WINDOW_MS);
+  breaker.downs.push(now);
+  if (breaker.downs.length >= BREAKER_DOWNS) {
+    breaker.open = true;
+    breaker.downs = [];
+    breaker.lastTrialEnd = now;
+    openBreaker(now);
+  }
+}
+
+/** Starts an open period, each one twice as long as the last (up to BREAKER_MAX_MS) until a trial is answered. */
+function openBreaker(now: number) {
+  breaker.openUntil = now + breaker.nextOpenMs;
+  breaker.nextOpenMs = Math.min(breaker.nextOpenMs * 2, BREAKER_MAX_MS);
 }
 
 /**
  * Milliseconds to wait before trying again after failed attempt number `attempt` (1 = the
- * first), or null to give up. A busy host (508, 429) gets one more try after a pause, a timeout
- * none: the host is still working on the abandoned request, and another would add to its load.
- * `connection`: only a dropped connection, once.
+ * first), or null to give up. A busy host (508, 429) gets one or two more tries after a pause
+ * (BUSY_RETRY_MS), a timeout none: the host is still working on the abandoned request, and
+ * another would add to its load. `connection`: only a dropped connection, once.
  */
-function retryDelay(error: WooCommerceError, attempt: number, policy: "read" | "connection"): number | null {
+function retryDelay(error: WooCommerceError, attempt: number, policy: ReadPriority | "connection"): number | null {
   if (policy === "connection") return error.code === "network_error" && attempt === 1 ? jitter(RETRY_DELAYS_MS[0]!) : null;
   if (error.code === "timeout") return null;
-  if (error.status === 508 || error.status === 429) return attempt === 1 ? jitter(OVERLOADED_RETRY_MS) : null;
-  const delay = error.retryable ? RETRY_DELAYS_MS[attempt - 1] : undefined;
+  const delays = error.status === 508 || error.status === 429 ? BUSY_RETRY_MS[policy] : error.retryable ? RETRY_DELAYS_MS : [];
+  const delay = delays[attempt - 1];
   return delay === undefined ? null : jitter(delay);
 }
 
@@ -168,6 +280,9 @@ function retryDelay(error: WooCommerceError, attempt: number, policy: "read" | "
 function jitter(ms: number): number {
   return Math.round(ms * (0.75 + Math.random() * 0.5));
 }
+
+/** A read let through before the breaker opened, whose turn for a slot came after: it asks the breaker again. */
+class Readmit extends Error {}
 
 export async function wooRequest<T extends z.ZodType>(
   path: string,
@@ -182,11 +297,10 @@ export async function wooRequest<T extends z.ZodType>(
 
   const auth = Buffer.from(`${env.WOOCOMMERCE_CONSUMER_KEY}:${env.WOOCOMMERCE_CONSUMER_SECRET}`).toString("base64");
   const counted = method === "GET" && !options.ignoreBreaker;
-  const { probe } = counted ? admitRead(path) : { probe: false };
-  // The probe asks once. Other reads stop retrying as soon as any read has opened the breaker.
-  const policy = method === "GET" ? (probe ? null : "read") : (options.retry ?? null);
-  const send = async () => {
-    if (counted && !probe && breaker.tripped) throw breakerOpen(path);
+  const priority = options.priority ?? "critical";
+  const policy = method === "GET" ? priority : (options.retry ?? null);
+  const timeoutMs = options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS;
+  const send = async (trial: boolean) => {
     const response = await fetch(url, {
       method,
       headers: {
@@ -195,55 +309,72 @@ export async function wooRequest<T extends z.ZodType>(
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      signal: withTimeout(options.signal, options.timeoutMs ?? env.WOOCOMMERCE_TIMEOUT_MS),
+      // A trial asks quickly: reads wait for its answer.
+      signal: withTimeout(options.signal, trial ? Math.min(timeoutMs, TRIAL_TIMEOUT_MS) : timeoutMs),
       cache: "no-store",
     });
     return { response, json: await response.json().catch(() => undefined) };
   };
+  const sendCounted = (trial: boolean) =>
+    withGetSlot(priority, () => {
+      if (!trial && breaker.open) throw new Readmit();
+      return send(trial);
+    });
 
-  let outcome: "answered" | "down" | "other" = "other";
-  try {
-    for (let attempt = 1; ; attempt++) {
-      let error: WooCommerceError;
-      try {
-        const { response, json } = counted ? await withGetSlot(send) : await send();
-        if (response.ok || (options.acceptStatus ?? []).includes(response.status)) {
-          outcome = "answered";
-          const parsed = options.schema.safeParse(json);
-          if (!parsed.success) {
-            throw new WooCommerceError(`Unexpected WooCommerce response for ${method} ${path}`, 502, "invalid_response", {
-              issues: parsed.error.issues.slice(0, 5).map((issue) => `${issue.path.join(".")}: ${issue.message}`),
-            });
-          }
-          return { status: response.status, data: parsed.data, headers: response.headers };
+  for (let attempt = 1; ; attempt++) {
+    // Each attempt asks the breaker, so retries stop (or wait their turn) once it has opened.
+    const { trial } = counted ? await admitRead(path, priority) : { trial: false };
+    let outcome: Outcome = "other";
+    let error: WooCommerceError;
+    try {
+      const { response, json } = counted ? await sendCounted(trial) : await send(false);
+      outcome = response.status === 508 || response.status === 429 ? "down" : "answered";
+      if (response.ok || (options.acceptStatus ?? []).includes(response.status)) {
+        const parsed = options.schema.safeParse(json);
+        if (!parsed.success) {
+          throw new WooCommerceError(`Unexpected WooCommerce response for ${method} ${path}`, 502, "invalid_response", {
+            issues: parsed.error.issues.slice(0, 5).map((issue) => `${issue.path.join(".")}: ${issue.message}`),
+          });
         }
-        const code = isRecord(json) && typeof json.code === "string" ? json.code : `http_${response.status}`;
-        error = new WooCommerceError(`WooCommerce request failed (${method} ${path}: ${response.status} ${code})`, response.status, code, json);
-      } catch (thrown) {
-        // An invalid answer, or not sent at all (the breaker opened, no read slot came free).
-        if (thrown instanceof WooCommerceError) throw thrown;
-        if (options.signal?.aborted) throw cancelled(method, path, thrown);
-        const timedOut = thrown instanceof Error && (thrown.name === "TimeoutError" || thrown.name === "AbortError");
-        // Keep the low-level error (e.g. "other side closed") so logs show the real cause.
-        error = new WooCommerceError(
-          `${timedOut ? "WooCommerce did not respond in time" : "WooCommerce is unreachable"} (${method} ${path}, attempt ${attempt})`,
-          0,
-          timedOut ? "timeout" : "network_error",
-          undefined,
-          { cause: thrown },
-        );
+        if (counted) settleRead(trial, outcome);
+        return { status: response.status, data: parsed.data, headers: response.headers };
       }
-
-      const delay = policy ? retryDelay(error, attempt, policy) : null;
-      if (delay === null) {
-        outcome = isDown(error) ? "down" : "other";
-        throw error;
+      const code = isRecord(json) && typeof json.code === "string" ? json.code : `http_${response.status}`;
+      error = new WooCommerceError(`WooCommerce request failed (${method} ${path}: ${response.status} ${code})`, response.status, code, json);
+    } catch (thrown) {
+      if (thrown instanceof Readmit) {
+        attempt--;
+        continue;
       }
-      await sleep(delay);
-      if (options.signal?.aborted) throw cancelled(method, path, options.signal.reason);
+      // An invalid answer, or not sent at all (no read slot came free).
+      if (thrown instanceof WooCommerceError) {
+        if (counted) settleRead(trial, outcome);
+        throw thrown;
+      }
+      if (options.signal?.aborted) {
+        if (counted) settleRead(trial, "other");
+        throw cancelled(method, path, thrown);
+      }
+      const timedOut = thrown instanceof Error && (thrown.name === "TimeoutError" || thrown.name === "AbortError");
+      outcome = "down";
+      // Keep the low-level error (e.g. "other side closed") so logs show the real cause.
+      error = new WooCommerceError(
+        `${timedOut ? "WooCommerce did not respond in time" : "WooCommerce is unreachable"} (${method} ${path}, attempt ${attempt})`,
+        0,
+        timedOut ? "timeout" : "network_error",
+        undefined,
+        { cause: thrown },
+      );
     }
-  } finally {
-    if (counted) settleRead(probe, outcome);
+
+    // A trial asks once.
+    const delay = policy && !trial ? retryDelay(error, attempt, policy) : null;
+    if (delay === null) {
+      if (counted) settleRead(trial, outcome);
+      throw error;
+    }
+    await sleep(delay);
+    if (options.signal?.aborted) throw cancelled(method, path, options.signal.reason);
   }
 }
 

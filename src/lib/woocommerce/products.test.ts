@@ -6,13 +6,13 @@ type Answer = { body: unknown; total?: number; totalPages?: number };
 type Route = (path: string, query: Record<string, unknown>) => Answer | Promise<Answer>;
 
 let route: Route = () => ({ body: [] });
-const requests: { path: string; query: Record<string, unknown> }[] = [];
+const requests: { path: string; query: Record<string, unknown>; priority?: string }[] = [];
 
 vi.mock("next/cache", () => ({ cacheLife: () => {}, cacheTag: () => {} }));
 vi.mock("./client", () => ({
-  wooRequest: async (path: string, options: { query?: Record<string, unknown>; schema: z.ZodType }) => {
+  wooRequest: async (path: string, options: { query?: Record<string, unknown>; schema: z.ZodType; priority?: string }) => {
     const query = options.query ?? {};
-    requests.push({ path, query });
+    requests.push({ path, query, priority: options.priority });
     const answer = await route(path, query);
     const headers = new Headers();
     if (answer.total !== undefined) headers.set("x-wp-total", String(answer.total));
@@ -90,6 +90,13 @@ describe("this shop's products only", () => {
     for (const read of reads) expect(read.query.wchc_shop, JSON.stringify(read.query)).toBe("piece-dk");
     // The product page knows which webshops sell it (for its home shop, see lib/home-store.ts).
     expect(page.ok && page.data?.webshops).toEqual(["halloween-kostumer-dk", "piece-dk"]);
+    // What a page needs (the product, listings, the menu) is read first; photos and the sitemap in the background.
+    const productRead = reads.find((r) => r.query.slug === "p1" && r.query._fields === undefined);
+    const listing = reads.find((r) => r.query.search === "krokodille");
+    const photo = reads.find((r) => r.query.slug === "p1" && r.query._fields !== undefined);
+    const sitemap = reads.find((r) => r.query._fields === "slug,categories,webshops");
+    expect([productRead, listing, requests.find((r) => r.path === "wc/v3/products/categories")].map((r) => r?.priority ?? "critical")).toEqual(["critical", "critical", "critical"]);
+    expect([photo?.priority, sitemap?.priority]).toEqual(["background", "background"]);
   });
 });
 
@@ -237,5 +244,23 @@ describe("getRelatedProducts (Fastelavn shop)", () => {
     const reads = requests.filter((r) => r.path === "wc/v3/products");
     expect(reads.length).toBeGreaterThan(0);
     expect(reads.every((r) => r.query.wchc_not_in_category === "103,104")).toBe(true);
+  });
+
+  it("reads only the accessories of the product's own category for the fallback with plugin 1.4, else its 100 best sellers", async () => {
+    route = answer("1.4.0");
+    await getRelatedProducts(dino);
+    expect(requests.find((r) => r.query.category === "7" && r.query.tag === undefined && r.query.wchc_in_any_category)?.query).toMatchObject({ wchc_in_any_category: "10", per_page: 24 });
+    requests.length = 0;
+    route = answer("1.3.1");
+    await getRelatedProducts({ ...dino, id: 2 });
+    expect(requests.some((r) => r.query.category === "7" && r.query.per_page === 100 && r.query.wchc_in_any_category === undefined)).toBe(true);
+  });
+
+  it("reads them in the background: they never hold up the product a page needs", async () => {
+    route = answer("1.4.0");
+    await getRelatedProducts({ ...dino, id: 3 });
+    const rows = requests.filter((r) => r.path === "wc/v3/products" && r.query.orderby === "popularity");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.priority === "background")).toBe(true);
   });
 });

@@ -25,18 +25,20 @@ async function readFreeShippingFrom(): Promise<Read<string | null>> {
   "use cache: remote";
   cacheTag(CATALOG_TAG);
   return fetched("getFreeShippingFrom", HOURS, async () => {
-    const { data: zones } = await wooRequest("wc/v3/shipping/zones", { schema: z.array(wcShippingZoneSchema) });
+    const { data: zones } = await wooRequest("wc/v3/shipping/zones", { schema: z.array(wcShippingZoneSchema), priority: "background" });
     const amounts: number[] = [];
     for (const zone of zones) {
       // Zone 0 ("Locations not covered by your other zones") has no locations of its own.
       if (zone.id !== 0) {
         const { data: locations } = await wooRequest(`wc/v3/shipping/zones/${zone.id}/locations`, {
           schema: z.array(wcShippingLocationSchema),
+          priority: "background",
         });
         if (!locations.some((l) => l.type === "country" && l.code === storeConfig.defaultCountry)) continue;
       }
       const { data: methods } = await wooRequest(`wc/v3/shipping/zones/${zone.id}/methods`, {
         schema: z.array(wcShippingMethodSchema),
+        priority: "background",
       });
       amounts.push(...freeFromAmounts(methods));
     }

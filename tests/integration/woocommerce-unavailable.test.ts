@@ -2,8 +2,12 @@
  * WooCommerce temporarily unavailable: the storefront must fail safe (no order, no
  * payment) and report a retryable error instead of crashing.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { FakeStripe } from "../support/fake-stripe";
+
+// The catalogue reads' "use cache: remote" lifetimes and tags only mean something inside Next.js.
+vi.mock("next/cache", () => ({ cacheLife: () => {}, cacheTag: () => {} }));
 
 process.env.WOOCOMMERCE_URL = "http://127.0.0.1:9"; // nothing listens here
 process.env.WOOCOMMERCE_CONSUMER_KEY = "ck_unreachable";
@@ -14,6 +18,8 @@ const { WooCommerceError } = await import("@/lib/woocommerce/client");
 const { createOrder, attachPaymentIntent, sendPaymentEvent, fetchQuote } = await import("@/lib/woocommerce/checkout-api");
 const { startCheckout } = await import("@/lib/checkout/service");
 const { handleStripeEvent } = await import("@/lib/checkout/webhook");
+const { wooRequest } = await import("@/lib/woocommerce/client");
+const { getProductBySlug, getRelatedProducts } = await import("@/lib/woocommerce/products");
 
 const request = {
   items: [{ productId: 10, variationId: 0, quantity: 1 }],
@@ -50,5 +56,23 @@ describe("WooCommerce unavailable", () => {
       { backend: { createOrder, attachPaymentIntent, sendPaymentEvent }, gateway: stripe },
     );
     expect(result.status).toBe(500);
+  });
+
+  it("catalogue reads: a page gets its friendly error, and once three reads found the host unreachable the others stop asking", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const sent = (part: string) => fetch.mock.calls.filter(([url]) => String(url).includes(part)).length;
+    try {
+      expect(await getProductBySlug("heks")).toEqual({ ok: false, error: "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt." });
+      expect(sent("slug=heks")).toBe(3); // a dropped connection is tried three times
+      for (let i = 0; i < 2; i++) await wooRequest("wc/v3/products", { schema: z.unknown() }).catch(() => {});
+      // The breaker is open. The related rows (background reads) are not asked for: the page shows the product without them.
+      expect(await getRelatedProducts({ id: 1, name: "Heks", tags: [{ id: 5, name: "Hekse" }], audience: [], categories: [{ id: 7, name: "Kostumer", slug: "kostumer" }] })).toEqual({ accessories: [], similar: [] });
+      expect(sent("orderby=popularity")).toBe(0);
+      // A product page waits for its turn as the breaker's trial (sent once), then shows the friendly error.
+      expect(await getProductBySlug("heks")).toEqual({ ok: false, error: "Vi kan ikke hente produkterne lige nu. Prøv igen om lidt." });
+      expect(sent("slug=heks")).toBe(4);
+    } finally {
+      fetch.mockRestore();
+    }
   });
 });
