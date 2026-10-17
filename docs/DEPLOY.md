@@ -4,7 +4,7 @@ Projektet er en standard Next.js-app, så Vercel registrerer den automatisk. `ve
 
 ### Region: Stockholm (`arn1`)
 
-Serverfunktionerne (sider, der bygges om, `/api/*`) kører i `arn1` (Stockholm), tæt på WordPress. `test.piece.dk` er `93.191.156.40` (`linux186.unoeuro.com`), hos Simply.com (team.blue Denmark, AS48854) i Danmark (DNS-opslag 16-10-2026). Uden `vercel.json` kører funktionerne i Vercels standardregion, Washington (`iad1`): så krydser hver WooCommerce-forespørgsel Atlanten (ca. 100 ms frem og tilbage), og en side med flere læsninger venter på hver af dem. Stockholm og Frankfurt (`fra1`) er de nærmeste Vercel-regioner, begge ca. 600-700 km fra Danmark; Stockholm er valgt. Begge Vercel-projekter bruger samme `vercel.json`. Flyttes WordPress, så ret regionen (se [WOOCOMMERCE.md](WOOCOMMERCE.md#13-flytning-af-wordpress-til-en-anden-adresse)). Hobby-planen tillader én region, og det er nok her.
+Serverfunktionerne (sider, der bygges om, `/api/*`) kører i `arn1` (Stockholm), tæt på WordPress. `admin.onlinemarketing.nu` er `93.191.156.140` (`linux255.unoeuro.com`), hos Simply.com (team.blue Denmark) i Danmark (opslag 17-10-2026; før flytningen `test.piece.dk`, `93.191.156.40`, `linux186.unoeuro.com`). Uden `vercel.json` kører funktionerne i Vercels standardregion, Washington (`iad1`): så krydser hver WooCommerce-forespørgsel Atlanten (ca. 100 ms frem og tilbage), og en side med flere læsninger venter på hver af dem. Stockholm og Frankfurt (`fra1`) er de nærmeste Vercel-regioner, begge ca. 600-700 km fra Danmark; Stockholm er valgt. Begge Vercel-projekter bruger samme `vercel.json`. Flyttes WordPress, så ret regionen (se [WOOCOMMERCE.md](WOOCOMMERCE.md#13-flytning-af-wordpress-til-en-anden-adresse)). Hobby-planen tillader én region, og det er nok her.
 
 ### Træk ved afsendelse: `CRON_SECRET` og callbacks
 
@@ -34,7 +34,7 @@ Rækkefølge ved opdatering: upload plugin 1.5.0 først, deploy derefter shoppen
 
 | Navn | Værdi |
 | --- | --- |
-| `WOOCOMMERCE_URL` | `https://test.piece.dk` |
+| `WOOCOMMERCE_URL` | `https://admin.onlinemarketing.nu` |
 | `WOOCOMMERCE_CONSUMER_KEY` | `ck_…` |
 | `WOOCOMMERCE_CONSUMER_SECRET` | `cs_…` |
 | `STRIPE_SECRET_KEY` | `sk_test_…` (**test** indtil go-live) |
@@ -114,7 +114,7 @@ Webshopperne kan vise Trustpilots egne TrustBoxe med webshoppens rigtige bedømm
   ```
 
   Scriptet viser forsiden, temaerne, "Alle produkter", side 1 af hver kategori og tema og op til 300 af deres varer (`--products 300`), to ad gangen (`--concurrency 2`, højst 4), og stopper ved den første side, der ikke kunne læse WooCommerce: kør det igen om lidt. Det sender kun GET-forespørgsler. Saml helst flere ændringer i ét produktions-deploy, især i sæsonen.
-- Følg den manuelle testplan i [TEST.md](TEST.md#manuel-testplan-rigtig-stripe--testpiecedk).
+- Følg den manuelle testplan i [TEST.md](TEST.md#manuel-testplan-rigtig-stripe--wordpress).
 - Preview-deployments bruger samme WooCommerce. De opretter rigtige (test)ordrer der.
 
 ## Drift

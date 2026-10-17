@@ -239,11 +239,11 @@ Lokale dev-servere for begge webshops på test.piece.dk med en testopsætning (`
 
 `npm test` 413 tests, integrationstestene 70/70 med begge ordrelagre.
 
-## Manuel testplan (rigtig Stripe + test.piece.dk)
+## Manuel testplan (rigtig Stripe + WordPress)
 
 Forudsætninger: pluginet er installeret, `.env.local` er udfyldt, og `stripe listen` kører, eller webhooken er oprettet i Stripe.
 
-1. **Status:** `curl -u KEY:SECRET https://test.piece.dk/wp-json/wc-headless/v1/status` skal returnere plugin-version og `"currency":"DKK"`.
+1. **Status:** `curl -u KEY:SECRET https://admin.onlinemarketing.nu/wp-json/wc-headless/v1/status` skal returnere plugin-version og `"currency":"DKK"`.
 2. **Produkter:** Forsiden viser produkter. Priser og lager matcher WooCommerce-admin.
 3. **Kurv:** Læg to varer i kurven, ændr antal, fjern én, og genindlæs siden. Kurven skal være bevaret.
 4. **Checkout:** Indtast et ugyldigt postnummer (fejl skal vises), og ret det. Fragtmetoder og moms vises.

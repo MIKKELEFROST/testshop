@@ -24,7 +24,7 @@ python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --dry-
 # 3. Prøv med 100 varer fordelt over kategorierne, uden at vise dem i nogen webshop
 python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --sample 100 --no-webshop
 
-# 4. Det hele (ca. 15 minutter på test.piece.dk); --log skriver én linje pr. vare
+# 4. Det hele (ca. 15 minutter, målt på test.piece.dk); --log skriver én linje pr. vare
 python3 scripts/guirca/import_guirca.py import PRODUCTS_INFORMATIONS.xlsx --image-status images.tsv --log import.jsonl
 
 # 5. Rækkefølgen ved "Anbefalet" (menu_order): først en prøvekørsel, der kun læser, så --apply

@@ -2,7 +2,7 @@
 
 Proof of concept for en headless webshop:
 
-- **WooCommerce** (`test.piece.dk`) står for produkter, varianter, priser, moms, fragt, lager, kunder og ordrer.
+- **WooCommerce** (`admin.onlinemarketing.nu`, til 17-10-2026 `test.piece.dk`) står for produkter, varianter, priser, moms, fragt, lager, kunder og ordrer.
 - **Next.js 16** (App Router, TypeScript strict, Tailwind CSS 4) står for hele kundeoplevelsen: forside, kategorier, produktsider, kurv, en specialbygget checkout på én side og ordrebekræftelse.
 - **Stripe** (Payment Intents + Payment Element + webhooks) står for betalingen. Beløbet reserveres, når kunden bestiller, og trækkes, når ordren markeres *Gennemført* (sendt) i WooCommerce. Se [docs/STRIPE.md](docs/STRIPE.md#reservation-og-træk-ved-afsendelse).
 - Et lille **WordPress-plugin** ([`wordpress-plugin/headless-checkout-bridge`](wordpress-plugin/headless-checkout-bridge)) giver sikre server-til-server-endpoints. Det bruger WooCommerces egen kurv, moms, fragt, ordreoprettelse og lagerreservation.
@@ -19,7 +19,7 @@ npm run dev                    # http://localhost:3000
 
 | Variabel | Hvad |
 | --- | --- |
-| `WOOCOMMERCE_URL` | F.eks. `https://test.piece.dk` |
+| `WOOCOMMERCE_URL` | F.eks. `https://admin.onlinemarketing.nu` |
 | `WOOCOMMERCE_CONSUMER_KEY` / `_SECRET` | WooCommerce → Indstillinger → Avanceret → REST API. Nøglen skal have **Read/Write** og tilhøre en administrator eller butiksbestyrer. |
 | `STRIPE_SECRET_KEY` / `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe Dashboard → Developers → API keys. Brug **kun `sk_test_`/`pk_test_`** uden for produktion. |
 | `STRIPE_WEBHOOK_SECRET` | Webhookens signing secret (`whsec_…`). Se [docs/STRIPE.md](docs/STRIPE.md). |

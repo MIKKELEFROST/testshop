@@ -7,7 +7,7 @@
 3. Ved en ny version: upload zip-filen på samme måde, og vælg **Erstat nuværende med uploadet**. Indstillinger og ordrer bevares.
 4. Tjek forbindelsen fra Next.js-serveren:
    ```bash
-   curl -u "$WOOCOMMERCE_CONSUMER_KEY:$WOOCOMMERCE_CONSUMER_SECRET" https://test.piece.dk/wp-json/wc-headless/v1/status
+   curl -u "$WOOCOMMERCE_CONSUMER_KEY:$WOOCOMMERCE_CONSUMER_SECRET" https://admin.onlinemarketing.nu/wp-json/wc-headless/v1/status
    ```
    Svaret viser plugin- og WooCommerce-version, moms- og lagerindstillinger, om rabatkoder er slået til, og hvornår ubetalte ordrer sidst blev ryddet op.
 
@@ -184,7 +184,7 @@ Fra plugin 1.5 trækkes kundens betaling først, når ordren sendes (et betaling
 
 ## 13. Flytning af WordPress til en anden adresse
 
-WordPress med WooCommerce flytter fra `https://test.piece.dk` til `https://admin.onlinemarketing.nu`, en kopi på et andet webhotel hos Simply. Webshopperne finder WordPress via `WOOCOMMERCE_URL`, og billedoptimeringen får sin vært derfra, når projektet bygges (`next.config.ts`). Tag trinene i denne rækkefølge.
+WordPress med WooCommerce flyttede 17-10-2026 fra `https://test.piece.dk` til `https://admin.onlinemarketing.nu`, en kopi på et andet webhotel hos Simply (onlinemarketing.nu, mappen `/admin/test`, databasen `onlinemarketing_nu_db_woo`). Webshopperne finder WordPress via `WOOCOMMERCE_URL`, og billedoptimeringen får sin vært derfra, når projektet bygges (`next.config.ts`). Tag trinene i denne rækkefølge.
 
 **Først:** den version af shoppen, der kender begge værter, skal køre i produktion i begge Vercel-projekter. `WORDPRESS_MOVE_HOSTS` i `src/config/images.ts` tillader fotos (`/wp-content/uploads/`) fra både test.piece.dk og admin.onlinemarketing.nu, hvilken af dem `WOOCOMMERCE_URL` end peger på, og shoppens API-kald sender sin egen User-Agent (afsnit 2).
 
@@ -216,12 +216,15 @@ WordPress med WooCommerce flytter fra `https://test.piece.dk` til `https://admin
     RewriteEngine On
     RewriteCond %{HTTP_HOST} ^test\.piece\.dk$ [NC]
     RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteCond %{REQUEST_URI} !^/wp-content/uploads/
     RewriteRule ^(.*)$ https://admin.onlinemarketing.nu/$1 [R=301,L]
     ```
-    Kun værtsnavnet test.piece.dk omdirigeres (ikke andre domæner på webhotellet), og sti og søgestreng følger med, så gamle links til fotos og sider virker. `/.well-known/` omdirigeres ikke: Simply fornyer Let's Encrypt-certifikatet derigennem, og uden certifikat virker omdirigeringen heller ikke. Aldrig før trin 7 er gjort i begge projekter: følger shoppen en omdirigering til en anden vært, sendes `Authorization` ikke med (WooCommerce svarer 401), og en 301 gør kassens POST (fragt og ordre) til en GET. Det samme gælder Guirca-importen, som derfor skal have den nye `WOOCOMMERCE_URL` først.
+    Kun værtsnavnet test.piece.dk omdirigeres (ikke andre domæner på webhotellet), og sti og søgestreng følger med, så gamle links til fotos og sider virker. `/.well-known/` omdirigeres ikke: Simply fornyer Let's Encrypt-certifikatet derigennem, og uden certifikat virker omdirigeringen heller ikke. `/wp-content/uploads/` omdirigeres heller ikke: gamle fotolinks hentes direkte fra den gamle kopis filer, så de virker, uanset om billedoptimeringen følger en omdirigering. Aldrig før trin 7 er gjort i begge projekter: følger shoppen en omdirigering til en anden vært, sendes `Authorization` ikke med (WooCommerce svarer 401), og en 301 gør kassens POST (fragt og ordre) til en GET. Det samme gælder Guirca-importen, som derfor skal have den nye `WOOCOMMERCE_URL` først.
 11. **Ca. 31 dage efter trin 7:** tøm `WORDPRESS_MOVE_HOSTS` i `src/config/images.ts` (`[]`), og deploy begge projekter. Så længe gemmer billedoptimeringen sine kopier (`minimumCacheTTL` i `next.config.ts`), og så længe kan sider og delinger have fotolinks til test.piece.dk. Kurve gemt i kundernes browsere beholder deres fotolinks, til varen lægges i kurven igen: et foto, der stadig peger på test.piece.dk, vises bagefter som pladsholder (kun udseendet, købet virker). Lad 301'en blive stående for søgemaskiner og delte links.
 
-**Ret bagefter** de linjer, der stadig nævner test.piece.dk som WordPress (de er ikke rettet endnu, fordi flytningen ikke er sket): `README.md` (WooCommerce-linjen øverst og `WOOCOMMERCE_URL` i tabellen), `.env.example` (`WOOCOMMERCE_URL`), [DEPLOY.md](DEPLOY.md) (`WOOCOMMERCE_URL` i tabellen under "Importér repoet i Vercel" og afsnittet om regionen: slå den nye værts IP op, og ret `regions` i `vercel.json`, hvis den ikke længere står i Danmark), curl-kommandoen i afsnit 1 her og statuskaldet i den manuelle testplan i [TEST.md](TEST.md#manuel-testplan-rigtig-stripe--testpiecedk).
+**Udført 17-10-2026.** Begge webshops læser fra admin.onlinemarketing.nu (Fastelavn fra kl. 11.49, Halloween fra 11.51 UTC). Tjekket: forside, produktside med egne fotos via `/_next/image`, fragt i kassen (`/api/checkout/quote`) og ingen henvisninger til test.piece.dk i siderne; ingen ordrer oprettet eller ændret på nogen af værterne efter kopien (trin 9 var tomt); begge caches varmet (`warm.mjs`, alt 200); Simplys firewall- og fejllog uden afvisninger af shoppen. test.piece.dk sender alt videre med 301, undtagen `/.well-known/` (certifikatfornyelse) og `/wp-content/uploads/` (gamle fotolinks i kurve og delinger hentes stadig direkte). README, `.env.example`, DEPLOY.md og TEST.md nævner nu den nye vært.
+
+**Tilbage:** tøm `WORDPRESS_MOVE_HOSTS` omkring 17-11-2026 (trin 11). Når den gamle kopi ikke skal bruges som nødplan længere: slet WordPress-filerne i `/test` på piece.dk (behold `/test/.htaccess`, `/test/wp-content/uploads/` og certifikatet, så længe omdirigeringen skal virke) og kun shoppens tabeller i `piece_dk_db` (præfikset `clka586f98fc9_`). Slet ikke hele databasen: tabellerne med præfikset `clke9e9d3b641_` hører til en anden WordPress på piece.dk, som stadig bruger den. De samme `clke9e9d3b641_`-tabeller kom med i kopien i `onlinemarketing_nu_db_woo`, hvor ingen bruger dem.
 
 ## Kendte begrænsninger
 
