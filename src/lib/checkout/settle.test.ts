@@ -102,8 +102,12 @@ describe("settleAction", () => {
     expect(settleAction({ status: "cancelled", capture: capture("manual") })).toBeNull();
     for (const status of ["cancelled", "refunded", "failed"]) expect(settleAction({ status, capture: capture("authorized") })).toBe("release");
     expect(settleAction({ status: "cancelled", capture: capture("released") })).toBeNull();
-    expect(settleAction({ status: "on-hold", capture: capture("authorized") })).toBeNull();
+    // Waiting to be sent (processing, plugin 1.6), held by the shop or reserved on-hold before 1.6:
+    // the reservation stays as it is.
     expect(settleAction({ status: "processing", capture: capture("authorized") })).toBeNull();
+    expect(settleAction({ status: "on-hold", capture: capture("authorized") })).toBeNull();
+    expect(settleAction({ status: "on-hold", capture: capture("failed") })).toBeNull();
+    expect(settleAction({ status: "on-hold", capture: capture("expired") })).toBeNull();
     expect(settleAction({ status: "completed", capture: null })).toBeNull();
     expect(settleAction({ status: "completed" })).toBeNull();
   });
@@ -213,13 +217,17 @@ describe("settleOrder", () => {
   });
 
   it("leaves orders that are not sent or ended, unknown orders and other shops' payments alone", async () => {
-    const waiting = await setup({ status: "on-hold" });
-    expect(await settleOrder(ref, waiting.deps)).toMatchObject({ type: "ignored" });
+    const waiting = await setup({ status: "processing" });
+    expect(await settleOrder(ref, waiting.deps)).toMatchObject({ type: "ignored", reason: "nothing_to_settle" });
     expect(await settleOrder({ id: 101, key: "wc_order_wrong" }, waiting.deps)).toMatchObject({ type: "ignored", reason: "order_not_found" });
+    const held = await setup({ status: "on-hold" });
+    expect(await settleOrder(ref, held.deps)).toMatchObject({ type: "ignored", reason: "nothing_to_settle" });
+    expect([...waiting.events, ...held.events]).toEqual([]);
+    expect((await waiting.stripe.retrieve(waiting.pi.id)).status).toBe("requires_capture");
 
     const other = await setup({ piMeta: { ...meta, store_id: "halloween-kostumer-dk" } });
     expect(await settleOrder(ref, other.deps)).toMatchObject({ type: "ignored", reason: "other_store" });
-    expect(other.stripe.calls.capture + waiting.stripe.calls.capture).toBe(0);
+    expect(other.stripe.calls.capture + waiting.stripe.calls.capture + held.stripe.calls.capture).toBe(0);
   });
 });
 

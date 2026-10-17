@@ -6,16 +6,24 @@
  * its Stripe PaymentIntents with manual capture: when the customer pays, the amount is only
  * authorized (reserved), and it is captured when the shop marks the order "Completed".
  *
- * - Authorized (event `authorized`): the order goes on-hold (core reduces stock once and sends
- *   the on-hold and "New order" e-mails), WCHC_META_CAPTURE_STATUS = authorized. Nothing is paid.
+ * - Authorized (event `authorized`): the order is to be sent, so it goes to processing (since 1.6;
+ *   core reduces stock once and sends the customer's processing e-mail and "New order"),
+ *   WCHC_META_CAPTURE_STATUS = authorized. Nothing is paid: no transaction ID, no date paid,
+ *   although core counts processing as paid. A payment still processing at Stripe keeps the order
+ *   on-hold until it is authorized. An order the shop holds itself, or has moved on to processing
+ *   or completed while the payment was processing, keeps the status the shop gave it.
  * - Completed: this plugin tells the storefront that created the order (the callback URL and a
  *   per-order token it sent with the authorization). The storefront re-reads the order, captures
  *   the PaymentIntent in Stripe and reports it (event `succeeded`): transaction ID, date paid,
  *   note. A failed capture (event `capture_failed`, or the reservation expired) puts the order
  *   back on-hold, with a note and an e-mail to the shop.
+ * - On-hold is for what needs clarifying: the shop's own holds (nothing happens to the payment;
+ *   back to processing neither) and payment problems. Orders reserved on-hold before 1.6 are
+ *   captured and released the same way.
  * - Cancelled, refunded or failed before that: the storefront cancels the PaymentIntent (event
  *   `canceled`): the reservation is released. Core restores the stock as usual.
- * - Expired in Stripe (event `canceled` while the order waits to be sent): note and e-mail.
+ * - Expired in Stripe (event `canceled` while the order waits to be sent): on-hold (when it was
+ *   processing), note and e-mail.
  * - Collected another way (the reservation expired, was released or keeps being declined): the
  *   order action "Betalingen er klaret uden om webshoppen" (capture status manual) lets the shop
  *   keep the order completed.
@@ -75,6 +83,8 @@ final class WCHC_Capture {
 		add_action( 'woocommerce_email_order_details', array( __CLASS__, 'payment_notice' ), 5, 4 );
 		add_filter( 'woocommerce_email_format_string', array( __CLASS__, 'begin_email' ), 10, 2 );
 		add_action( 'woocommerce_email_sent', array( __CLASS__, 'end_email' ), PHP_INT_MAX, 0 );
+		add_filter( 'woocommerce_email_enabled_customer_processing_order', array( __CLASS__, 'confirmation_enabled' ), 10, 2 );
+		add_action( 'woocommerce_email_sent', array( __CLASS__, 'confirmation_sent' ), 10, 3 );
 	}
 
 	/**
@@ -161,7 +171,7 @@ final class WCHC_Capture {
 	}
 
 	/**
-	 * The payment was authorized: reserve the order (on-hold) without marking it paid.
+	 * The payment was authorized: the order is to be sent (processing), without marking it paid.
 	 *
 	 * Called under the order lock. Reports from the webhook and the return page are applied once.
 	 *
@@ -174,9 +184,16 @@ final class WCHC_Capture {
 		$intent_id = $input['payment_intent_id'];
 
 		if ( '' !== self::status( $order ) && $current === $intent_id ) {
+			// Also once the shop has put it on-hold or sent it.
 			return WCHC_Orders::result( 'already_authorized', $order );
 		}
-		if ( $current !== $intent_id || $order->is_paid() || $order->has_status( array( 'completed', 'refunded' ) ) ) {
+		// The order went on-hold for this payment while it was "processing" at Stripe. Meanwhile the shop
+		// may have moved it on to processing or completed: the reservation is still its payment, unless
+		// a payment was recorded.
+		$awaited  = $current === $intent_id && $order->get_meta( WCHC_META_PAYMENT_PROCESSING ) === $intent_id;
+		$moved_on = $awaited && '' === $order->get_transaction_id() && $order->has_status( array( 'processing', 'completed' ) );
+		// is_paid(): processing or completed. An order reserved by this payment returned above.
+		if ( ! $moved_on && ( $current !== $intent_id || $order->is_paid() || $order->has_status( array( 'completed', 'refunded' ) ) ) ) {
 			// A reservation on a replaced PaymentIntent, or for an order paid otherwise: never keep it.
 			$order->add_order_note( sprintf( 'Reservation %s hører ikke til ordrens betaling – den frigives.', $intent_id ) );
 			return WCHC_Orders::result( 'release_required', $order );
@@ -196,7 +213,7 @@ final class WCHC_Capture {
 			return WCHC_Orders::response( 409, array( 'code' => 'amount_mismatch', 'message' => 'Beløbet matcher ikke ordren.', 'order' => WCHC_Orders::summary( $order ) ) );
 		}
 
-		if ( ! $order->has_status( array( 'pending', 'failed', 'on-hold', 'cancelled' ) ) ) {
+		if ( ! $moved_on && ! $order->has_status( array( 'pending', 'failed', 'on-hold', 'cancelled' ) ) ) {
 			return WCHC_Orders::result( 'ignored', $order );
 		}
 
@@ -220,17 +237,30 @@ final class WCHC_Capture {
 		}
 
 		$note = sprintf( 'Betalingen er reserveret og trækkes, når ordren sendes (%s, %s). Markér ordren som Gennemført, når den er sendt.', self::money( $order, (float) $order->get_total() ), $intent_id );
-		if ( $order->has_status( 'on-hold' ) ) {
-			// Already on-hold (the payment was "processing" first): stock and e-mails are done.
+		if ( $moved_on || ( $order->has_status( 'on-hold' ) && ! $awaited ) ) {
+			// The status the shop gave the order stays (its stock was reduced then): on-hold it holds
+			// (e.g. set while the customer paid), or processing or completed while the payment was
+			// processing. Not paid: core's date paid on processing and completed is cleared, and a sent
+			// order is captured now.
+			$sent = $order->has_status( 'completed' );
+			$order->set_date_paid( null );
 			$order->save();
-			$order->add_order_note( $note );
-		} else {
-			if ( $order->has_status( 'cancelled' ) ) {
-				$order->add_order_note( 'Betalingen blev reserveret, efter at ordren var annulleret. Varerne er stadig på lager – ordren genåbnes.' );
+			$order->add_order_note( $sent ? sprintf( 'Betalingen er reserveret (%s, %s). Ordren er allerede markeret Gennemført, så beløbet trækkes nu.', self::money( $order, (float) $order->get_total() ), $intent_id ) : $note );
+			if ( $sent ) {
+				self::queue( $order );
 			}
-			// On-hold: core reduces stock once, releases the hold and sends the on-hold and "New order" e-mails.
-			$order->update_status( 'on-hold', $note );
+			return WCHC_Orders::result( 'authorized', $order );
 		}
+		if ( $order->has_status( 'cancelled' ) ) {
+			$order->add_order_note( 'Betalingen blev reserveret, efter at ordren var annulleret. Varerne er stadig på lager – ordren genåbnes.' );
+		}
+		// Processing: to be sent. Core reduces stock once (not again when the order went on-hold because
+		// the payment was "processing" first), releases the hold and sends the customer's processing
+		// e-mail and "New order" (once). Core also sets the date paid on processing: it is cleared before
+		// the order is saved, so the status hooks and e-mails see it as it is, not paid.
+		$order->set_status( 'processing', $note );
+		$order->set_date_paid( null );
+		$order->save();
 
 		return WCHC_Orders::result( 'authorized', $order );
 	}
@@ -279,8 +309,9 @@ final class WCHC_Capture {
 			$order->save();
 			$order->payment_complete( $intent_id );
 		} else {
-			// Sent (completed), or being packed (processing): core's payment_complete() would not record
-			// it. Paid now, not when core set the date at an earlier completion.
+			// Sent (completed), or to be sent (processing, e.g. captured in Stripe's Dashboard): core's
+			// payment_complete() would not record it. Paid now, not when core set the date at an earlier
+			// completion.
 			$order->set_transaction_id( $intent_id );
 			$order->set_date_paid( time() );
 			$order->save();
@@ -333,11 +364,17 @@ final class WCHC_Capture {
 			return WCHC_Orders::result( 'released', $order );
 		}
 
-		// Not sent yet: Stripe let the reservation expire (normally after 7 days).
+		// Not sent yet: Stripe let the reservation expire (normally after 7 days). An order waiting to be
+		// sent (processing) now needs clarifying: on-hold. One already on-hold stays as it is.
 		$order->update_meta_data( WCHC_META_CAPTURE_STATUS, 'expired' );
-		$order->save();
-		$message = sprintf( 'Reservationen er udløbet eller annulleret i Stripe (%s). Beløbet kan ikke længere trækkes. Kontakt kunden om betalingen, før ordren sendes, eller annullér ordren.', $reason );
-		$order->add_order_note( $message );
+		$hold    = $order->has_status( 'processing' );
+		$message = sprintf( 'Reservationen er udløbet eller annulleret i Stripe (%s). Beløbet kan ikke længere trækkes.%s Kontakt kunden om betalingen, før ordren sendes, eller annullér ordren.', $reason, $hold ? ' Ordren er sat på hold.' : '' );
+		if ( $hold ) {
+			$order->update_status( 'on-hold', $message );
+		} else {
+			$order->save();
+			$order->add_order_note( $message );
+		}
 		self::mail_admin( $order, sprintf( 'Reservationen for ordre #%s er udløbet', $order->get_order_number() ), array( $message ) );
 		return WCHC_Orders::result( 'reservation_expired', $order );
 	}
@@ -360,7 +397,7 @@ final class WCHC_Capture {
 		$next    = 'failed' === self::status( $order )
 			? 'Markér ordren Gennemført igen for et nyt forsøg. Har kunden betalt på anden vis, så vælg "Betalingen er klaret uden om webshoppen" under Ordrehandlinger.'
 			: 'Reservationen kan ikke trækkes. Når kunden har betalt på anden vis, så vælg "Betalingen er klaret uden om webshoppen" under Ordrehandlinger, og markér derefter ordren Gennemført.';
-		$message = sprintf( 'Betalingen kunne ikke trækkes: %s. Ordren er sat tilbage til Afventer. Kontakt kunden om betalingen. %s', $reason, $next );
+		$message = sprintf( 'Betalingen kunne ikke trækkes: %s. Ordren er sat tilbage til På hold. Kontakt kunden om betalingen. %s', $reason, $next );
 		$order->update_status( 'on-hold', $message );
 		self::mail_admin( $order, sprintf( 'Betalingen for ordre #%s kunne ikke trækkes', $order->get_order_number() ), array( $message ) );
 		return WCHC_Orders::result( 'capture_failed', $order );
@@ -386,6 +423,7 @@ final class WCHC_Capture {
 
 	/**
 	 * The shop changed the order's status: completed captures, cancelled/refunded/failed releases.
+	 * On-hold and processing leave the reservation as it is.
 	 *
 	 * @param int      $order_id Order ID.
 	 * @param string   $from     Old status.
@@ -396,8 +434,11 @@ final class WCHC_Capture {
 		if ( ! $order instanceof WC_Order ) {
 			return;
 		}
-		if ( in_array( $to, array( 'processing', 'completed' ), true ) && in_array( self::status( $order ), self::HELD, true ) && $order->get_date_paid( 'edit' ) ) {
-			// Core sets the date paid on Processing and Completed; it is paid when the capture is recorded.
+		$status = self::status( $order );
+		if ( in_array( $to, array( 'processing', 'completed' ), true ) && '' !== $status && ! in_array( $status, self::SETTLED, true ) && $order->get_date_paid( 'edit' ) ) {
+			// Core sets the date paid on Processing and Completed (e.g. the shop moves an order reserved
+			// on-hold before 1.6, or one whose reservation expired, to Processing); it is paid when the
+			// capture is recorded or the shop has collected it another way.
 			$order->set_date_paid( null );
 			$order->save();
 		}
@@ -753,9 +794,10 @@ final class WCHC_Capture {
 	}
 
 	/**
-	 * The payment in a reserved order's e-mails: the customer's on-hold and completed e-mails say
-	 * that the amount is reserved and charged when the order is sent, the refund e-mails that
-	 * nothing was charged; "New order" tells the shop. Nothing for a payment collected another way.
+	 * The payment in a reserved order's e-mails: the customer's order confirmation (processing, or
+	 * on-hold for orders reserved before 1.6) and completed e-mails say that the amount is reserved
+	 * and charged when the order is sent, the refund e-mails that nothing was charged; "New order"
+	 * tells the shop. Nothing for a payment collected another way.
 	 *
 	 * @param mixed $order         Order.
 	 * @param bool  $sent_to_admin Whether the e-mail goes to the shop.
@@ -769,7 +811,7 @@ final class WCHC_Capture {
 		$status = self::status( $order );
 		$amount = self::money( $order, self::capture_amount( $order ) );
 		$text   = '';
-		if ( 'authorized' === $status && 'customer_on_hold_order' === $email->id ) {
+		if ( 'authorized' === $status && in_array( $email->id, WCHC_Emails::CONFIRMATION_EMAILS, true ) ) {
 			$text = sprintf( 'Vi har reserveret %s på dit betalingsmiddel. Beløbet trækkes først, når vi sender din ordre. Annullerer vi ordren, frigives reservationen, og du betaler ingenting.', $amount );
 		} elseif ( 'authorized' === $status && 'new_order' === $email->id ) {
 			$text = sprintf( 'Betalingen på %s er reserveret, ikke trukket. Markér ordren som Gennemført, når den er sendt – så trækkes beløbet. Annullér ordren, hvis den ikke skal sendes – så frigives reservationen. Reservationen udløber normalt efter 7 dage.', $amount );
@@ -790,7 +832,8 @@ final class WCHC_Capture {
 
 	/**
 	 * WooCommerce formats a text of an e-mail (its subject comes first): for a reserved order's
-	 * on-hold e-mail, replace the intro that says the order waits for the payment.
+	 * on-hold e-mail, replace the intro that says the order waits for the payment. (Since 1.6 a
+	 * reserved order gets the processing e-mail, whose intro says nothing about the payment.)
 	 *
 	 * @param string $text  Formatted text.
 	 * @param mixed  $email E-mail.
@@ -831,5 +874,37 @@ final class WCHC_Capture {
 			'Thanks for your order. It’s on-hold until we confirm that payment has been received.',
 		);
 		return in_array( $text, $intros, true ) ? 'Tak for din ordre. Vi har modtaget den og sender den hurtigst muligt.' : $translation;
+	}
+
+	/**
+	 * The customer's processing e-mail is the order confirmation of a reserved order, sent once:
+	 * not again when the shop puts the order on-hold to clarify something and back to processing.
+	 * Sent on purpose (e.g. WooCommerce's order e-mail action), it goes out as always, and orders
+	 * without a capture status get WooCommerce's e-mails as always.
+	 *
+	 * @param bool  $enabled Whether the e-mail is enabled.
+	 * @param mixed $order   Order (null outside an order, e.g. in the settings).
+	 * @return bool
+	 */
+	public static function confirmation_enabled( $enabled, $order = null ) {
+		if ( $enabled && $order instanceof WC_Order && doing_action( 'woocommerce_order_status_on-hold_to_processing_notification' ) && '' !== self::status( $order ) && $order->get_meta( WCHC_META_CONFIRMATION_SENT ) ) {
+			return false;
+		}
+		return $enabled;
+	}
+
+	/**
+	 * Note on a reserved order that its processing e-mail is sent.
+	 *
+	 * @param bool   $sent  Whether WordPress sent it.
+	 * @param string $id    E-mail ID.
+	 * @param mixed  $email E-mail.
+	 */
+	public static function confirmation_sent( $sent, $id = '', $email = null ): void {
+		if ( ! $sent || 'customer_processing_order' !== $id || ! $email instanceof WC_Email || ! $email->object instanceof WC_Order || '' === self::status( $email->object ) ) {
+			return;
+		}
+		$email->object->update_meta_data( WCHC_META_CONFIRMATION_SENT, time() );
+		$email->object->save_meta_data();
 	}
 }

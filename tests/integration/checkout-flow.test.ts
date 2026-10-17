@@ -583,7 +583,7 @@ describe.skipIf(!enabled)("checkout against WooCommerce", () => {
       await expect(readyCheckout(stripe, [{ productId: ids.tote, quantity: 1 }])).resolves.toMatchObject({ type: "ready" });
 
       const status = await pluginStatus();
-      expect(status).toMatchObject({ version: "1.5.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
+      expect(status).toMatchObject({ version: "1.6.0", coupons_enabled: true, unpaid_orders: { cancel_after_minutes: 60 } });
       expect((status.unpaid_orders as { last_cleanup: string | null }).last_cleanup).not.toBeNull();
     });
   });

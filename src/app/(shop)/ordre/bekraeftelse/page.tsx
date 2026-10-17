@@ -67,7 +67,8 @@ async function Confirmation({ searchParams }: { searchParams: Promise<Record<str
   if (!order) return <NotFound />;
 
   // Capture at shipment: the amount is reserved now and charged when the order is sent, so an
-  // order is paid only once it is captured (or the shop collected the payment another way).
+  // order is paid only once it is captured (or the shop collected the payment another way). A
+  // reserved order is processing (plugin 1.6), or on-hold (reserved before, or held by the shop).
   const settled = !order.capture || order.capture.status === "captured" || order.capture.status === "manual";
   const paid = (order.status === "processing" || order.status === "completed") && settled;
   const reserved = (order.status === "on-hold" || order.status === "processing") && order.capture?.status === "authorized";

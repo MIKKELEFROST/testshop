@@ -62,24 +62,29 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
  Retur-URL       ──►  /ordre/bekraeftelse (hurtig vej, samme kode)
    • PaymentIntent hentes FRISK fra Stripe (event-data og URL stoles ikke på)
    • Plugin: POST /orders/{id}/payment (lås pr. ordre, ordrenøgle kræves)
-       authorized → beløb + valuta tjekkes → betalingsmetode gemmes → "on-hold"
-                   → WooCommerce trækker lager én gang, frigiver reservation, sender mails
-                   (intet betalt endnu; shoppens callback-adresse + ordrens token gemmes)
+       authorized → beløb + valuta tjekkes → betalingsmetode gemmes → "processing" (Behandler)
+                   → WooCommerce trækker lager én gang, frigiver reservation, sender
+                     Behandler-mail og Ny ordre én gang
+                   (intet betalt endnu: intet transaktions-ID, ingen betalingsdato;
+                    shoppens callback-adresse + ordrens token gemmes)
        succeeded  → betalt (trukket, eller en ordre fra før reservationen: payment_complete())
-       processing → "on-hold" (lager trækkes, async betalingsmetoder)
+       processing → "on-hold" (På hold: lager trækkes, async betalingsmetoder) → "processing",
+                    når beløbet er reserveret
        failed     → note på ordren (én gang pr. forsøg), ordren forbliver betalbar
        canceled   → "cancelled" → reservation frigives / lager gendannes
+                    (en reservation, der udløber, mens ordren er Behandler → "on-hold", note, mail)
    ▼
  Bekræftelsesside: ordrenummer, "beløbet er reserveret", varer, levering. Kurven tømmes, ny session.
    ▼
  Butikken markerer ordren "Gennemført" (sendt) · eller "Annulleret"
+   (På hold og tilbage til Behandler, mens noget afklares: intet sker med betalingen)
    ▼
  Plugin → POST /api/payments/settle {ordre, nøgle, token}   (eller det daglige /api/cron/settle-payments)
    • token = HMAC(STRIPE_SECRET_KEY, webshop + ordre + nøgle) tjekkes; svar 202, arbejdet sker bagefter
    • ordren læses igen i WooCommerce og PaymentIntent i Stripe
        Gennemført → capture(ordrens beløb − refunderinger), idempotency key pr. forsøg
                     → succeeded → transaktions-ID, betalingsdato, "Betalingen er trukket"
-                    → afvist/udløbet → capture_failed/canceled → "on-hold", note, mail til butikken
+                    → afvist/udløbet → capture_failed/canceled → "on-hold" (På hold), note, mail til butikken
                       (betalt på anden vis: ordrehandling → "manual", ordren kan forblive Gennemført)
        Annulleret → PaymentIntent annulleres → canceled → "Reservationen er frigivet"
    • dagligt job: advarer også om sendte ordrer, der et døgn senere ikke er trukket
@@ -95,7 +100,7 @@ Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker
 | Ingen dobbeltbetalinger | Én PaymentIntent pr. ordre (Stripe idempotency key + compare-and-set i WooCommerce). Klientside dobbeltklik-spærre. En betaling, der alligevel ankommer til en allerede betalt eller erstattet ordre, **refunderes automatisk** (en reservation frigives). |
 | Intet dobbelt lagertræk | Kun WooCommerce core trækker lager (`_order_stock_reduced`). Betalingshændelser behandles under ordrelås, og ordren genindlæses fra databasen efter låsen. |
 | Idempotente webhooks | PaymentIntent hentes frisk. Statusmaskinen i pluginet gør gentagelser til no-ops. Rækkefølgen af events er ligegyldig. |
-| Trukket ved afsendelse, aldrig to gange | Beløbet reserveres ved køb (`capture_method: manual`) og trækkes, når ordren er *Gennemført*. Callback og dagligt job er kun et signal: ordre og PaymentIntent læses igen, Stripe accepterer ét træk pr. reservation, og idempotency key pr. PaymentIntent, beløb og forsøg. Kun shoppen kan lave ordrens token. Annulleret før afsendelse → reservationen frigives. |
+| Trukket ved afsendelse, aldrig to gange | Beløbet reserveres ved køb (`capture_method: manual`; ordren står som *Behandler*, men er ikke betalt) og trækkes, når ordren er *Gennemført*. Callback og dagligt job er kun et signal: ordre og PaymentIntent læses igen, Stripe accepterer ét træk pr. reservation, og idempotency key pr. PaymentIntent, beløb og forsøg. Kun shoppen kan lave ordrens token. Annulleret før afsendelse → reservationen frigives. |
 | Samtidige køb af sidste vare | WooCommerce `ReserveStock` (atomisk). Testet med 4 parallelle købere: præcis én får varen. |
 | Pris ændret under checkout | Serveren sammenligner WooCommerces nye total med den, kunden så. Ved forskel → ny quote, og kunden skal trykke Betal igen. |
 | Manipulation af priser | Klienten sender ingen priser. Zod fjerner ukendte felter. Beløbet til Stripe = WooCommerce-ordrens total. Webhook tjekker beløb og valuta. |

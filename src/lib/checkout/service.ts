@@ -24,8 +24,9 @@ import { storeBranding } from "./branding";
  *   3. The browser confirms the payment with Stripe (Payment Element). The amount is only
  *      authorized (manual capture): a card may as a rule only be charged when the goods are sent.
  *   4. Stripe's webhook (and the return URL, as a fast path) call `finalizePayment`, which
- *      re-reads the PaymentIntent from Stripe and lets WooCommerce reserve the order (on-hold).
- *      WooCommerce core then reduces stock exactly once.
+ *      re-reads the PaymentIntent from Stripe and lets WooCommerce reserve the order: processing
+ *      (to be sent; plugin 1.6, on-hold before), not paid. WooCommerce core then reduces stock
+ *      exactly once.
  *   5. When the shop marks the order completed (sent), the plugin tells the storefront, which
  *      captures the payment (./settle.ts); a cancelled order's authorization is released.
  */

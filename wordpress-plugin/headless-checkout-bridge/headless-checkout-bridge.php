@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Headless Checkout Bridge
  * Description:       Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe). Uses WooCommerce's own cart, tax, shipping, order and stock-reservation logic.
- * Version:           1.5.0
+ * Version:           1.6.0
  * Requires at least: 6.4
  * Requires PHP:      7.4
  * Requires Plugins:  woocommerce
@@ -15,7 +15,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'WCHC_VERSION', '1.5.0' );
+define( 'WCHC_VERSION', '1.6.0' );
 define( 'WCHC_PATH', plugin_dir_path( __FILE__ ) );
 
 /*
@@ -43,6 +43,10 @@ define( 'WCHC_META_SETTLE_CALLBACK', '_wchc_settle_callback' );
 define( 'WCHC_META_RESERVATION_WARNED', '_wchc_reservation_warned' );
 define( 'WCHC_META_CAPTURE_ATTEMPT', '_wchc_capture_attempt' );
 define( 'WCHC_META_CAPTURE_LATE_WARNED', '_wchc_capture_late_warned' );
+// Since 1.6 a reserved order is processing; the customer's processing e-mail is sent once.
+define( 'WCHC_META_CONFIRMATION_SENT', '_wchc_confirmation_sent' );
+// Since 1.6: the PaymentIntent the order went on-hold for while it was "processing" at Stripe.
+define( 'WCHC_META_PAYMENT_PROCESSING', '_wchc_payment_processing' );
 define( 'WCHC_PAYMENT_METHOD_ID', 'wchc_stripe' );
 
 /** WP-Cron hook that cancels abandoned unpaid headless orders. */

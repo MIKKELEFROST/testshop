@@ -9,7 +9,8 @@
  * - Idempotent, lock-protected payment state transitions. Stock is reduced and
  *   released only by WooCommerce core (payment_complete / status changes).
  * - Payments are authorized when the order is placed and captured when it is sent
- *   (WCHC_Capture, since 1.5); orders paid before that keep the old path.
+ *   (WCHC_Capture, since 1.5): a reserved order is processing (on-hold before 1.6), though not
+ *   paid. Orders paid before 1.5 keep the old path.
  * - Unpaid orders are never resumed after the shop's hold time and are cancelled by a
  *   sweep that does not depend on WP-Cron alone.
  *
@@ -263,12 +264,14 @@ final class WCHC_Orders {
 			$existing = self::load_fresh( $existing->get_id() );
 		}
 
+		// Paid, or reserved: is_paid() counts processing, where a reserved order waits to be sent, and
+		// on-hold holds a payment being confirmed or a reserved order the shop holds. Never paid twice.
 		if ( $existing && ( $existing->is_paid() || $existing->has_status( 'on-hold' ) ) ) {
 			return self::response(
 				409,
 				array(
 					'code'    => 'already_paid',
-					'message' => 'Ordren er allerede betalt.',
+					'message' => 'Ordren er allerede betalt eller reserveret.',
 					'order'   => self::summary( $existing ),
 				)
 			);
@@ -552,7 +555,7 @@ final class WCHC_Orders {
 		}
 
 		if ( '' !== WCHC_Capture::status( $order ) ) {
-			// The payment was authorized: its release, expiry or a failed capture.
+			// The payment was authorized (processing, or on-hold): its release, expiry or a failed capture.
 			return WCHC_Capture::apply_event( $order, $input );
 		}
 
@@ -560,7 +563,10 @@ final class WCHC_Orders {
 			case 'processing':
 				if ( $order->has_status( array( 'pending', 'failed' ) ) ) {
 					self::set_payment_method_title( $order, $input );
-					// On-hold reduces stock in core and releases the temporary hold.
+					// On-hold reduces stock in core and releases the temporary hold. Processing once it is
+					// authorized (WCHC_Capture::authorize(), which knows the hold by this meta), cancelled if
+					// it fails.
+					$order->update_meta_data( WCHC_META_PAYMENT_PROCESSING, $intent_id );
 					$order->update_status( 'on-hold', 'Betalingen behandles af Stripe og afventer bekræftelse.' );
 					return self::result( 'on_hold', $order );
 				}
@@ -615,12 +621,13 @@ final class WCHC_Orders {
 			return WCHC_Capture::record_capture( $order, $input );
 		}
 
+		// is_paid(): also processing, where an order reserved by another payment waits to be sent.
 		if ( $order->is_paid() || $order->has_status( array( 'completed', 'refunded' ) ) ) {
 			if ( $order->get_transaction_id() === $intent_id ) {
 				return self::result( 'already_paid', $order );
 			}
 			// Money received twice for the same order: never keep it.
-			$order->add_order_note( sprintf( 'Ekstra betaling %s modtaget for allerede betalt ordre – refunderes.', $intent_id ) );
+			$order->add_order_note( sprintf( 'Ekstra betaling %s modtaget for en ordre, der allerede er betalt eller reserveret – refunderes.', $intent_id ) );
 			return self::result( 'refund_required', $order );
 		}
 

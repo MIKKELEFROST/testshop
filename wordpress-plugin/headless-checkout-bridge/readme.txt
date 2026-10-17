@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Requires PHP: 7.4
 WC requires at least: 8.5
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPLv2 or later
 
 Secure server-to-server checkout endpoints for a headless storefront (Next.js + Stripe).
@@ -20,8 +20,8 @@ use WooCommerce's own cart, tax, shipping, order and stock-reservation logic:
   replaced instead of resumed
 * POST /orders/{id}/payment-intent – attach a Stripe PaymentIntent (compare-and-set)
 * POST /orders/{id}/payment – apply a verified payment status; stock is reduced only by
-  WooCommerce core (payment_complete or on-hold) and exactly once. Records the payment method
-  actually used and notes each declined attempt once
+  WooCommerce core (payment_complete, processing or on-hold) and exactly once. Records the
+  payment method actually used and notes each declined attempt once
 * POST /payments/sweep – the storefront's daily job: a webshop's orders whose reserved payment
   is to be captured (completed) or released (cancelled), and warnings about old reservations
 * GET  /orders/{id}?order_key=… – order summary for the confirmation page
@@ -60,20 +60,23 @@ delivery). Orders without a brand get the normal e-mails.
 
 Capture at shipment (1.5): a card may as a rule only be charged when the goods are sent. The
 storefront authorizes the payment when the order is placed (event `authorized`): the order goes
-on-hold ("Betalingen er reserveret og trækkes, når ordren sendes"), core reduces stock once and
-sends the on-hold and "New order" e-mails, and nothing is paid yet. When the shop marks the order
-Completed, the plugin tells the storefront that created it (POST to the callback URL it sent with
-the authorization, with the order's token: an HMAC only the storefront can make). The storefront
+to Processing (1.6; on-hold before) with the note "Betalingen er reserveret og trækkes, når ordren
+sendes", core reduces stock once and sends the customer's Processing e-mail (once) and "New
+order", and nothing is paid yet: no transaction ID, no date paid. A payment still processing at
+Stripe keeps the order on-hold until it is authorized. When the shop marks the order Completed,
+the plugin tells the storefront that created it (POST to the callback URL it sent with the
+authorization, with the order's token: an HMAC only the storefront can make). The storefront
 re-reads the order, captures the payment in Stripe and reports it: transaction ID, date paid (the
-capture's; a reserved order has none before, also when Processing), note "Betalingen er trukket".
-A refused capture or an expired reservation puts the order back on-hold with a note and e-mails
-the shop; when the shop has collected the payment another way, the order action "Betalingen er
-klaret uden om webshoppen" lets the order stay Completed. Cancelled, refunded or failed before
-that: the storefront releases the reservation. The storefront's daily job (POST /payments/sweep)
-settles what could not be reported and warns about reservations older than five days (filter
-wchc_reservation_warn_days) and about sent orders not captured a day later. Order action "Træk
-eller frigiv betalingen nu" reports the order again. Orders paid at once (before 1.5) are not
-touched.
+capture's), note "Betalingen er trukket". On-hold is for what needs clarifying: the shop's own
+holds change nothing about the payment, and a refused capture or an expired reservation puts the
+order on-hold with a note and e-mails the shop; when the shop has collected the payment another
+way, the order action "Betalingen er klaret uden om webshoppen" lets the order stay Completed.
+Cancelled, refunded or failed before that: the storefront releases the reservation. The
+storefront's daily job (POST /payments/sweep) settles what could not be reported and warns about
+reservations older than five days (filter wchc_reservation_warn_days) and about sent orders not
+captured a day later. Order action "Træk eller frigiv betalingen nu" reports the order again.
+Orders reserved on-hold by 1.5 are captured and released the same way. Orders paid at once
+(before 1.5) are not touched.
 
 Unpaid headless orders are cancelled after the shop's "Hold stock (minutes)" (60 when
 empty), by WP-Cron every 15 minutes and, throttled, from the storefront's own API calls,
@@ -93,6 +96,28 @@ To update, upload the new zip the same way and choose "Replace current with uplo
 Check: GET /wp-json/wc-headless/v1/status with the API key.
 
 == Changelog ==
+
+= 1.6.0 =
+* Payments: an authorized payment puts the order in Processing ("Behandler": to be sent) instead
+  of on-hold. Still not paid: no transaction ID, no date paid (core's date on Processing is cleared
+  before the status hooks and e-mails run), stock reduced once; Completed captures as before. A
+  payment still processing at Stripe stays on-hold until it is authorized, then goes to Processing.
+  An order the shop holds itself, or has moved on to Processing or Completed while the payment was
+  processing (order meta `_wchc_payment_processing`), keeps that status when the payment is
+  authorized, and a Completed one is captured at once; before, that reservation was released.
+* Payments: on-hold is for what needs clarifying. The shop's own on-hold (and back to Processing)
+  changes nothing about the reservation. A reservation that expires or is cancelled in Stripe while
+  the order is Processing puts it on-hold, with the note and e-mail to the shop as before. Orders
+  reserved on-hold by 1.5 keep working (capture on Completed, release on Cancelled) and can be
+  moved to Processing by hand. An order whose reservation expired or was released gets no date paid
+  when it is moved to Processing or Completed.
+* E-mails: the customer's order confirmation of a reserved order is WooCommerce's "Processing
+  order" e-mail, with "Vi har reserveret … Beløbet trækkes først, når vi sender din ordre" and the
+  withdrawal information; it is sent automatically once per order (order meta `_wchc_confirmation_sent`), not
+  again after the shop puts the order on-hold and back (sent on purpose, e.g. with WooCommerce's
+  order e-mail action, it goes out as always). After "processing" at Stripe the customer
+  gets the on-hold e-mail first and the Processing e-mail when it is authorized. "New order" once.
+* Notes: "Ordren er sat tilbage til På hold" (WooCommerce's Danish name of on-hold).
 
 = 1.5.0 =
 * Payments: capture at shipment. New payment events `authorized` (the amount is reserved: order

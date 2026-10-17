@@ -88,6 +88,11 @@ export async function setOrderStatus(id: number, status: string): Promise<Order>
   return admin<Order>(`orders/${id}`, { method: "PUT", body: { status } });
 }
 
+/** WooCommerce's order e-mail action (REST, as its apps use it): send one of the order's e-mails again. */
+export async function sendOrderEmail(id: number, templateId: string) {
+  return admin(`orders/${id}/actions/send_email`, { method: "POST", body: { template_id: templateId } });
+}
+
 /** A refund recorded in WooCommerce only ("Refund manually"), e.g. an item that could not be sent. */
 export async function refundOrder(id: number, amount: string) {
   return admin(`orders/${id}/refunds`, { method: "POST", body: { amount, api_refund: false } });
@@ -200,9 +205,12 @@ export async function listProducts(query: Record<string, string>): Promise<{ id:
   return admin(`products?${new URLSearchParams({ per_page: "100", status: "publish", ...query })}`);
 }
 
-/** Cancel every unpaid order (releases stock holds) so tests don't affect each other. */
+/**
+ * Cancel every order not yet sent (releases stock holds, and reservations: a reserved order is
+ * processing since plugin 1.6) so tests don't affect each other.
+ */
 export async function cancelOpenOrders() {
-  for (const status of ["pending", "on-hold", "failed"]) {
+  for (const status of ["pending", "processing", "on-hold", "failed"]) {
     const orders = await admin<{ id: number }[]>(`orders?status=${status}&per_page=100`);
     for (const order of orders) await admin(`orders/${order.id}`, { method: "PUT", body: { status: "cancelled" } });
   }

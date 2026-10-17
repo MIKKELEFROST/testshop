@@ -24,6 +24,7 @@ import {
   paymentHandled,
   productBySku,
   refundOrder,
+  sendOrderEmail,
   sentMails,
   setOrderStatus,
   updateProduct,
@@ -115,6 +116,17 @@ const notesWith = async (orderId: number, text: string) => (await orderNotes(ord
 const mailsFor = async (orderId: number, emailId: string) => (await sentMails()).filter((m) => m.order_id === orderId && m.email_id === emailId);
 const adminMails = async (subject: string) => (await sentMails()).filter((m) => m.to === ADMIN_EMAIL && m.subject.includes(subject));
 
+/** A reserved order's one order confirmation: WooCommerce's processing e-mail, saying the amount is reserved, not paid. */
+async function reservedConfirmation(orderId: number) {
+  const mails = await mailsFor(orderId, "customer_processing_order");
+  expect(mails).toHaveLength(1);
+  const message = mails[0]!.message;
+  expect(message).toContain("Vi har reserveret");
+  expect(message).toContain("Beløbet trækkes først, når vi sender din ordre.");
+  expect(message).not.toMatch(/\bpaid\b|payment (has been|was) received|received your payment|betalingen er (modtaget|trukket)|modtaget din betaling/i);
+  return message;
+}
+
 describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
   let server: Server;
 
@@ -161,7 +173,7 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     if (state.deps) await runSettleSweep(state.deps as ReturnType<typeof depsFor>);
   });
 
-  it("reserves the order when the payment is authorized: on-hold, stock and e-mails once, nothing paid", async () => {
+  it("reserves the order when the payment is authorized: Behandler (processing), stock and e-mails once, nothing paid", async () => {
     const stripe = new FakeStripe();
     const deps = depsFor(stripe);
     const checkoutId = `chk_cap_${Date.now().toString(36)}_auth`;
@@ -180,28 +192,233 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     const results = [fromPage, ...fromWebhook.map((r) => r.outcome)].map((o) => (o?.type === "applied" ? o.result : o?.type)).sort();
     expect(results).toEqual(["already_authorized", "already_authorized", "authorized"]);
 
+    // To be sent, but not paid: WooCommerce counts Behandler as paid, so the date it sets is cleared.
     const order = await getOrder(ready.order.id);
-    expect(order).toMatchObject({ status: "on-hold", transaction_id: "", date_paid: null, payment_method_title: "Visa-kort (Stripe)" });
+    expect(order).toMatchObject({ status: "processing", transaction_id: "", date_paid: null, payment_method_title: "Visa-kort (Stripe)" });
     expect(metaValue(order, "_wchc_capture_status")).toBe("authorized");
     expect(metaValue(order, "_wchc_payment_intent_id")).toBe(ready.paymentIntentId);
     expect(metaValue(order, "_wchc_settle_callback")).toMatchObject({ url: `http://host.docker.internal:${PORT}/api/payments/settle` });
     expect((await getProduct(ids.tshirt)).stock_quantity).toBe(23);
     expect(await notesWith(order.id, "Betalingen er reserveret og trækkes, når ordren sendes")).toHaveLength(1);
     expect((await stripe.retrieve(ready.paymentIntentId)).status).toBe("requires_capture");
+    expect(state.callbacks).toHaveLength(0);
 
-    // The customer's on-hold e-mail (with the withdrawal information) and "New order", once each.
-    const [onHold, ...moreOnHold] = await mailsFor(order.id, "customer_on_hold_order");
-    expect(moreOnHold).toHaveLength(0);
-    expect(onHold!.message).toContain("Beløbet trækkes først, når vi sender din ordre.");
-    expect(onHold!.message).toContain("Tak for din ordre. Vi har modtaget den og sender den hurtigst muligt.");
-    expect(onHold!.message).not.toContain("until we can confirm your payment");
-    expect(onHold!.message).toContain("Standardfortrydelsesformular");
+    // The customer's processing e-mail (the order confirmation, with the withdrawal information) and
+    // "New order", once each; no on-hold e-mail.
+    expect(await reservedConfirmation(order.id)).toContain("Standardfortrydelsesformular");
+    expect(await mailsFor(order.id, "customer_on_hold_order")).toHaveLength(0);
     const newOrder = await mailsFor(order.id, "new_order");
     expect(newOrder).toHaveLength(1);
     expect(newOrder[0]!.message).toContain("reserveret, ikke trukket");
+    expect((await sentMails()).filter((m) => m.order_id === order.id).map((m) => m.email_id).sort()).toEqual(["customer_processing_order", "new_order"]);
 
-    // The confirmation page reads what is reserved.
+    // The confirmation page reads what is reserved; a new checkout of the same session is not a second payment.
     expect((await getOrderDetails(order.id, ready.order.key))?.capture).toMatchObject({ status: "authorized", amount: "547.00" });
+    expect(await startCheckout(await requestFor(ids.tshirt, 2), { checkoutId }, deps)).toMatchObject({ type: "already_paid", order: { id: order.id } });
+    expect(stripe.calls.create).toBe(1);
+  });
+
+  it("keeps a payment that is processing at Stripe on-hold until it is authorized, then Behandler", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const ready = await startCheckout(await requestFor(ids.hat, 2), { checkoutId: `chk_cap_${Date.now().toString(36)}_async` }, deps);
+    if (ready.type !== "ready") throw new Error(`Expected ready, got ${ready.type}`);
+
+    // E.g. a method whose bank confirms later: waiting for Stripe, the stock is held for the customer.
+    stripe.process(ready.paymentIntentId);
+    await handleStripeEvent(eventFor({ id: ready.paymentIntentId }, "payment_intent.processing"), deps);
+    const waiting = await getOrder(ready.order.id);
+    expect(waiting).toMatchObject({ status: "on-hold", transaction_id: "", date_paid: null });
+    expect(metaValue(waiting, "_wchc_capture_status")).toBeUndefined();
+    expect((await getProduct(ids.hat)).stock_quantity).toBe(8);
+    const [onHold, ...moreOnHold] = await mailsFor(ready.order.id, "customer_on_hold_order");
+    expect(moreOnHold).toHaveLength(0);
+    // Not reserved yet: WooCommerce's own words that the payment is still being confirmed.
+    expect(onHold!.message).toMatch(/until we (can )?confirm/);
+    expect(onHold!.message).not.toContain("Vi har reserveret");
+
+    stripe.confirm(ready.paymentIntentId, { type: "mobilepay" });
+    const event = eventFor({ id: ready.paymentIntentId }, "payment_intent.amount_capturable_updated");
+    await Promise.all([handleStripeEvent(event, deps), handleStripeEvent(event, deps)]);
+    const reserved = await getOrder(ready.order.id);
+    expect(reserved).toMatchObject({ status: "processing", transaction_id: "", date_paid: null, payment_method_title: "MobilePay (Stripe)" });
+    expect(metaValue(reserved, "_wchc_capture_status")).toBe("authorized");
+    expect((await getProduct(ids.hat)).stock_quantity).toBe(8);
+    expect(await notesWith(ready.order.id, "Betalingen er reserveret og trækkes, når ordren sendes")).toHaveLength(1);
+    // Now the order confirmation that it is reserved; "New order" was sent with the on-hold e-mail, and not again.
+    await reservedConfirmation(ready.order.id);
+    expect(await mailsFor(ready.order.id, "customer_on_hold_order")).toHaveLength(1);
+    expect(await mailsFor(ready.order.id, "new_order")).toHaveLength(1);
+
+    await shop(ready.order.id, "completed");
+    expect(await getOrder(ready.order.id)).toMatchObject({ status: "completed", transaction_id: ready.paymentIntentId });
+    expect(stripe.calls.capture).toBe(1);
+  });
+
+  it("does nothing to the payment when the shop puts a reserved order on-hold and back, and sends no second confirmation", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const order = await authorizedOrder(deps, ids.tshirt, 1);
+    await clearMails();
+
+    // The shop needs to clarify something with the customer first.
+    await shop(order.id, "on-hold");
+    const held = await getOrder(order.id);
+    expect(held).toMatchObject({ status: "on-hold", transaction_id: "", date_paid: null });
+    expect(metaValue(held, "_wchc_capture_status")).toBe("authorized");
+    expect(await orderActions(order.id)).not.toContain("wchc_settle_payment");
+    // A webhook replayed meanwhile changes nothing either.
+    expect((await handleStripeEvent(eventFor({ id: order.pi }, "payment_intent.amount_capturable_updated"), deps)).outcome).toMatchObject({ result: "already_authorized" });
+    expect((await getOrder(order.id)).status).toBe("on-hold");
+
+    // Clarified: back to Behandler. WooCommerce sets a date paid on that status; it is cleared.
+    await shop(order.id, "processing");
+    const back = await getOrder(order.id);
+    expect(back).toMatchObject({ status: "processing", transaction_id: "", date_paid: null });
+    expect(metaValue(back, "_wchc_capture_status")).toBe("authorized");
+    expect(state.callbacks).toHaveLength(0);
+    expect(stripe.calls.capture + stripe.calls.cancel).toBe(0);
+    expect((await stripe.retrieve(order.pi)).status).toBe("requires_capture");
+    expect((await getProduct(ids.tshirt)).stock_quantity).toBe(24);
+    expect((await sweepPayments(storeId)).settle.map((o) => o.id)).not.toContain(order.id);
+    expect(await sentMails()).toHaveLength(0);
+
+    // Sent on purpose (WooCommerce's order e-mail action, e.g. after the address was corrected), it goes out.
+    await sendOrderEmail(order.id, "customer_processing_order");
+    await reservedConfirmation(order.id);
+
+    await shop(order.id, "completed");
+    expect(await getOrder(order.id)).toMatchObject({ status: "completed", transaction_id: order.pi });
+    expect(stripe.calls.capture).toBe(1);
+  });
+
+  it("keeps an order on-hold that the shop put on-hold while the customer paid, when the payment is reserved", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const ready = await startCheckout(await requestFor(ids.hat, 1), { checkoutId: `chk_cap_${Date.now().toString(36)}_held` }, deps);
+    if (ready.type !== "ready") throw new Error(`Expected ready, got ${ready.type}`);
+    await shop(ready.order.id, "on-hold");
+    await clearMails();
+
+    stripe.confirm(ready.paymentIntentId);
+    expect(await finalizePayment(await stripe.retrieve(ready.paymentIntentId), deps)).toMatchObject({ type: "applied", result: "authorized" });
+    const held = await getOrder(ready.order.id);
+    expect(held).toMatchObject({ status: "on-hold", transaction_id: "", date_paid: null });
+    expect(metaValue(held, "_wchc_capture_status")).toBe("authorized");
+    expect(await notesWith(ready.order.id, "Betalingen er reserveret og trækkes, når ordren sendes")).toHaveLength(1);
+    expect((await getProduct(ids.hat)).stock_quantity).toBe(9);
+    expect(await sentMails()).toHaveLength(0);
+
+    // Clarified: Behandler, and now the customer's order confirmation that the amount is reserved.
+    await shop(ready.order.id, "processing");
+    expect(await getOrder(ready.order.id)).toMatchObject({ status: "processing", date_paid: null });
+    await reservedConfirmation(ready.order.id);
+    await shop(ready.order.id, "completed");
+    expect(await getOrder(ready.order.id)).toMatchObject({ status: "completed", transaction_id: ready.paymentIntentId });
+    expect(stripe.calls.capture).toBe(1);
+  });
+
+  it("keeps the reservation when the shop moves an order on before its processing payment is reserved", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const processingFirst = async (productId: number) => {
+      const ready = await startCheckout(await requestFor(productId, 1), { checkoutId: `chk_cap_${Date.now().toString(36)}_${++seq}_moved` }, deps);
+      if (ready.type !== "ready") throw new Error(`Expected ready, got ${ready.type}`);
+      stripe.process(ready.paymentIntentId);
+      await handleStripeEvent(eventFor({ id: ready.paymentIntentId }, "payment_intent.processing"), deps);
+      return { id: ready.order.id, key: ready.order.key, pi: ready.paymentIntentId };
+    };
+    const packed = await processingFirst(ids.tshirt);
+    const sent = await processingFirst(ids.hat);
+    // The shop does not wait for the bank: one to Behandler, the other one already sent.
+    await shop(packed.id, "processing");
+    await shop(sent.id, "completed");
+    expect(state.callbacks).toHaveLength(0);
+
+    for (const order of [packed, sent]) {
+      stripe.confirm(order.pi);
+      expect((await handleStripeEvent(eventFor({ id: order.pi }, "payment_intent.amount_capturable_updated"), deps)).outcome).toMatchObject({ result: "authorized" });
+    }
+    await settled();
+    // Still the order's payment: kept for when it is sent, not released.
+    const kept = await getOrder(packed.id);
+    expect(kept).toMatchObject({ status: "processing", transaction_id: "", date_paid: null });
+    expect(metaValue(kept, "_wchc_capture_status")).toBe("authorized");
+    expect((await stripe.retrieve(packed.pi)).status).toBe("requires_capture");
+    expect(await notesWith(packed.id, "hører ikke til ordrens betaling")).toHaveLength(0);
+    // Already sent: captured at once.
+    expect(await getOrder(sent.id)).toMatchObject({ status: "completed", transaction_id: sent.pi });
+    expect(await notesWith(sent.id, "Ordren er allerede markeret Gennemført, så beløbet trækkes nu")).toHaveLength(1);
+    expect(stripe.calls).toMatchObject({ capture: 1, cancel: 0 });
+
+    await shop(packed.id, "completed");
+    expect(await getOrder(packed.id)).toMatchObject({ status: "completed", transaction_id: packed.pi });
+    expect(stripe.calls.capture).toBe(2);
+    expect((await getProduct(ids.tshirt)).stock_quantity).toBe(24);
+    expect((await getProduct(ids.hat)).stock_quantity).toBe(9);
+  });
+
+  it("gives no date paid to an order whose reservation expired or was released when the shop moves it back to Behandler", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const expired = await authorizedOrder(deps, ids.tshirt, 1);
+    const released = await authorizedOrder(deps, ids.hat, 1);
+    stripe.expire(expired.pi);
+    await handleStripeEvent(eventFor({ id: expired.pi }, "payment_intent.canceled"), deps);
+    expect(await getOrder(expired.id)).toMatchObject({ status: "on-hold", date_paid: null });
+    await shop(released.id, "cancelled");
+
+    // Clarified with the customer (e.g. who pays by bank transfer): back to Behandler, still not paid.
+    for (const [order, status] of [[expired, "expired"], [released, "released"]] as const) {
+      await shop(order.id, "processing");
+      const back = await getOrder(order.id);
+      expect(back).toMatchObject({ status: "processing", transaction_id: "", date_paid: null });
+      expect(metaValue(back, "_wchc_capture_status")).toBe(status);
+    }
+    // Collected another way: completing it keeps WooCommerce's date paid.
+    await paymentHandled(expired.id);
+    await shop(expired.id, "completed");
+    const sent = await getOrder(expired.id);
+    expect(sent.status).toBe("completed");
+    expect(sent.date_paid).not.toBeNull();
+    expect(stripe.calls.capture).toBe(0);
+  });
+
+  it("keeps working for an order reserved on-hold by plugin 1.5: captured when completed, also after the shop moves it to Behandler", async () => {
+    const stripe = new FakeStripe();
+    const deps = depsFor(stripe);
+    const legacy = async (productId: number) => {
+      const ready = await startCheckout(await requestFor(productId, 1), { checkoutId: `chk_cap_${Date.now().toString(36)}_${++seq}_legacy` }, deps);
+      if (ready.type !== "ready") throw new Error(`Expected ready, got ${ready.type}`);
+      stripe.confirm(ready.paymentIntentId);
+      // What 1.5 did with an authorization (e.g. order #14968 on the live site).
+      const callback = { url: settleUrl(), token: settleToken(SECRET, storeId, ready.order.id, ready.order.key) };
+      await wpEval(
+        `$o = wc_get_order( ${ready.order.id} ); $o->update_meta_data( '_wchc_capture_status', 'authorized' ); $o->update_meta_data( '_wchc_authorized_at', time() ); $o->update_meta_data( '_wchc_settle_callback', json_decode( '${JSON.stringify(callback)}', true ) ); $o->update_status( 'on-hold', 'Betalingen er reserveret og trækkes, når ordren sendes (1.5).' );`,
+      );
+      return { id: ready.order.id, key: ready.order.key, pi: ready.paymentIntentId };
+    };
+    const sent = await legacy(ids.tshirt);
+    const moved = await legacy(ids.hat);
+    expect(await getOrder(sent.id)).toMatchObject({ status: "on-hold", date_paid: null });
+    await clearMails();
+
+    // No migration: a replayed webhook leaves it on-hold.
+    expect((await handleStripeEvent(eventFor({ id: sent.pi }, "payment_intent.amount_capturable_updated"), deps)).outcome).toMatchObject({ result: "already_authorized" });
+    expect((await getOrder(sent.id)).status).toBe("on-hold");
+    await shop(sent.id, "completed");
+    expect(await getOrder(sent.id)).toMatchObject({ status: "completed", transaction_id: sent.pi });
+    expect(await stripe.retrieve(sent.pi)).toMatchObject({ status: "succeeded", amount_received: 29800 });
+
+    // Moved to Behandler by hand: still not paid, nothing captured, and the customer gets the order
+    // confirmation (it had the on-hold e-mail) once, saying the amount is reserved.
+    await shop(moved.id, "processing");
+    expect(await getOrder(moved.id)).toMatchObject({ status: "processing", transaction_id: "", date_paid: null });
+    expect((await stripe.retrieve(moved.pi)).status).toBe("requires_capture");
+    await reservedConfirmation(moved.id);
+    await shop(moved.id, "completed");
+    expect(await getOrder(moved.id)).toMatchObject({ status: "completed", transaction_id: moved.pi });
+    expect(stripe.calls.capture).toBe(2);
   });
 
   it("captures the payment when the shop marks the order completed, once, however often it is reported", async () => {
@@ -250,8 +467,7 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     const [refundMail] = await mailsFor(order.id, "customer_partially_refunded_order");
     expect(refundMail!.message).toContain("Beløbet er ikke trukket endnu, så der er intet at betale tilbage: vi trækker kun 298");
 
-    // Being packed (Behandler): not paid yet, although WooCommerce sets a date paid on that status.
-    await shop(order.id, "processing");
+    // Still waiting to be sent (Behandler): not paid.
     expect(await getOrder(order.id)).toMatchObject({ status: "processing", date_paid: null, transaction_id: "" });
 
     await shop(order.id, "completed");
@@ -348,20 +564,35 @@ describe.skipIf(!enabled)("capture at shipment against WooCommerce", () => {
     expect((await getProduct(ids.tshirt)).stock_quantity).toBe(24);
   });
 
-  it("tells the shop when Stripe lets a reservation expire, and does not capture it when the order is sent anyway", async () => {
+  it("puts the order on-hold and tells the shop when Stripe lets a reservation expire, and does not capture it when the order is sent anyway", async () => {
     const stripe = new FakeStripe();
     const deps = depsFor(stripe);
     const order = await authorizedOrder(deps, ids.tshirt, 1);
+    // One the shop already holds stays on-hold, with the same note and e-mail.
+    const held = await authorizedOrder(deps, ids.hat, 1);
+    await shop(held.id, "on-hold");
+    await clearMails();
     stripe.expire(order.pi);
+    stripe.expire(held.pi);
 
     const event = eventFor({ id: order.pi }, "payment_intent.canceled");
     await handleStripeEvent(event, deps);
     await handleStripeEvent(event, deps);
-    const expired = await getOrder(order.id);
-    expect(expired.status).toBe("on-hold");
-    expect(metaValue(expired, "_wchc_capture_status")).toBe("expired");
-    expect(await notesWith(order.id, "Reservationen er udløbet eller annulleret i Stripe (automatic)")).toHaveLength(1);
-    expect(await adminMails(`Reservationen for ordre #${order.id} er udløbet`)).toHaveLength(1);
+    await handleStripeEvent(eventFor({ id: held.pi }, "payment_intent.canceled"), deps);
+    for (const id of [order.id, held.id]) {
+      const expired = await getOrder(id);
+      expect(expired).toMatchObject({ status: "on-hold", transaction_id: "", date_paid: null });
+      expect(metaValue(expired, "_wchc_capture_status")).toBe("expired");
+      expect(await notesWith(id, "Reservationen er udløbet eller annulleret i Stripe (automatic)")).toHaveLength(1);
+      expect(await adminMails(`Reservationen for ordre #${id} er udløbet`)).toHaveLength(1);
+    }
+    // Waiting to be sent (Behandler), it was put on-hold (the note says so); the held one already was.
+    expect(await notesWith(order.id, "Ordren er sat på hold.")).toHaveLength(1);
+    expect(await notesWith(held.id, "Ordren er sat på hold.")).toHaveLength(0);
+    // Nothing for the customer, and no stock change.
+    expect((await sentMails()).filter((m) => m.to === customerEmail)).toHaveLength(0);
+    expect((await getProduct(ids.tshirt)).stock_quantity).toBe(24);
+    await shop(held.id, "cancelled");
 
     await shop(order.id, "completed");
     expect((await getOrder(order.id)).status).toBe("on-hold");
