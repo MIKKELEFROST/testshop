@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 import { HTML_LIMITED_BOT_UA_RE } from "next/dist/shared/lib/router/utils/html-bots";
-import { SUPPLIER_IMAGE_HOSTS } from "./src/config/images";
+import { SUPPLIER_IMAGE_HOSTS, WORDPRESS_MOVE_HOSTS } from "./src/config/images";
 
 /** Product images are served from the WooCommerce host (and supplier hosts, see src/config/images.ts). */
 function wooImagePattern() {
@@ -35,6 +35,13 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       ...(pattern ? [pattern] : []),
+      // The move's other WordPress host (WOOCOMMERCE_URL's own is allowed above), its uploads only.
+      ...WORDPRESS_MOVE_HOSTS.filter((hostname) => hostname !== pattern?.hostname).map((hostname) => ({
+        protocol: "https" as const,
+        hostname,
+        port: "",
+        pathname: "/wp-content/uploads/**",
+      })),
       ...SUPPLIER_IMAGE_HOSTS.map((hostname) => ({ protocol: "https" as const, hostname, pathname: "/**" })),
     ],
     // Product photos rarely change: keep optimized copies for 31 days, which also keeps the

@@ -23,6 +23,8 @@ Pluginet kræver WooCommerce 8.5+ og PHP 7.4+. Det understøtter både HPOS og d
 
 Forbindelsen bruger HTTP Basic auth over **HTTPS**. WooCommerce afviser Basic auth over almindelig HTTP. Permalinks skal være "pæne" (ikke "Almindelig"), så `/wp-json/` virker.
 
+Shoppens kald til REST API'et sender sin egen User-Agent, `<domæne>-storefront/1.0 (+https://<domæne>)` med webshoppens domæne (`siteUrl` i `src/config/store.ts`), fx `fastelavnskostumer.dk-storefront/1.0 (+https://fastelavnskostumer.dk)`, i stedet for Nodes `node`: Simplys firewall kan afvise generiske User-Agents (HTTP 455). Guirca-importen sender `guirca-import/1.0`. Fotos (`/wp-content/uploads/`) henter billedoptimeringen selv med en User-Agent, shoppen ikke kan ændre: på Vercel Vercels egen, under `next start` og `next dev` Next.js' `node`. Afviser firewallen den, virker API'et, men fotos vises som pladsholdere. Afsnit 13, trin 5, tjekker det.
+
 ## 3. WooCommerce-indstillinger, som prototypen bruger
 
 | Indstilling | Hvor | Anbefalet |
@@ -179,6 +181,47 @@ Fra plugin 1.5 trækkes kundens betaling først, når ordren sendes (et betaling
 - Ordremeta: `_wchc_capture_status` (`authorized`, `captured`, `failed`, `expired`, `released`, `manual` = klaret uden om webshoppen), `_wchc_authorized_at`, `_wchc_settle_callback` (shoppens adresse og ordrens token), `_wchc_reservation_warned`, `_wchc_capture_attempt`, `_wchc_capture_late_warned`. Ordrer uden `_wchc_capture_status` (betalt før 1.5) røres ikke.
 - Ved statusskiftet sender pluginet, når WordPress er færdig med ordren, `POST <shop>/api/payments/settle` med `{"orders":[{"id","order_key","token"}]}` (højst 10 ordrer pr. forespørgsel, timeout 10 sek., kun https, højst to omdirigeringer med 301/307/308). Tokenet er shoppens HMAC af webshop, ordre-ID og ordrenøgle (med `STRIPE_SECRET_KEY`): kun shoppen kan lave det, og WordPress skal ikke have en ny hemmelighed. Shoppen svarer med det samme og trækker bagefter; resultatet kommer tilbage som en betalingshændelse under ordrelåsen.
 - Advarslen efter 5 dage kan ændres med filteret `wchc_reservation_warn_days`. Mails til butikken går til modtagerne af *Ny ordre* (ellers sidens administrator-e-mail).
+
+## 13. Flytning af WordPress til en anden adresse
+
+WordPress med WooCommerce flytter fra `https://test.piece.dk` til `https://admin.onlinemarketing.nu`, en kopi på et andet webhotel hos Simply. Webshopperne finder WordPress via `WOOCOMMERCE_URL`, og billedoptimeringen får sin vært derfra, når projektet bygges (`next.config.ts`). Tag trinene i denne rækkefølge.
+
+**Først:** den version af shoppen, der kender begge værter, skal køre i produktion i begge Vercel-projekter. `WORDPRESS_MOVE_HOSTS` i `src/config/images.ts` tillader fotos (`/wp-content/uploads/`) fra både test.piece.dk og admin.onlinemarketing.nu, hvilken af dem `WOOCOMMERCE_URL` end peger på, og shoppens API-kald sender sin egen User-Agent (afsnit 2).
+
+1. **Den nye vært på HTTPS:** `https://admin.onlinemarketing.nu` skal svare med et gyldigt certifikat (Let's Encrypt hos Simply). WooCommerce afviser Basic auth over HTTP.
+2. **Kopiér database og filer** til det nye webhotel: databasen (hos Simply: **MySQL → Importer MySQL-database → Importer fra MySQL-server**, ellers eksport og import med phpMyAdmin) og hele WordPress-mappen med `wp-content` (uploads, plugins, tema) og `.htaccess`. Ordrer og ændringer på test.piece.dk efter kopien kommer ikke med: kopiér, når der er stille, og ret ikke produkter eller ordrer i den gamle WordPress bagefter. Hvad der alligevel kommer dertil, indtil trin 7 er gjort i begge projekter, tjekkes i trin 9.
+3. **`wp-config.php` på den nye vært:** den nye databases `DB_NAME`, `DB_USER`, `DB_PASSWORD` og `DB_HOST`, og adressen:
+   ```php
+   define('WP_HOME', 'https://admin.onlinemarketing.nu');
+   define('WP_SITEURL', 'https://admin.onlinemarketing.nu');
+   ```
+4. **Søg og erstat** med pluginet Better Search Replace (**Værktøjer → Better Search Replace**) på den nye vært: `test.piece.dk` → `admin.onlinemarketing.nu` i alle tabeller. Kør først som prøvekørsel (**Run as dry run?** slået til), se antallet af ændringer, og kør så for alvor. Slå **Replace GUIDs?** fra: et indlægs GUID må ikke ændres. Pluginet retter også serialiserede indstillinger, som en SQL-`REPLACE` ødelægger. Gem bagefter **Indstillinger → Permalinks** én gang.
+5. **Tjek forbindelsen** med API-nøglen (den samme: nøglerne ligger i databasen) og shoppens User-Agent (curls egen kan blive afvist af firewallen):
+   ```bash
+   curl -A "fastelavnskostumer.dk-storefront/1.0 (+https://fastelavnskostumer.dk)" \
+     -u "$WOOCOMMERCE_CONSUMER_KEY:$WOOCOMMERCE_CONSUMER_SECRET" \
+     https://admin.onlinemarketing.nu/wp-json/wc-headless/v1/status
+   ```
+   Svaret skal have plugin-versionen og `"currency":"DKK"`. Med samme kommando skal `…/wp-json/wc/v3/products?per_page=1` vise fotos (`images[].src`) under `https://admin.onlinemarketing.nu/wp-content/uploads/`, ikke på test.piece.dk. Fotos hentes med billedoptimeringens User-Agent (afsnit 2), så tjek også et af de links:
+   ```bash
+   curl -sI -A node https://admin.onlinemarketing.nu/wp-content/uploads/<sti fra images[].src>
+   ```
+   skal svare `200` med `content-type: image/…`, og `https://fastelavnskostumer.dk/_next/image?url=<samme link, URL-kodet>&w=640&q=75` skal vise fotoet i browseren (Vercels billedoptimering; den kørende version må allerede hente fra den nye vært). Svarer en af dem med 455 eller en fejl, så få Simply til at lade `/wp-content/uploads/` igennem, før trin 6.
+6. **`WOOCOMMERCE_URL` i begge Vercel-projekter** (Production og Preview): `https://admin.onlinemarketing.nu`. Nøgle og secret er uændrede. Ret den også i `.env.local` (Guirca-importen og lokale builds).
+7. **Sæt ét projekt ad gangen i produktion.** `WOOCOMMERCE_URL` læses ved build, så projektet skal bygges igen (**Deployments** → den aktuelle produktion → **Redeploy**). Tjek webshoppen, før det andet projekt følger: forsiden, en produktside med fotos, kurven og fragten i kassen (en POST til WooCommerce), og at Vercels logs ikke har `WooCommerce request failed` (fx 401 eller 455).
+8. **Varm cachen op** for hver webshop med `scripts/warm.mjs` ([DEPLOY.md](DEPLOY.md#5-efter-deploy)).
+9. **Ordrer, der kom på den gamle vært.** Indtil trin 7 er live i begge projekter, skriver webshopperne stadig til test.piece.dk: nye ordrer, betalinger fra Stripe og det daglige jobs træk og frigivelser (afsnit 12). Sammenlign derfor nu, mens den gamle admin kan nås (trin 10 omdirigerer den), ordrelisterne på de to værter: ordrer oprettet efter kopien, og kopierede ordrer, hvis status er ændret siden (fx *Afventer* på test.piece.dk, men *Afventende betaling* eller *Annulleret* på admin.onlinemarketing.nu). En kopieret ordre retter shoppen selv: send betalingens seneste hændelse igen i Stripe Dashboard (**Developers → Webhooks** → webshoppens endpoint → hændelsen → **Resend**), så læser shoppen betalingen i Stripe og skriver den på den nye vært. En ordre, der kun findes på test.piece.dk, kender shoppen ikke længere: opret den i hånden på admin.onlinemarketing.nu, og træk eller annullér dens betaling (`pi_…` i ordrens note om reservationen) i Stripe Dashboard, når den sendes, eller hvis den ikke skal sendes. Jo kortere tid mellem kopien og trin 7 i begge projekter, jo færre er der.
+10. **Først nu: 301 fra den gamle vært.** Øverst i `.htaccess` på test.piece.dk, før WordPress' egen blok:
+    ```apache
+    RewriteEngine On
+    RewriteCond %{HTTP_HOST} ^test\.piece\.dk$ [NC]
+    RewriteCond %{REQUEST_URI} !^/\.well-known/
+    RewriteRule ^(.*)$ https://admin.onlinemarketing.nu/$1 [R=301,L]
+    ```
+    Kun værtsnavnet test.piece.dk omdirigeres (ikke andre domæner på webhotellet), og sti og søgestreng følger med, så gamle links til fotos og sider virker. `/.well-known/` omdirigeres ikke: Simply fornyer Let's Encrypt-certifikatet derigennem, og uden certifikat virker omdirigeringen heller ikke. Aldrig før trin 7 er gjort i begge projekter: følger shoppen en omdirigering til en anden vært, sendes `Authorization` ikke med (WooCommerce svarer 401), og en 301 gør kassens POST (fragt og ordre) til en GET. Det samme gælder Guirca-importen, som derfor skal have den nye `WOOCOMMERCE_URL` først.
+11. **Ca. 31 dage efter trin 7:** tøm `WORDPRESS_MOVE_HOSTS` i `src/config/images.ts` (`[]`), og deploy begge projekter. Så længe gemmer billedoptimeringen sine kopier (`minimumCacheTTL` i `next.config.ts`), og så længe kan sider og delinger have fotolinks til test.piece.dk. Kurve gemt i kundernes browsere beholder deres fotolinks, til varen lægges i kurven igen: et foto, der stadig peger på test.piece.dk, vises bagefter som pladsholder (kun udseendet, købet virker). Lad 301'en blive stående for søgemaskiner og delte links.
+
+**Ret bagefter** de linjer, der stadig nævner test.piece.dk som WordPress (de er ikke rettet endnu, fordi flytningen ikke er sket): `README.md` (WooCommerce-linjen øverst og `WOOCOMMERCE_URL` i tabellen), `.env.example` (`WOOCOMMERCE_URL`), [DEPLOY.md](DEPLOY.md) (`WOOCOMMERCE_URL` i tabellen under "Importér repoet i Vercel" og afsnittet om regionen: slå den nye værts IP op, og ret `regions` i `vercel.json`, hvis den ikke længere står i Danmark), curl-kommandoen i afsnit 1 her og statuskaldet i den manuelle testplan i [TEST.md](TEST.md#manuel-testplan-rigtig-stripe--testpiecedk).
 
 ## Kendte begrænsninger
 

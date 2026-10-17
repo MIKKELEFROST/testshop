@@ -1,5 +1,6 @@
 import "server-only";
 import type { z } from "zod";
+import { storeConfig } from "@/config/store";
 import { wooEnv } from "@/lib/env";
 
 /**
@@ -281,6 +282,15 @@ function jitter(ms: number): number {
 /** A read let through before the breaker opened, whose turn for a slot came after: it asks the breaker again. */
 class Readmit extends Error {}
 
+/**
+ * Sent with every request instead of fetch's default ("node"): the web host's firewall (Simply)
+ * turns away generic user agents. Names the shop by its own domain (`siteUrl` in
+ * src/config/store.ts, the same in production, previews and locally), e.g.
+ * "fastelavnskostumer.dk-storefront/1.0 (+https://fastelavnskostumer.dk)".
+ */
+const SHOP_URL = storeConfig.siteUrl.replace(/\/+$/, "");
+const USER_AGENT = `${new URL(SHOP_URL).hostname}-storefront/1.0 (+${SHOP_URL})`;
+
 export async function wooRequest<T extends z.ZodType>(
   path: string,
   options: RequestOptions<T>,
@@ -303,6 +313,7 @@ export async function wooRequest<T extends z.ZodType>(
       headers: {
         Authorization: `Basic ${auth}`,
         Accept: "application/json",
+        "User-Agent": USER_AGENT,
         ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,

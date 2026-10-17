@@ -66,6 +66,7 @@ const caught = (request: Promise<unknown>) => request.then(() => undefined, (err
 const timeout = () => new DOMException("The operation was aborted due to timeout", "TimeoutError");
 const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 const pathOf = (call: unknown[]) => (call[0] as URL).pathname;
+const userAgentOf = (call: unknown[]) => new Headers((call[1] as RequestInit).headers).get("User-Agent");
 
 /**
  * Request timeouts on the fake clock (vitest's fake timers don't drive AbortSignal.timeout), and
@@ -603,5 +604,25 @@ describe("checkout endpoints", () => {
     const { error } = await settle(order);
     expect(failure(error).status).toBe(508);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the User-Agent", () => {
+  it("names the shop on every request instead of fetch's generic default, which the web host's firewall turns away", async () => {
+    const fetch = respond(200, 200);
+    await settle(read());
+    await settle(wooRequest("wc-headless/v1/orders", { method: "POST", body: {}, schema: okSchema }));
+    expect(fetch.mock.calls.map(userAgentOf)).toEqual(Array(2).fill("fastelavnskostumer.dk-storefront/1.0 (+https://fastelavnskostumer.dk)"));
+    expect(userAgentOf(fetch.mock.calls[0]!)).not.toMatch(/mozilla|python|curl|node|undici/i);
+  });
+
+  it("is each shop's own domain, also in a preview with its own NEXT_PUBLIC_SITE_URL", async () => {
+    vi.stubEnv("NEXT_PUBLIC_STORE_ID", "halloween-kostumer-dk");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://testshop-maskerade-git-x.vercel.app");
+    vi.resetModules();
+    ({ wooRequest } = await import("./client"));
+    const fetch = respond(200);
+    await settle(read());
+    expect(fetch.mock.calls.map(userAgentOf)).toEqual(["halloweenkostumer.dk-storefront/1.0 (+https://halloweenkostumer.dk)"]);
   });
 });
