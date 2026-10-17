@@ -12,7 +12,8 @@ import { Spinner } from "./spinner";
  * Such a failure is never cached, so instead of a dead end the page asks the server again by
  * itself (router.refresh, see lib/catalog-retry.ts) and shows the products as soon as they
  * come: this component is then no longer rendered. A refresh also replaces a copy of the
- * failed page in the browser's router cache. After the last try: `message` and "Prøv igen".
+ * failed page in the browser's router cache. A due refresh waits until the browser is online
+ * and the tab is visible. After the last try: `message` and "Prøv igen".
  *
  * Search engines get `noindex` on such a page (see the pages' generateMetadata).
  */
@@ -25,11 +26,27 @@ export function CatalogRetry({ loading, message }: { loading: string; message: s
   useEffect(() => {
     // One refresh at a time: the next pause starts when the last answer is in.
     if (delay === null || pending) return;
-    const timer = setTimeout(() => {
+    let due = false;
+    const fire = () => {
+      // A refresh that can't reach the server makes Next.js load the whole page instead, which
+      // offline replaces the shop with the browser's "No internet" page: wait until it can (also
+      // when a phone wakes up and its timers fire before the connection is back).
+      if (!due || !navigator.onLine || document.visibilityState === "hidden") return;
+      due = false;
       setAttempt((n) => n + 1);
       startTransition(() => router.refresh());
+    };
+    const timer = setTimeout(() => {
+      due = true;
+      fire();
     }, delay);
-    return () => clearTimeout(timer);
+    window.addEventListener("online", fire);
+    document.addEventListener("visibilitychange", fire);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("online", fire);
+      document.removeEventListener("visibilitychange", fire);
+    };
   }, [delay, pending, router]);
 
   if (delay === null) {
