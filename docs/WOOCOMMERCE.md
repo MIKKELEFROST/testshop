@@ -41,15 +41,19 @@ Storefronten beregner **ingen** moms eller fragt selv. Den viser WooCommerces ta
 
 **Udsalgspris og førpris – læs før du bruger udsalgspris:** Har et produkt eller en variant en **Udsalgspris**, viser shoppen den normale pris som overstreget "Før"-pris, et "-X%"-mærke på produktkort og produktbillede og "Spar X kr." på produktsiden. Efter prisoplysningsbekendtgørelsen (EU's Omnibus-regler) skal førprisen ved en prisnedsættelse være den laveste pris, varen er solgt til i de 30 dage før nedsættelsen. Shoppen og pluginet gemmer ingen prishistorik og kan ikke kontrollere det. Brug derfor kun Udsalgspris, når normalprisen har været uændret i mindst de 30 dage før, og hæv aldrig normalprisen op til et udsalg. Ellers skal du rette normalprisen i stedet. Priserne er fælles, så en udsalgspris gælder i alle webshops, der sælger varen. Leverandørimporten sætter kun normalprisen.
 
-## 4. Valgfrit: øjeblikkelig opdatering af produkter
+## 4. Produktwebhooks for hver webshop
 
-Produktsider caches i op til et minut. For at opdatere dem med det samme ved ændringer:
+**Ikke sat op endnu** (`GET wc/v3/webhooks` gav en tom liste 17-10-2026, og begge webshoppers `/api/revalidate` svarer 503 "not configured", fordi `WOOCOMMERCE_WEBHOOK_SECRET` mangler). Uden webhooks vises en ændring i WooCommerce, når cachen alligevel opdateres: en produktside 5 min. efter sidste opdatering, lister og menu efter 15 min. og relaterede varer efter en time, hver gang når siden bliver vist (se [ARKITEKTUR.md](ARKITEKTUR.md#caching)). Med webhooks opdateres det ændrede produkt med det samme.
 
-**WooCommerce → Indstillinger → Avanceret → Webhooks → Tilføj webhook** for hver af *Produkt oprettet / opdateret / slettet*:
+1. Lav en tilfældig, lang secret (fx `openssl rand -hex 32`), og sæt den som `WOOCOMMERCE_WEBHOOK_SECRET` i **begge** Vercel-projekter (Production). Redeploy.
+2. **WooCommerce → Indstillinger → Avanceret → Webhooks → Tilføj webhook**, tre for hver webshop (seks i alt): *Produkt oprettet*, *Produkt opdateret* og *Produkt slettet*.
+   - Leverings-URL: `https://fastelavnskostumer.dk/api/revalidate` for den ene webshops tre, `https://halloweenkostumer.dk/api/revalidate` for den andens. Ikke en `*.vercel.app`-preview: de er beskyttede, og leveringen fejler.
+   - Secret: værdien fra trin 1.
+   - API-version: WP REST API Integration v3.
+   - Status: Aktiv.
+3. Tjek under **Webhooks → (webhooken) → Logs**, at en ændring af et produkt får svar 200 (`{"ok":true,…}`).
 
-- Leverings-URL: `https://<din-butik>/api/revalidate`
-- Secret: samme værdi som `WOOCOMMERCE_WEBHOOK_SECRET`
-- API-version: WP REST API Integration v3
+Hvad en levering gør (`src/app/api/revalidate/route.ts`): produktets egne poster (produktside, relaterede varer, foto; for en variant dens produkt) markeres forældede med det samme. Hele kataloget (lister, menuens antal, sitemap) kun, når varer kan komme til eller forsvinde (oprettet, slettet, gendannet eller ikke længere udgivet), og højst hver 5. minut, så en import af tusindvis af varer ikke får hver liste læst igen efter hver vare. Næste visning får den gamle udgave med det samme, mens den nye hentes.
 
 ## 5. Hvad pluginet gør (endpoints)
 

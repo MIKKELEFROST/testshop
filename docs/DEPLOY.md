@@ -41,9 +41,9 @@ Rækkefølge ved opdatering: upload plugin 1.5.0 først, deploy derefter shoppen
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_test_…` |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` (trin 3) |
 | `CRON_SECRET` | Tilfældig streng på mindst 16 tegn (fx `openssl rand -hex 32`), sin egen i hvert projekt. Uden den kører det daglige job ikke (se nedenfor). |
-| `NEXT_PUBLIC_SITE_URL` | `https://<projekt>.vercel.app`. Uden den bruger sitemap, kanoniske adresser og strukturerede data brandets domæne (`siteUrl` i `src/config/store.ts`), aldrig `localhost`. |
+| `NEXT_PUBLIC_SITE_URL` | Webshoppens eget, primære domæne, fx `https://fastelavnskostumer.dk` (det, der ikke omdirigerer). Uden den bruger sitemap, kanoniske adresser, strukturerede data og ordremails brandets domæne (`siteUrl` i `src/config/store.ts`), aldrig `localhost`. **Ikke** `https://<projekt>.vercel.app`: så fik søgemaskinerne at vide, at webshoppen ligger dér (Fastelavnskostumer.dk 17-10-2026). I produktionen ignorerer koden nu en `*.vercel.app`-adresse og bruger brandets domæne, men ret variablen alligevel, og redeploy. |
 | `NEXT_PUBLIC_STORE_ID` | `piece-dk` (webshoppens butiks-ID, se [MULTISHOP.md](MULTISHOP.md)) |
-| `WOOCOMMERCE_WEBHOOK_SECRET` | (valgfri) tilfældig lang streng |
+| `WOOCOMMERCE_WEBHOOK_SECRET` | Tilfældig lang streng, den samme som i WooCommerces produktwebhooks for webshoppen ([WOOCOMMERCE.md](WOOCOMMERCE.md#4-produktwebhooks-for-hver-webshop)). Uden den svarer `/api/revalidate` 503, og ændringer i WooCommerce vises først efter 5-15 min. |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | (valgfri) kundeservice-e-mail. Uden den bruges brandets, f.eks. `hej@halloweenkostumer.dk` (`src/config/store.ts`). Den står i footer, på informationssiderne og som "Svar til" i ordremails. |
 | `NEXT_PUBLIC_TRUSTPILOT_BUSINESS_UNIT_ID`, `NEXT_PUBLIC_TRUSTPILOT_PROFILE_URL` | (valgfri) webshoppens Trustpilot, i stedet for i `src/config/trustpilot.ts`. Se [Trustpilot](#trustpilot-trustboxe) nedenfor. |
 
@@ -65,7 +65,7 @@ Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet
 - **Juridiske tekster** (`src/content/info-pages.ts`) er udkast efter de almindelige danske regler. Få dem læst igennem af en jurist.
 - **Kortbetaling:** beløbet reserveres ved køb og trækkes, når ordren markeres *Gennemført* (plugin 1.5, se nedenfor og [WOOCOMMERCE.md](WOOCOMMERCE.md#12-reservation-og-træk-ved-afsendelse)). **Upload plugin 1.5.0 først** (`npm run plugin:zip` → Plugins → Tilføj nyt → Upload plugin → Erstat nuværende med uploadet): med et ældre plugin trækker shoppen beløbet med det samme, selvom teksterne siger "reserveret". Tjek derefter, at `CRON_SECRET` er sat i begge projekter (gjort 16-10-2026), at begge Stripe-webhooks har `payment_intent.amount_capturable_updated` (tilføjet i testtilstand 16-10-2026; gør det samme i live-tilstand), og at en testordre markeret *Gennemført* får noten "Betalingen er trukket".
 - **Stripe live-nøgler** og et live-webhook i stedet for test. Før skiftet: markér alle testordrer med reserveret betaling *Gennemført* eller *Annulleret*. Efter skiftet kan produktionen ikke trække eller frigive testordrer fra previews (live-nøglen kender ikke test-betalingerne; det daglige job springer dem over): annullér dem i WooCommerce, og lad dem udløbe i Stripe (test).
-- **Domæner** (fastelavnskostumer.dk, halloweenkostumer.dk): tilføj dem i Vercel-projekterne, sæt `NEXT_PUBLIC_SITE_URL` til dem, og registrér dem i Stripe under **Payment method domains** (Apple Pay/Google Pay) og som webhook-endpoints. Kobl begge på samtidig: produktsiderne peger allerede på hinandens domæner (`siteUrl` i `src/config/store.ts`, se [MULTISHOP.md](MULTISHOP.md)). Får en webshop et andet domæne, så ret også `siteUrl`.
+- **Domæner** (fastelavnskostumer.dk, halloweenkostumer.dk): tilføj dem i Vercel-projekterne, sæt `NEXT_PUBLIC_SITE_URL` til dem, og registrér dem i Stripe under **Payment method domains** (Apple Pay/Google Pay) og som webhook-endpoints. Under **Settings → Domains** skal det primære domæne være det, `NEXT_PUBLIC_SITE_URL` peger på, og de andre adresser skal omdirigere dertil: 17-10-2026 svarede `www.fastelavnskostumer.dk` med hele webshoppen i stedet for at omdirigere (Halloweenkostumer.dk's www omdirigerer rigtigt). Sæt `www.fastelavnskostumer.dk` til **Redirect to fastelavnskostumer.dk** (308). `*.vercel.app`-adresserne svarer med `X-Robots-Tag: noindex`. Kobl begge på samtidig: produktsiderne peger allerede på hinandens domæner (`siteUrl` i `src/config/store.ts`, se [MULTISHOP.md](MULTISHOP.md)). Får en webshop et andet domæne, så ret også `siteUrl`.
 - **Kundeservice-e-mails, for hvert domæne:** brandenes adresser i `src/config/store.ts` (`hej@fastelavnskostumer.dk`, `hej@halloweenkostumer.dk`) er "Svar til" i ordremails og den eneste kanal til fortrydelse og reklamation på informationssiderne. De skal kunne modtage mail, før webshoppen går live:
   - Opret postkassen hos mailudbyderen (Simply), og sæt **MX** for domænet (`10 mx.simply.com`).
   - Sæt **SPF** (`v=spf1 include:spf.simply.com -all`, plus de tjenester, der ellers sender fra domænet) og slå **DKIM** til hos udbyderen.
@@ -77,7 +77,7 @@ Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet
 - **Betalingsmetoder:** handelsbetingelserne ("Betaling") og FAQ'en ("Hvordan kan jeg betale?") i `src/content/info-pages.ts` nævner Visa, Mastercard, MobilePay, Apple Pay og Google Pay. Slå præcis dem til i Stripe live (**Settings → Payment methods**), eller ret listerne, så de passer til det, der er slået til (f.eks. PayPal, Klarna eller Revolut Pay).
 - **Trustpilot (valgfrit):** business unit ID, profilside og TrustBoxe pr. webshop, se [Trustpilot](#trustpilot-trustboxe).
 - **Varer kun for voksne:** ✓ Kørt 16-10-2026: `python3 scripts/guirca/import_guirca.py adult --apply` flyttede de 48 grove varer til kun Halloweenkostumer.dk (ejerens beslutning 16-10-2026; 48 gemt, 0 fejl). Kør den igen efter en ny import. Den skriver kun feltet Webshops: varerne forbliver udgivne i deres egne kategorier, og de 37 i "Polterabend (18+)" sælges allerede kun dér. Kør først prøvekørslen uden `--apply` (den læser kun), og ikke mens webshopperne har travlt. Se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md#varer-kun-for-voksne-18).
-- **Produkt-webhooks pr. webshop:** opret WooCommerce-webhooks for *Produkt oprettet / opdateret / slettet* for hver webshop: ét sæt med leverings-URL `https://fastelavnskostumer.dk/api/revalidate` og ét med `https://halloweenkostumer.dk/api/revalidate`, hver med samme secret som `WOOCOMMERCE_WEBHOOK_SECRET` i webshoppens Vercel-projekt. Gør det, når domænerne er forbundet (leveringer til beskyttede `*.vercel.app`-previews fejler). Se [WOOCOMMERCE.md](WOOCOMMERCE.md#4-valgfrit-øjeblikkelig-opdatering-af-produkter).
+- **Produkt-webhooks pr. webshop:** opret WooCommerce-webhooks for *Produkt oprettet / opdateret / slettet* for hver webshop: ét sæt med leverings-URL `https://fastelavnskostumer.dk/api/revalidate` og ét med `https://halloweenkostumer.dk/api/revalidate`, hver med samme secret som `WOOCOMMERCE_WEBHOOK_SECRET` i webshoppens Vercel-projekt. Gør det, når domænerne er forbundet (leveringer til beskyttede `*.vercel.app`-previews fejler). Se [WOOCOMMERCE.md](WOOCOMMERCE.md#4-produktwebhooks-for-hver-webshop). **Ikke gjort endnu** (17-10-2026).
 
 ## Trustpilot (TrustBoxe)
 
@@ -106,12 +106,22 @@ Webshopperne kan vise Trustpilots egne TrustBoxe med webshoppens rigtige bedømm
 
 ## 5. Efter deploy
 
+- **Varm cachen op.** Et deploy starter med en tom katalogcache, så hver sides første visning venter på WooCommerce. Når produktionen kører den nye version, så kør for hver webshop:
+
+  ```bash
+  node scripts/warm.mjs https://fastelavnskostumer.dk
+  node scripts/warm.mjs https://halloweenkostumer.dk
+  ```
+
+  Scriptet viser forsiden, temaerne, "Alle produkter", side 1 af hver kategori og tema og op til 300 af deres varer (`--products 300`), to ad gangen (`--concurrency 2`, højst 4), og stopper ved den første side, der ikke kunne læse WooCommerce: kør det igen om lidt. Det sender kun GET-forespørgsler. Saml helst flere ændringer i ét produktions-deploy, især i sæsonen.
 - Følg den manuelle testplan i [TEST.md](TEST.md#manuel-testplan-rigtig-stripe--testpiecedk).
 - Preview-deployments bruger samme WooCommerce. De opretter rigtige (test)ordrer der.
 
 ## Drift
 
 - HTTPS leveres af Vercel. WooCommerce-forbindelsen kræver HTTPS.
+- **WordPress-værten (Simply.com)** svarer HTTP 508 ("Resource Limit Is Reached"), når for mange forespørgsler kører på én gang, og en enkelt forespørgsel har taget 11 sek. (17-10-2026). Shoppen holder det ud (se [ARKITEKTUR.md](ARKITEKTUR.md#caching)), men før fastelavn og halloween bør værten kunne mere: en REST-cache for `GET /wp-json/wc/v3/products*`, `…/products/categories` og `…/products/tags`, der tømmes, når et produkt gemmes (aldrig for `/wp-json/wc-headless/v1/*` og aldrig for POST), en vedvarende objektcache (Redis/Memcached) hvis Simply tilbyder det, ellers en større plan eller en anden vært med flere samtidige processer.
+- **Vercel-forbrug (Hobby):** katalogcachen gemmer nu poster i 30 dage (**Usage → Runtime Cache**), og billedoptimeringen har en grænse pr. måned (**Usage → Image Optimization**; 289 af 374 billeder var nye transformationer ved gennemgangen 17-10-2026). Hold øje med begge efter go-live.
 - Rate limiting er pr. serverinstans. Ved rigtig trafik bør du slå Vercel Firewall-rate limiting til på `/api/checkout*`.
 - Logs (Vercel → Logs) indeholder kun fejlkoder og ordre-/event-ID'er. Der logges ingen nøgler eller kundedata.
 

@@ -24,7 +24,7 @@ Integrationstestene kalder den rigtige WooCommerce via pluginet. Stripe erstatte
 
 ## Testresultater
 
-Kørt 14.–16. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen faktisk er kørt og bestået.
+Kørt 14.–17. oktober 2026 i udviklingsmiljøet. **Bestået** betyder, at testen faktisk er kørt og bestået.
 
 | Krav | Hvordan | Resultat |
 | --- | --- | --- |
@@ -202,6 +202,28 @@ Lokale dev-servere for begge webshops på test.piece.dk med en testopsætning (`
 | Navigation i browseren | Forside → produkt → kontakt → tilbage: produktsidens TrustBox indlæses efter navigationen (`loadFromElement`), løfterækkens kun på forsiden, og Trustpilots script hentes én gang. |
 | Uden opsætning | Ingen TrustBoxe, ingen forespørgsler til Trustpilot, produktsiden viser "Bedømt som Fremragende – +30.000 femstjernede anmeldelser" som før, og cookie- og privatlivspolitikken nævner ikke Trustpilot. |
 | Template-ID'er | Micro Star (`5419b732fbfb950b10de65e5`) og Micro TrustScore (`5419b637fa0340045cd0c936`) set i browseren; Micro Combo og Review Collector findes hos Trustpilot (svarer 200), men er ikke prøvet i browseren. |
+
+### "Vi kan ikke hente produkterne lige nu" 17-10-2026
+
+Årsagen (live 17-10-2026): én fejlet læsning (508, timeout) af enhver slags åbnede læseafbryderen i 30 sek. til 2 min., og imens fejlede alle ucachede sider med det samme, selv om WooCommerce svarede på 0,2 sek.; og katalogets poster var væk en time efter sidste opdatering, så de fleste af ~8.600 varer pr. webshop var kolde. Rettelserne (læseprioriteter og prøver i afbryderen, 30 dages cache, siden der prøver selv igen) er tjekket sådan:
+
+- **Automatiske tests:** `npm test` 408 tests (heraf 29 for klienten: afbryderen åbner først efter 3 fejl på 10 sek., baggrundslæsninger afvises, kritiske venter på deres tur som prøve, pladser forbeholdt kritiske læsninger, en læsning der fik en plads efter åbningen sendes ikke). Integrationstestene (70, begge ordrelagre) har nu `catalog-reads.test.ts` (8 kolde produktsider og en liste på én gang mod den lokale WooCommerce) og i `woocommerce-unavailable.test.ts` afbryderen mod en vært, der ikke svarer.
+- **Produktionsbuild mod en lokal kopi af WooCommerces svar med fejl sat ind** (Fastelavn):
+
+| Tjek | Før | Nu |
+| --- | --- | --- |
+| Én vares læsning får 508 to gange, derefter 3 andre kolde produkter | Fejlbesked på alle i 30 sek. | Kun den ene viser "Vi henter produktet …"; de 3 andre vises (0,27 sek.) |
+| 508 på relaterede varer | Næste besøgendes kolde produkt fejlede | Alle produkter vises, rækkerne mangler kun |
+| Værten svarer langsomt (3 sek. pr. læsning), 10 kolde produktsider på én gang | 2 af 10 fejlede ("Too many WooCommerce reads are waiting") | 10 af 10 viser varen; nogle relaterede rækker mangler |
+| Værten nede (508 på alt), 5 kolde sider, så oppe igen | Fejl i 30-210 sek. efter | Under nedbruddet "Vi henter …"; bagefter vises nye kolde sider efter 2,3 sek. (afbryderens prøve), den fejlede adresse ved næste visning |
+| Siden, der prøver selv igen (Playwright, uret spolet frem) | Statisk fejlbesked | 6 automatiske forsøg (3, 6, 12, 24, 48, 96 sek.), derefter fejlbeskeden med "Prøv igen", som viser varen, når WooCommerce svarer; varen kommer også frem ved et automatisk forsøg |
+| Googlebot under fejl / ukendt vare | 200, titel "Produkt", ingen robots | 200 med `noindex, follow` / 404 |
+| Fejlen gemmes ikke | | Næste visning efter fejlen læser WooCommerce igen og viser varen |
+
+- **Produktionsbuilds af begge webshops mod test.piece.dk** (én build-worker, højst 4 samtidige læsninger): begge builds uden en eneste fejlet læsning. Fastelavn: forside, Drengekostumer, "Politi – kostume til drenge, blå og guld" (kold 1,4 sek., varm 0,06 sek.), Bandit-kostume, søgning og "Alle produkter" uden fejl; Googlebot får varen og 404 for en ukendt. Halloween: forside, Halloween, Slikgriber med spøgelse, Vintage cirkusklovn, Halloweenkostumer side 2 og søgning uden fejl. Med en WooCommerce-adresse, der ikke svarer: forside, menu og FAQ virker, produkt og kategori viser "Vi henter …" med `noindex, follow`.
+- **Per-adresse-cache af produktsider** (`generateStaticParams`) er prøvet og fravalgt: den første visnings fejlede læsning blev gemt med siden og vist for alle i 15 min. (se [ARKITEKTUR.md](ARKITEKTUR.md#caching)).
+- **Kurvens layout-skift** (Playwright, 390 og 1440 px, 0, 1 og 2 varer): CLS 0,51 / 0,74 / 0,15 før, 0,000 nu mens prisberegningen venter og 0,03, når den svarer.
+- **Delingsdata:** alle sider med kanonisk adresse har `og:url` og stadig et `og:image`; `*.vercel.app` svarer med `X-Robots-Tag: noindex`.
 
 ## Manuel testplan (rigtig Stripe + test.piece.dk)
 
