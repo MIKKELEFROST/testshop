@@ -26,6 +26,11 @@ describe("catalogue revalidation", () => {
     ]);
   });
 
+  it("expires a product that is gone (deleted, unpublished) at once", () => {
+    revalidate.revalidateProduct(7, true);
+    expect(revalidateTag.mock.calls).toEqual([["wc-product-7", { expire: 0 }]]);
+  });
+
   it("marks the whole catalogue stale at most once per 5 minutes", () => {
     expect(revalidate.revalidateCatalog()).toBe(true);
     vi.advanceTimersByTime(4 * 60_000);

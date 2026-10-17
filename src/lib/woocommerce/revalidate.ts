@@ -5,7 +5,10 @@ import { CATALOG_TAG, productTag } from "./products";
 /**
  * Marking cached catalogue data stale, after a product webhook (/api/revalidate) or an order
  * that changed stock (/api/stripe/webhook). Stale-while-revalidate (`max`): the next view gets
- * the old copy at once while the new one is read.
+ * the old copy at once while the new one is read. Except for a product that was deleted or is
+ * no longer published: its own entries expire at once (`{ expire: 0 }`), so the next view,
+ * maybe weeks later, reads it again and gets a 404 instead of the old product with its buy
+ * button. Only that product's entries are read again, so it costs the host one read.
  *
  * A product's own entries (its page, related rows, photo) at once. The whole catalogue (every
  * list, the menu's counts, the sitemap) at most once per CATALOG_INTERVAL_MS per server
@@ -17,8 +20,9 @@ import { CATALOG_TAG, productTag } from "./products";
 const CATALOG_INTERVAL_MS = 5 * 60_000;
 let lastCatalog = -Infinity;
 
-export function revalidateProduct(id: number) {
-  revalidateTag(productTag(id), "max");
+/** `gone`: the product was deleted or is no longer published. */
+export function revalidateProduct(id: number, gone = false) {
+  revalidateTag(productTag(id), gone ? { expire: 0 } : "max");
 }
 
 /** Marks the whole catalogue stale unless that was done less than 5 minutes ago; whether it did. */

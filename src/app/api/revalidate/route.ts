@@ -7,7 +7,8 @@ import { revalidateCatalog, revalidateProduct } from "@/lib/woocommerce/revalida
  * WooCommerce signs each delivery: X-WC-Webhook-Signature = base64(HMAC-SHA256(body, secret)).
  * On a valid call the changed product's cache entries (its page, its related rows, its photo)
  * are marked stale, so price and stock changes show up there within seconds; the next view
- * is served the old copy while the new one is read (`max`).
+ * is served the old copy while the new one is read (`max`). A deleted or unpublished product's
+ * entries expire at once instead: its next view is a 404, not the old product.
  *
  * The whole catalogue (lists, the menu's counts, the sitemap) is only marked stale when the
  * change can add or remove products from lists: a product created, deleted or restored, or
@@ -40,12 +41,13 @@ export async function POST(request: Request) {
   // A variation's change is its product's.
   const variation = typeof json.parent_id === "number" && json.parent_id > 0;
   const productId = variation ? (json.parent_id as number) : typeof json.id === "number" ? json.id : undefined;
-  if (productId) revalidateProduct(productId);
-
   const topic = request.headers.get("x-wc-webhook-topic") ?? "";
-  // An unknown topic (an older or odd sender) counts as a change to the lists. A product (not a
-  // variation: a disabled size is "private") that is no longer published leaves them.
+  // A product (not a variation: a disabled size is "private") that is no longer published
+  // leaves the shop, like a deleted one.
   const unpublished = !variation && typeof json.status === "string" && json.status !== "publish";
+  if (productId) revalidateProduct(productId, !variation && (topic === "product.deleted" || unpublished));
+
+  // An unknown topic (an older or odd sender) counts as a change to the lists.
   const changesLists = !topic.startsWith("product.") || LIST_TOPICS.has(topic) || unpublished;
   const catalog = changesLists && revalidateCatalog();
   return Response.json({ ok: true, product: productId ?? null, catalog });

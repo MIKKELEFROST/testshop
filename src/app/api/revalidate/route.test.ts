@@ -63,6 +63,18 @@ describe("POST /api/revalidate", () => {
     }
   });
 
+  it("expires a deleted or unpublished product's entries at once, so its next view is a 404 and not the old product", async () => {
+    await POST(delivery("product.deleted", { id: 7 }));
+    expect(revalidateTag.mock.calls[0]).toEqual(["wc-product-7", { expire: 0 }]);
+    revalidateTag.mockClear();
+    await POST(delivery("product.updated", { id: 9, status: "draft" }));
+    expect(revalidateTag.mock.calls[0]).toEqual(["wc-product-9", { expire: 0 }]);
+    // Not for a variation (a disabled size), nor for its product, which is still for sale.
+    revalidateTag.mockClear();
+    await POST(delivery("product.updated", { id: 51, parent_id: 5, status: "private" }));
+    expect(revalidateTag.mock.calls).toEqual([["wc-product-5", "max"]]);
+  });
+
   it("marks the lists stale at most once per 5 minutes, e.g. during an import", async () => {
     await POST(delivery("product.created", { id: 1, status: "publish" }));
     vi.advanceTimersByTime(60_000);
