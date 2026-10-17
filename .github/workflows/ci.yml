@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, types, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Supplier import rules (Python, no dependencies needed)
+        run: python3 -m unittest discover -s scripts/guirca
+      - name: Build (no secrets — catalogue pages fall back gracefully)
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  integration:
+    name: Integration tests (real WooCommerce in Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start local WordPress + WooCommerce with the plugin
+        run: ./scripts/local-woocommerce/setup.sh
+      - run: npm run test:integration
+      - name: Re-run with HPOS order storage
+        run: WC_HPOS=yes ./scripts/local-woocommerce/setup.sh && npm run test:integration

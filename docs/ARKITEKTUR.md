@@ -1,0 +1,173 @@
+# Arkitektur
+
+```
+ Browser ──► Next.js (Vercel) ──────────────► WooCommerce (WordPress)
+   │           │  Server Components             • REST API v3: produkter, kategorier
+   │           │  /api/checkout/quote ─────────► • wc-headless/v1 (pluginet):
+   │           │  /api/checkout ───────────────►     quote, ordrer, betalingsstatus
+   │           │  /api/stripe/webhook ─────────►
+   │           │  /api/payments/settle ◄──────── ordren er sendt / annulleret (træk / frigiv)
+   │           │  /api/cron/settle-payments ───► dagligt sikkerhedsnet (Vercel Cron)
+   │           ▼
+   └──► Stripe.js (Payment Element) ◄──► Stripe ──webhook──► /api/stripe/webhook
+```
+
+## Ansvarsfordeling
+
+| | Autoritativ kilde |
+| --- | --- |
+| Produkter, varianter, priser, tilbud, lager, moms, fragt, ordrer, ordrestatus | **WooCommerce** |
+| Betaling, betalingsoplysninger (kort-data), betalingsstatus | **Stripe** |
+| Præsentation, kurv (kun *hvad* kunden vil have), checkout-UX | **Next.js** |
+
+Browseren bestemmer aldrig en pris. Kurven i `localStorage` indeholder kun produkt-ID, variant-ID og antal, plus den pris kunden så, til visning. Alle beløb beregnes af WooCommerce.
+
+## Hvorfor et lille WordPress-plugin?
+
+WooCommerce REST API v3 alene kan ikke levere et sikkert flow:
+
+1. **Moms og fragt for en kurv uden at oprette en ordre.** Fragtmetoder som "gratis fragt over X kr." er bundet til WooCommerces *kurv*. Pluginet bygger en rigtig WooCommerce-kurv i en isoleret, ikke-gemt session og returnerer WooCommerces egne totaler.
+2. **Lagerreservation ved samtidige køb.** REST-oprettede ordrer reserverer ikke lager, så to kunder kan købe den sidste vare. Pluginet opretter ordren via `WC_Checkout::create_order()`, som udløser WooCommerces egen `ReserveStock` (atomisk SQL med `FOR UPDATE`).
+3. **Idempotens og samtidighed.** Én ordre pr. checkout-session og én PaymentIntent pr. ordre. Det sikres med databaselåse (`GET_LOCK`) og compare-and-set.
+
+Pluginet implementerer **ikke** sin egen lager- eller momslogik. Lagertræk sker kun i WooCommerce core (`payment_complete()` / statusskift), som selv beskytter mod dobbelt træk.
+
+## Ordre-livscyklus
+
+```
+ Kunde trykker "Betal"
+   │
+   ▼
+ POST /api/checkout                         (same-origin, rate limit, Zod)
+   │  sender kurv + adresse + fragtmetode + rabatkoder + "den total kunden så"
+   ▼
+ Plugin: POST /orders  (lås pr. checkout-session)
+   • bygger WooCommerce-kurv → priser, lager, rabatkoder, moms, fragt beregnes af WooCommerce
+   • rabatkode afvist? → 409 coupon_invalid + ny quote med begrundelsen
+   • total ≠ den kunden så? → 409 total_changed + ny quote (kunden skal bekræfte)
+   • udsolgt? → 409/422 (ingen ordre)
+   • opretter/genoptager ÉN ordre "pending" pr. session + reserverer lager (60 min*)
+     og rabatkoder med brugsgrænse. Er sessionens ordre ældre end 60 min*, annulleres
+     den, og der oprettes en ny.
+   ▼
+ Next.js: sikrer ÉN PaymentIntent pr. ordre for præcis ordretotalen
+   • idempotency key = ordre + nøgle + beløb + parametrenes hash → ingen dubletter ved
+     retries; rettet navn/adresse efter et fejlet forsøg giver en ny PaymentIntent
+   • total under Stripes minimum (2,50 kr.) → "kontakt kundeservice" (ingen betaling)
+   • eksisterende PaymentIntent genbruges / beløb opdateres
+   • tilknyttes ordren med compare-and-set (parallelle klik giver samme betaling)
+   ▼
+ Browser: stripe.confirmPayment() (kortdata går direkte til Stripe, 3-D Secure)
+   │  capture_method "manual": beløbet RESERVERES kun (requires_capture)
+   ▼
+ Stripe webhook  ──►  /api/stripe/webhook (signatur verificeres på rå body)
+ Retur-URL       ──►  /ordre/bekraeftelse (hurtig vej, samme kode)
+   • PaymentIntent hentes FRISK fra Stripe (event-data og URL stoles ikke på)
+   • Plugin: POST /orders/{id}/payment (lås pr. ordre, ordrenøgle kræves)
+       authorized → beløb + valuta tjekkes → betalingsmetode gemmes → "processing" (Behandler)
+                   → WooCommerce trækker lager én gang, frigiver reservation, sender
+                     Behandler-mail og Ny ordre én gang
+                   (intet betalt endnu: intet transaktions-ID, ingen betalingsdato;
+                    shoppens callback-adresse + ordrens token gemmes)
+       succeeded  → betalt (trukket, eller en ordre fra før reservationen: payment_complete())
+       processing → "on-hold" (På hold: lager trækkes, async betalingsmetoder) → "processing",
+                    når beløbet er reserveret
+       failed     → note på ordren (én gang pr. forsøg), ordren forbliver betalbar
+       canceled   → "cancelled" → reservation frigives / lager gendannes
+                    (en reservation, der udløber, mens ordren er Behandler → "on-hold", note, mail)
+   ▼
+ Bekræftelsesside: ordrenummer, "beløbet er reserveret", varer, levering. Kurven tømmes, ny session.
+   ▼
+ Butikken markerer ordren "Gennemført" (sendt) · eller "Annulleret"
+   (På hold og tilbage til Behandler, mens noget afklares: intet sker med betalingen)
+   ▼
+ Plugin → POST /api/payments/settle {ordre, nøgle, token}   (eller det daglige /api/cron/settle-payments)
+   • token = HMAC(STRIPE_SECRET_KEY, webshop + ordre + nøgle) tjekkes; svar 202, arbejdet sker bagefter
+   • ordren læses igen i WooCommerce og PaymentIntent i Stripe
+       Gennemført → capture(ordrens beløb − refunderinger), idempotency key pr. forsøg
+                    → succeeded → transaktions-ID, betalingsdato, "Betalingen er trukket"
+                    → afvist/udløbet → capture_failed/canceled → "on-hold" (På hold), note, mail til butikken
+                      (betalt på anden vis: ordrehandling → "manual", ordren kan forblive Gennemført)
+       Annulleret → PaymentIntent annulleres → canceled → "Reservationen er frigivet"
+   • dagligt job: advarer også om sendte ordrer, der et døgn senere ikke er trukket
+```
+
+\* Bruger WooCommerces indstilling "Hold lager (minutter)". Er den tom, reserverer pluginet i 15 minutter. Pluginet annullerer selv ubetalte headless-ordrer efter "Hold lager"-tiden (60 minutter, hvis den er tom), og en ordre ældre end det genoptages ikke, men erstattes af en ny.
+
+## Garantier og hvordan de opnås
+
+| Krav | Mekanisme |
+| --- | --- |
+| Ingen dobbeltordrer | Checkout-session-ID (httpOnly-cookie) → én ordre pr. session. Lås + fingerprint giver idempotent replay. |
+| Ingen dobbeltbetalinger | Én PaymentIntent pr. ordre (Stripe idempotency key + compare-and-set i WooCommerce). Klientside dobbeltklik-spærre. En betaling, der alligevel ankommer til en allerede betalt eller erstattet ordre, **refunderes automatisk** (en reservation frigives). |
+| Intet dobbelt lagertræk | Kun WooCommerce core trækker lager (`_order_stock_reduced`). Betalingshændelser behandles under ordrelås, og ordren genindlæses fra databasen efter låsen. |
+| Idempotente webhooks | PaymentIntent hentes frisk. Statusmaskinen i pluginet gør gentagelser til no-ops. Rækkefølgen af events er ligegyldig. |
+| Trukket ved afsendelse, aldrig to gange | Beløbet reserveres ved køb (`capture_method: manual`; ordren står som *Behandler*, men er ikke betalt) og trækkes, når ordren er *Gennemført*. Callback og dagligt job er kun et signal: ordre og PaymentIntent læses igen, Stripe accepterer ét træk pr. reservation, og idempotency key pr. PaymentIntent, beløb og forsøg. Kun shoppen kan lave ordrens token. Annulleret før afsendelse → reservationen frigives. |
+| Samtidige køb af sidste vare | WooCommerce `ReserveStock` (atomisk). Testet med 4 parallelle købere: præcis én får varen. |
+| Pris ændret under checkout | Serveren sammenligner WooCommerces nye total med den, kunden så. Ved forskel → ny quote, og kunden skal trykke Betal igen. |
+| Manipulation af priser | Klienten sender ingen priser. Zod fjerner ukendte felter. Beløbet til Stripe = WooCommerce-ordrens total. Webhook tjekker beløb og valuta. |
+| Afbrudt betaling | Ordren forbliver "pending" med reservation. WooCommerce annullerer den automatisk efter hold-perioden. Kommer pengene alligevel bagefter, genåbnes ordren, hvis lageret er der, ellers refunderes. |
+| WooCommerce nede | Katalog: de sidst hentede data vises videre i op til 30 dage (en fejlet opdatering kasseres). Er en vare eller liste ikke hentet endnu, viser siden "Vi henter produktet …" og spørger selv igen efter 3, 6, 12, 24, 48 og 96 sek. (ca. 3 min.), derefter fejlbeskeden med "Prøv igen" (et forsøg venter, til browseren er online og fanen synlig). Fejlen caches ikke, og søgemaskiner får `noindex`. Checkout: ingen betaling oprettes (503). Webhook: 500, så Stripe prøver igen i op til 3 dage. |
+
+## Sikkerhed
+
+- API-nøgler og Stripe secret key bruges kun i server-kode (`import "server-only"`). Fejlbeskeder og logs indeholder aldrig nøgler, request-bodies eller kundedata.
+- Plugin-endpoints kræver WooCommerce-API-nøgle (read/write) for en bruger med `manage_woocommerce`. Ordre-endpoints kræver desuden ordrenøglen.
+- API-routes: same-origin-tjek (CSRF), kun `application/json`, maks. body-størrelse, Zod-validering og rate limiting pr. IP (in-memory pr. instans; brug Vercel Firewall eller Upstash ved rigtig trafik).
+- Stripe-webhooks verificeres med `constructEvent` på den rå body.
+- `/api/payments/settle` (WordPress → shoppen) kræver ordrens token: HMAC-SHA256 med `STRIPE_SECRET_KEY` af webshop, ordre-ID og ordrenøgle, sammenlignet i konstant tid. Kaldet trækker eller frigiver aldrig ud fra sit eget indhold: ordren læses igen i WooCommerce og betalingen i Stripe. `/api/cron/settle-payments` kræver `Authorization: Bearer $CRON_SECRET`.
+- Sikkerhedsheaders: HSTS, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`. En Content-Security-Policy med nonces er ikke slået til i prototypen.
+- Produktbeskrivelser fra WordPress vises som ren tekst. Der injiceres ingen HTML.
+
+## Caching
+
+- Katalogdata hentes med `'use cache: remote'` + tags: én cache, som alle Vercels serverinstanser deler, så WordPress kun spørges én gang pr. opdatering og ikke af hver ny instans. Hver post gemmes i 30 dage og opdateres i baggrunden, når den bliver vist og er ældre end (`lib/woocommerce/cache.ts`): 5 min. for en produktsides vare (`CATALOG`), 15 min. for produktlister, menuens kategorier og temaer (`CATALOG_LISTS`) og 1 time for relaterede varer, forsidens fotos, filtervalg, fragtbeløb, sitemap og pluginets version (`CATALOG_SLOW`). En vare, der er vist én gang efter et deploy, venter altså aldrig mere på WooCommerce. Før var en post væk en time efter sidste opdatering, så næsten alle ~8.600 varer pr. webshop blev læst, mens kunden ventede.
+- Et deploy starter med en tom cache (nøglerne indeholder buildet). `node scripts/warm.mjs https://<webshop>` viser forsiden, temaerne, "Alle produkter", side 1 af hver kategori og tema og op til 300 af deres varer, to ad gangen, og stopper ved den første side, der ikke kunne læse WooCommerce (se [DEPLOY.md](DEPLOY.md#5-efter-deploy)).
+- WooCommerce-produktwebhooks (`/api/revalidate`) og betalte, reserverede eller annullerede ordrer (`/api/stripe/webhook`) markerer produktets egne poster forældede med det samme (produktside, relaterede varer, foto). En slettet eller ikke længere udgivet vare får i stedet sine poster udløbet med det samme (`revalidateTag(…, { expire: 0 })`), så næste visning, måske uger senere, læser den igen og svarer 404 i stedet for at vise den gamle vare med køb-knap; det koster værten én læsning. Hele kataloget (lister, menuens antal, sitemap) markeres kun, når varer kan komme til eller forsvinde (oprettet, slettet, gendannet eller ikke længere udgivet), og højst hver 5. min. pr. instans (`lib/woocommerce/revalidate.ts`), så en import eller en travl salgsdag ikke får hver liste læst igen efter hver ændring. **Produktwebhooks er ikke sat op endnu** (17-10-2026, se [WOOCOMMERCE.md](WOOCOMMERCE.md#4-produktwebhooks-for-hver-webshop)); indtil da vises ændringer efter de nævnte tider.
+- Svarer WooCommerce ikke, kaster læsningen en fejl inde i cachen (`lib/woocommerce/cache.ts`). Så gemmer Next.js intet, og den sidste gode version vises videre, også af sider og `sitemap.xml`, der genopbygges i baggrunden (en fejlet genopbygning beholder den gamle side og prøver igen efter 30 sek.). Er der intet i cachen, viser siden "Vi henter produktet …" (`components/ui/catalog-retry.tsx`) og spørger selv serveren igen (`router.refresh`) efter 3, 6, 12, 24, 48 og 96 sek., til varerne kommer (et forsøg venter, til browseren er online og fanen er synlig: et `router.refresh` uden forbindelse får Next.js til at hente hele siden, og offline erstatter det butikken med browserens "Ingen internetforbindelse", som ikke kommer sig selv); efter sidste forsøg fejlbeskeden med "Prøv igen". Under `next build` caches fejlen i stedet i 30 sek. (Next.js stopper ellers buildet), så et build uden adgang til WooCommerce stadig lykkes. Bemærk: Next.js genopbygger forsiden og temasiderne i forgrunden af selve genopbygningen og læser da alle poster, der er ældre end deres opdateringstid, igen fra WooCommerce; derfor har lister og kategorier 15 min.
+- Produktsider bygges for hver visning (den fælles skal straks, varen streames ind fra cachen) og gemmes ikke som en side pr. adresse (ingen `generateStaticParams`). Prøvet i et produktionsbuild 17-10-2026: med `generateStaticParams` gemmer Next.js 16.4 en adresses første visning som dens side, og fejlede varens læsning dér, gemmes den fejlede læsning med (i sidens "resume data", også med `connection()` i fejlgrenen), så adressen viste fejlen for alle i 15 min., til siden blev genopbygget.
+- WordPress-værten afviser for mange samtidige forespørgsler med HTTP 508 ("Resource Limit Is Reached"). Derfor sender hver serverinstans højst 4 læsninger ad gangen (`lib/woocommerce/client.ts`), og menuens antal pr. kategori hentes i ét kald (plugin 1.4) i stedet for ét pr. kategori. Læsninger har en prioritet: **kritiske** (standard: varen, dens størrelser, lister, menuen, webshoppens størrelsesliste til filtrene) og **baggrund** (relaterede varer, en listes filtertal, forsidens fotos, fragtbeløb, sitemap). Én af de 4 pladser er forbeholdt kritiske læsninger, og en ledig plads går først til en ventende kritisk læsning; en kritisk læsning venter op til 12 sek. på en plads, en baggrundslæsning 3 sek. (siden klarer sig uden). En kritisk læsning prøves op til to gange til efter 508/429 (efter 1,5 og 3 sek.), en baggrundslæsning én gang; en timeout prøves ikke igen.
+- **Afbryderen** (samme fil): ender 3 læsninger inden for 10 sek. med 508/429, timeout eller ingen forbindelse, åbner den. Så fejler baggrundslæsninger med det samme, også længe efter, og er aldrig prøven (en langsom, fx en listes filtertal, ville ellers holde varerne tilbage). Kritiske læsninger sendes én ad gangen som prøver: højst én 2 sek. efter den forrige, én gang og med den normale timeout (10 sek.), så en vært, der svarer på 6 sek., også kan lukke den. En kritisk læsning venter op til 4 sek. på sin tur, og så længe en prøve er i gang, i stedet for at fejle. Et svar på en prøve lukker afbryderen, og de ventende læsninger går videre; kun en prøve lukker den. Læsninger, der var på vej, da den åbnede, sendes ikke igen uden om den. Før åbnede én fejlet læsning af enhver slags (også relaterede varer) den i 30 sek. til 2 min., og imens fejlede alle ucachede sider med det samme, selv om værten svarede: det var årsagen til "Vi kan ikke hente produkterne lige nu" 17-10-2026. Skrivninger (pristilbud, ordrer) og en betalende kundes ordre holdes aldrig tilbage.
+- Pristilbuddet (`/api/checkout/quote`) beregnes højst to gange pr. kurv og adresse under et nedbrud: serveren sender det kun igen, når forbindelsen blev afbrudt, og har en timeout på 6 sek.; browseren spørger selv én gang til efter `Retry-After` (+ tilfældig spredning), når værten var optaget (508/429) eller der ikke var forbindelse. En timeout prøves kun igen med kundens "Prøv igen". Holder browseren op med at vente (kunden skriver videre), afbrydes serverens kald også.
+- Produktlister, kategorier og søgning hentes 30 varer ad gangen (`?side=2`), så rækkerne går op med 5, 3 og 2 kort. Sorteringen vælges med `?sorter=` (Anbefalet, Nyeste, Mest populære, Pris). "Anbefalet" følger WooCommerces menurækkefølge (`menu_order`, som Guirca-importen sætter: kostumer først, så masker, parykker, hatte og blod, andet tilbehør og pynt, nyeste først inden for hver). Kategorisider, "Alle produkter" og søgningen viser desuden shoppens sæson først og dens skjulte kategorier sidst (`getSeasonalProducts`: op til tre forespørgsler med plugin 1.4's kategorifiltre, sæsonens del side for side og resten, så de skjulte kategorier, med `offset`, så hver vare kommer én gang; i Halloweenshoppen kommer julevarer altså efter alle andre, i Fastelavnsshoppen er sæsonens kategorier de skjulte, så det er stadig to forespørgsler). Kategoriernes antal tælles pr. webshop med én lille forespørgsel pr. kategori (fejler en, bruges WooCommerces eget antal) og caches i et kvarter.
+- **Filtre** på kategori-, tema- og "Alle produkter"-sider (`lib/listing-filters.ts`, `lib/woocommerce/filters.ts`): størrelse (`?str=`), pris (`?pris=`: under 100, 100-250, 250-500, over 500 kr.) og "Kun på lager" (`?lager=ja`). Størrelserne er WooCommerce-egenskaben `pa_storrelse`, samlet i grupper: børn efter alder (en størrelse står under hver alder, den passer til, så "3-6 år" også findes under "5-6 år"), voksne efter bogstav (dame- og herrestørrelser sammen) og skostørrelser. Hver liste tilbyder kun de størrelser (mindst 3 varer), prisintervaller og lagerfilteret, den har brug for. Det tælles i ét kald til WooCommerces Store API pr. liste, som caches i en time (kan det ikke læses, tilbydes alle). De filtrerede varer hentes med de almindelige cachede produktkald (`attribute`/`attribute_term`, `min_price`/`max_price`, `stock_status`), også med sæsonen først og skjulte kategorier. Webshoppens størrelsesliste (én pr. webshop, opdateres hver time) er en kritisk læsning: uden den kan en valgt størrelse ikke bruges, og kan den ikke læses, viser listen "Vi henter varerne …" (og `noindex`) i stedet for alle størrelser, som om filteret var brugt (`filteredListing`). Filtrene står i URL'en som sorteringen, følger med sidelinks og sorteringen, og en side med et filter i adressen (også et ukendt) har `noindex, follow` og samme canonical som den ufiltrerede side. Store skærme viser filtrene som rækker over varerne; mobil og tablet har knappen "Filtrér" med antal valgte, som åbner et ark nedefra (`<dialog>`), hvor valgene anvendes samlet med "Vis varer". Valgte filtre vises som knapper med × og "Ryd alle".
+- Produktbilleder: WooCommerces egne billeder, ellers leverandørens fotos, som en import har linket til (meta `_wchc_external_images`, kun fra værterne i `src/config/images.ts`). Et Guirca-hovedfoto (`<nr>.jpg`), der viser varen to gange, springes over, når varen har andre fotos: et kostumes hovedfoto, når kostumets katalogfoto (`<nr>_01.jpg`) er der, og andre varers, når deres Guirca-nummer står i `src/config/guirca-double-photos.json` (se [IMPORT-GUIRCA.md](IMPORT-GUIRCA.md#hovedfotos-der-viser-varen-to-gange)). Det gælder også varer, der blev importeret før, og et Guirca-hovedfoto, der er uploadet til WordPress som varens eget billede (`<nr>-scaled.jpg`), når varens egne eller leverandørens fotos har katalogfotoet. Alle billeder går gennem Next.js' billedoptimering og caches i 31 dage. Fejler et billede, vises en pladsholder.
+- Lager og priser på produktsider er informative. Kurv og checkout henter altid friske tal fra WooCommerce.
+
+## Produktkort og produktside
+
+- **Produktkort** (`components/products/product-card.tsx`): hvide kort på en lys baggrund (`bg-canvas`), billedet vist helt, rabatmærke (`-20 %`, kendes kun for simple produkter), videomærke, 18+-mærke, favorit-hjerte, antal størrelser, stor pris i farven `price` og lagerstatus. 5 pr. række på computer, 3 på tablet og 2 på mobil.
+- **Produktside** (`app/(shop)/produkter/[slug]`):
+  - Galleri med video. Billederne swipes ét ad gangen med en tæller (2/4), og miniaturerne følger med. Et tryk på billedet åbner det i fuld skærm, hvor man kan zoome med to fingre, swipe eller bruge pilene (også piletasterne); Esc lukker. YouTube-videoer (`_wchc_videos`) indlæses først, når kunden trykker afspil, og i YouTubes privatlivstilstand (youtube-nocookie.com).
+  - Pris med "Spar X kr." og lagerstatus. Størrelsesknapperne viser kropshøjden, når beskrivelsen har den ("Størrelser: 3-4 år (109 cm) …", se `lib/product-text.ts`).
+  - Under knappen står webshoppens løfter og foldbare afsnit med beskrivelse, størrelser, levering og retur samt produktsikkerhed.
+  - På mobil kommer en købsbjælke frem, når man har scrollet forbi knappen, og den glider væk, når footeren kommer frem, så den ikke dækker firmaoplysningerne. Uden valgt størrelse ruller bjælken op til størrelserne.
+- **Relevant tilbehør og Lignende produkter** (`getRelatedProducts`, `lib/woocommerce/related.ts`):
+  - Tilbehør er varer i kategorierne fra `ACCESSORY_CATEGORY_SLUGS` (Tilbehør og Make-up) med et af produktets temaer (tags). Er der for få, bruges tilbehør fra produktets øvrige kategorier.
+  - Den anden sæson holdes ude: ingen varer fra webshoppens skjulte kategorier og, i Fastelavnsshoppen, ingen med f.eks. "flagermus", "kranie" eller "nisse" i navnet (`offSeasonWords` i `config/merchandising.ts`; Guirca giver mange af dem temaet "Dyr"). Er produktet selv fra den anden sæson (et halloweenkostume, et skelet), får det sin egen slags.
+  - Rækken viser én af hver slags (hat, paryk, maske …), før der kommer to af samme slags.
+  - Lignende produkter er produkter fra produktets mest specifikke kategori, og dem med samme temaer kommer først.
+  - Begge foretrækker produktets målgruppe. Børnevarer til voksenkostumer og omvendt kommer sidst.
+- **Løfter (USP'er)** står i `config/usps.ts` og er fælles for webshops: baren øverst, rækken over footeren og 2 × 2-boksen på produktsiden. Beløbet for fri fragt (`{fri_fragt}`) læses fra WooCommerce ("Fri fragt fra" på fragtmetoderne, `lib/woocommerce/shipping.ts`). Løfter om fri fragt udelades, hvis ingen metode har det. Kurven viser, hvor meget der mangler til fri fragt.
+- **Trustpilot** (`config/trustpilot.ts`, `components/marketing/trustbox.tsx`): Trustpilots egne TrustBoxe med webshoppens rigtige bedømmelse under løfterækken på forsiden, under løfterne på produktsiden (i stedet for teksten "Bedømt som Fremragende"), i kurven og kassens ordreoversigt og i footeren, men ikke på ordrebekræftelsen: dens adresse har ordrens nøgle, og Trustpilot får adressen på hver side med en TrustBox (`FooterTrustBox`; siden sender også kun sit origin som referrer). Trustpilots kode (`div.trustpilot-widget` med `data-*` og linket til profilsiden) og deres script, som hentes én gang, når siden er færdig (`next/script` `lazyOnload`); en TrustBox, der kommer til ved navigation i browseren, indlæses med `Trustpilot.loadFromElement`. Uden business unit ID og profilside vises ingen og hentes intet. Cookie- og privatlivspolitikken har tekster, der kun vises med TrustBoxe (`trustbox: true` i `content/info-pages.ts`). Se [DEPLOY.md](DEPLOY.md#trustpilot-trustboxe).
+
+## Forside, menu, søgning og favoritter
+
+- **Merchandising** (`config/merchandising.ts`) er webshoppens egen opbygning: menu med dropdowns (`components/layout/nav-menu.tsx`, på mobil en skuffe), forsidens hero med nedtælling til sæsonens dag (`lib/seasons.ts`: påske, fastelavn, halloween og danske helligdage), målgruppe-fliser, temafliser og produktrækker uden gentagelser, og temasiderne `/tema/<slug>` (`lib/woocommerce/collections.ts`). De valgte fotos til hero og fliser hentes med én lille forespørgsel pr. vare (kun fotos, ingen størrelser) og caches en time (`getProductPhoto`).
+- **Søgeforslag** (`components/layout/search-box.tsx` → `GET /api/search?q=`): kategorier, temaer og produkter med foto og pris, mens kunden skriver. Piletaster og Enter virker, Tab forlader feltet og lukker listen, og en skærmlæser får antallet af forslag læst op; uden JavaScript er det en almindelig formular til `/soeg`.
+- **Dansk søgning** (`lib/search.ts`): WooCommerce finder kun varer, der indeholder ordene, som de er skrevet. Webshoppens egen højtid udelades derfor ("halloweenmaske" → "maske", "halloween paryk" → "paryk" i Halloweenshoppen, "fastelavnskostume" → "kostume" i Fastelavnsshoppen), og kendte flertalsformer søges som grundform ("masker" → "maske", som også finder alle "masker"). Finder søgningen intet, prøves varianter i rækkefølge: webshoppens egne synonymer ("kattekonge" → "konge krone", "kunstigt blod" → "blod", og almindelige stavefejl og engelske ord: "vampir" og "vampire" → "vampyr", "witch" → "heks"), et ord, der er ét bogstav fra præcis ét af katalogets ord ("piraat" → "pirat"), sammensatte ord delt ("zombiemaske" → "zombie maske") og ord uden endelse ("vampyrerne" → "vampyr"), højst 4 forsøg på `/soeg` og 2 pr. tastetryk i forslagene. `/soeg` prøver varianterne med forslagenes ene læsning (ofte allerede i cachen) og henter kun den, der finder noget, i fuld længde. Siden skriver "Viser resultater for …". Inden for hver side kommer varer med ordet i navnet først, derefter sæsonens, så dem, hvor ordet står alene. `/soeg` har sortering og viser passende kategorier og temaer som knapper (kategorier, som webshoppen holder ude af menuen, tæller halvt: "pynt" viser Pynt og fest før Julepynt, men "jule pynt" viser Julepynt først). Finder den intet, vises webshoppens temafliser og eksempelord.
+- **Favoritter** (`lib/favorites`): produkt-ID'er i kundens browser (localStorage, pr. webshop). Hjertet på kort og produktside, ikonet i headeren og `/favoritter`, der henter friske priser via `GET /api/products?ids=`.
+- **Afsendelsesnedtælling** (`components/marketing/dispatch-countdown.tsx`, `lib/delivery.ts`): "Bestil inden 3 t 12 min – så sender vi i dag" på hverdage før kl. 19 (dansk tid, ikke helligdage), ellers kun løftet. Der loves ingen leveringsdato. Vises på produktsiden, i kurven og kurvskuffen.
+- **Informationssider** (`content/info-pages.ts`, vist af `components/content/info-page.tsx`): handelsbetingelser, returret, fragt, privatliv, cookies, prismatch, kontakt, FAQ, størrelsesguide og "Om os" (pr. webshop). Tekstens `{tokens}` fyldes ud fra `config/company.ts` og webshoppen. Pladsholdere i [klammer] fremhæves med gult, indtil ejeren har udfyldt dem.
+- **SEO:** kanoniske adresser (hvert produkt peger på sin hjemme-webshop, altid en webshop, der sælger det, se [MULTISHOP.md](MULTISHOP.md); side 2, 3 … af en liste er hver sin side med "– side 2" i titlen), `sitemap.xml` (forside, temaer, kategorier, produkter og informationssider, som har deres kanoniske adresse i denne webshop; produkterne hentes 100 ad gangen, to sider samtidig), `robots.txt`, beskrivelser til søgeresultaterne bygget af navn, pris, tekst, størrelser og løfter (`lib/meta-description.ts`), JSON-LD for produkter (pris, lager, EAN; sælgeren er hjemme-webshoppen), brødkrummer på produkt-, kategori- og temasider, butikken med søgning og FAQ. Søgemaskiner får sidens metadata før siden (`htmlLimitedBots` i `next.config.ts`, også Googlebot), så et ukendt produkt, en ukendt kategori eller et tema og en side efter den sidste svarer 404. Kan WooCommerce ikke læses, svarer siden stadig 200, men med `noindex, follow` (og produktsiden med titlen "Produkt"): en 5xx kræver en fejl i metadata, og så afslutter Next.js 16.4 ikke svaret til søgemaskinen. Kan kategorierne ikke læses, har produktsiden ingen kanonisk adresse (hjemme-webshoppen kan ikke afgøres) frem for en forkert. Hver side med en kanonisk adresse har samme adresse som `og:url` (`openGraphFor` i `lib/seo.tsx`, som også gentager delingsbilledet og sætter `og:type`, `og:site_name` og `og:locale`: en sides `openGraph` erstatter hele forælderens; sider uden, fx kurven, får de tre fra rodlayoutet). Forsiden har sin egen korte titel (`homeTitle` i `config/store.ts`, højst 60 tegn), og butikkens JSON-LD har firmaets navn, adresse, telefon og CVR (`config/company.ts`). Produkternes JSON-LD har levering (`shippingDetails`: pakkeshop for `PARCEL_SHOP_SHIPPING` i `config/usps.ts`, gratis fra fri fragt-beløbet, sendt samme eller næste hverdag og normalt fremme hverdagen efter, ingen dato) og den kategori, brødkrummerne viser; brødkrummernes sidste led (siden selv) har ingen adresse, så søgemaskinen bruger sidens kanoniske. En tema-side, der står for en kategori, peger på kategoriens side med samme nummer. Ukendte sider har én `noindex` (siden selv kalder ikke `notFound()` igen, når metadata har gjort det). "Alle produkter" har sin egen beskrivelse, og side 2, 3 … af en liste begynder beskrivelsen med "Side 2: ". I produktionen bruges en `NEXT_PUBLIC_SITE_URL` på `*.vercel.app` aldrig (brandets domæne i stedet), og `*.vercel.app`-adresserne svarer med `X-Robots-Tag: noindex`. Favicon (også på `/favicon.ico`, en rewrite til `/icon` i `next.config.ts`), hjemmeskærmsikon, delingsbillede og e-mail-logo (`/email-logo.png`) tegnes af koden ud fra brandet (`lib/brand-images.tsx`, skrifterne ligger i `assets/fonts` og læses én gang, så `/opengraph-image` bygges som en statisk fil).
+- **Skrifter:** overskrifternes Fredoka og Bebas Neue indlæses med `next/font/local` (`app/fonts.ts`), som laver en reserveskrift med samme mål, så overskrifterne ikke hopper, når skriften kommer. De forudindlæses ikke: hver webshop bruger kun den ene.
+- **Sikkerhedsheadere** (`next.config.ts`): HSTS, `X-Frame-Options`, `nosniff`, Referrer- og Permissions-Policy og en Content Security Policy uden nonces (siderne forbliver statiske), som endnu kun rapporterer (`Content-Security-Policy-Report-Only`) og tillader Stripe (også Apple Pay/Google Pay, 3-D Secure og hCaptcha), Trustpilot og YouTubes privatlivstilstand. Skift til `Content-Security-Policy`, når kassen, wallets og et 3-D Secure-kort er gennemført uden rapporter i browserens konsol. Billedoptimeringen henter kun `/wp-content/uploads/` uden søgestreng fra WordPress-værten.
+
+## Flere webshops
+
+Se [MULTISHOP.md](MULTISHOP.md).
+
+- Én kodebase, ét Vercel-projekt pr. webshop. `NEXT_PUBLIC_STORE_ID` vælger brand (navn, logo, farver, skrift og sæson i `src/config/store.ts`, sat som designtokens fra `globals.css`), merchandising og webshop i WooCommerce.
+- Produktfordelingen ligger i WooCommerce (taksonomien "Webshops" fra pluginet). Kataloget hentes med `wchc_shop`, og `/quote` og `/orders` afviser produkter, webshoppen ikke sælger. Reglen håndhæves altså i backenden, ikke kun i frontenden.
+- Hver ordre får `_wchc_store_id`, og hver PaymentIntent får `metadata.store_id`. Webhooks for andre webshops' betalinger ignoreres, så alle webshops kan dele én Stripe-konto og én WooCommerce.
+- Data- og checkoutlaget (`lib/woocommerce`, `lib/checkout`) er uafhængigt af UI'et.
