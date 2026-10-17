@@ -1,12 +1,14 @@
 "use client";
 
 import { CircleCheck, RotateCcw, Ruler, ShoppingBag } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { FavoriteButton } from "@/components/favorites/favorite-button";
 import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { Button } from "@/components/ui/button";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
+import { sizeGuideHref } from "@/lib/listing-filters";
 import { formatAmount, fromMinorUnits, toMinorUnits } from "@/lib/money";
 import { discountPercent } from "@/lib/pricing";
 import type { Product, ProductImage as ProductImageType, ProductVariation, StockStatus } from "@/types/commerce";
@@ -86,6 +88,7 @@ export function ProductDetail({
       image: images[0] ?? null,
       unitPrice: price,
       maxQuantity: stockQuantity,
+      adult: product.adult || undefined,
     });
     setQuantity(1);
   }
@@ -145,16 +148,15 @@ export function ProductDetail({
                   {attribute.name}
                   {selection[attribute.slug] && <span className="font-normal text-ink-soft">: {selection[attribute.slug]}</span>}
                 </p>
+                {/* The shop's own guide (Danish, children's or adults' part), not the supplier's large English chart. */}
                 {product.sizeChart && attribute === product.attributes[0] && (
-                  <a
-                    href={product.sizeChart}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <Link
+                    href={sizeGuideHref(attribute.options)}
                     className="inline-flex shrink-0 items-center gap-1.5 text-sm font-medium text-ink-soft underline underline-offset-4 hover:text-ink"
                   >
                     <Ruler className="size-4" aria-hidden="true" />
                     Størrelsesguide
-                  </a>
+                  </Link>
                 )}
               </div>
               <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">

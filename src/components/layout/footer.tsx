@@ -62,10 +62,11 @@ function FooterColumn({ title, links }: { title: string; links: { label: string;
   return (
     <nav aria-label={title}>
       <p className="text-sm font-bold">{title}</p>
-      <ul className="mt-3 space-y-2 text-sm text-footer-muted">
+      {/* 44 px rows on phones, a finger's size; the usual spacing on larger screens. */}
+      <ul className="mt-1 text-sm text-footer-muted sm:mt-3 sm:space-y-2">
         {links.map((link) => (
           <li key={link.href}>
-            <Link href={link.href} className="hover:text-footer-ink hover:underline hover:underline-offset-4">
+            <Link href={link.href} className="inline-flex min-h-11 items-center hover:text-footer-ink hover:underline hover:underline-offset-4 sm:inline sm:min-h-0">
               {link.label}
             </Link>
           </li>

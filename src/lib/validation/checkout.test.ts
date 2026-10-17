@@ -32,6 +32,18 @@ describe("checkout validation", () => {
     expect(addressSchema.safeParse({ ...address, country: "SE" }).success).toBe(false);
   });
 
+  it("refuses Greenland's postcodes, which the shops do not deliver to (the Faroe Islands' are 3 digits)", () => {
+    for (const postcode of ["3900", "3911", "3992", "3999"]) {
+      const result = addressSchema.safeParse({ ...address, postcode });
+      expect(result.success).toBe(false);
+      expect(fieldErrors(result.error!)["postcode"]).toBe("Vi leverer ikke til Grønland og Færøerne.");
+    }
+    expect(addressSchema.safeParse({ ...address, postcode: "100" }).success).toBe(false);
+    for (const postcode of ["3800", "3899", "4000", "1050"]) expect(addressSchema.safeParse({ ...address, postcode }).success).toBe(true);
+    const checkout = checkoutRequestSchema.safeParse({ ...valid, shipping: { ...address, postcode: "3900" } });
+    expect(fieldErrors(checkout.error!)["shipping.postcode"]).toBe("Vi leverer ikke til Grønland og Færøerne.");
+  });
+
   it("returns Danish field errors keyed by path", () => {
     const result = checkoutRequestSchema.safeParse({ ...valid, contact: { email: "nope" }, shipping: { ...address, postcode: "1" } });
     expect(result.success).toBe(false);

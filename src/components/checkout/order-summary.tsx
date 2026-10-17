@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { AdultMark } from "@/components/products/adult-mark";
 import { ProductImage } from "@/components/products/product-image";
 import { Spinner } from "@/components/ui/spinner";
 import type { CartLine } from "@/lib/cart/cart";
@@ -46,7 +47,10 @@ export function OrderSummary({
                 </span>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{line.name}</p>
+                <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                  <span className="truncate">{line.name}</span>
+                  {line.adult && <AdultMark className="shrink-0" />}
+                </p>
                 {line.variantLabel && <p className="truncate text-xs text-muted">{line.variantLabel}</p>}
               </div>
               <p className="shrink-0 text-sm tabular-nums">
@@ -75,16 +79,13 @@ export function OrderSummary({
         {quote?.needsShipping !== false && <Row label="Levering" value={shipping} muted={!addressComplete} loading={loading} />}
         <div className="flex items-baseline justify-between gap-4 pt-3">
           <dt className="text-lg font-semibold">I alt</dt>
-          <dd className="flex items-baseline gap-2">
-            {quote && <span className="text-xs text-muted">{quote.currency}</span>}
-            <span className={`text-xl font-semibold tabular-nums ${loading && quote ? "opacity-50" : ""}`}>
-              {loading && !quote ? <Spinner /> : quote ? formatPrice(quote.totals.total) : "–"}
-            </span>
+          {/* formatPrice ends in "kr." already: no separate currency label. */}
+          <dd className={`text-xl font-semibold tabular-nums ${loading && quote ? "opacity-50" : ""}`}>
+            {loading && !quote ? <Spinner /> : quote ? formatPrice(quote.totals.total) : "–"}
           </dd>
         </div>
-        {quote && (
-          <p className="text-xs text-muted">Inklusiv {formatPrice(quote.totals.tax)} i moms</p>
-        )}
+        {/* Worded as on the order confirmation. */}
+        {quote && <p className="text-xs text-muted">Heraf moms {formatPrice(quote.totals.tax)}</p>}
       </dl>
     </div>
   );

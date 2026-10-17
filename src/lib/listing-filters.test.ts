@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeFilterCount, filteredHref, filterParams, findSizeOption, parseFilters, priceBandsBetween, sizeGroups } from "./listing-filters";
+import { activeFilterCount, filteredHref, filterParams, findSizeOption, parseFilters, priceBandsBetween, sizeGroups, sizeGuideHref } from "./listing-filters";
 
 // The live shop's size terms (pa_storrelse), as the Guirca import names them.
 const TERMS = [
@@ -93,5 +93,20 @@ describe("filters in the URL", () => {
     expect(filteredHref("/produkter", { side: "3", str: "m" }, {})).toBe("/produkter");
     expect(activeFilterCount({ size: "l", price: "over-500" })).toBe(2);
     expect(activeFilterCount({})).toBe(0);
+  });
+});
+
+describe("sizeGuideHref", () => {
+  it("links children's ages and adult letters to their part of the shop's own size guide", () => {
+    expect(sizeGuideHref(["5-6 år", "7-9 år", "14-16 år"])).toBe("/stoerrelsesguide#boern");
+    expect(sizeGuideHref(["18-24 mdr."])).toBe("/stoerrelsesguide#boern");
+    expect(sizeGuideHref(["S (36-38)", "M (38-40)", "L (42-44)"])).toBe("/stoerrelsesguide#voksne");
+    expect(sizeGuideHref(["M-L"])).toBe("/stoerrelsesguide#voksne");
+  });
+
+  it("links the whole guide for both kinds, or sizes it does not know", () => {
+    expect(sizeGuideHref(["10-12 år", "S (36-38)"])).toBe("/stoerrelsesguide");
+    expect(sizeGuideHref(["Universal"])).toBe("/stoerrelsesguide");
+    expect(sizeGuideHref([])).toBe("/stoerrelsesguide");
   });
 });

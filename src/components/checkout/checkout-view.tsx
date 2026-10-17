@@ -5,7 +5,7 @@ import type { StripeElementsOptions } from "@stripe/stripe-js";
 import Link from "next/link";
 import type { ZodType } from "zod";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { TrustBox } from "@/components/marketing/trustbox";
 import { Alert } from "@/components/ui/alert";
@@ -19,7 +19,7 @@ import { deliveryEstimate, DISPATCH_PROMISE } from "@/lib/delivery";
 import { formatPrice, stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
 import { cityForPostcode, filledTown } from "@/lib/postcodes";
 import { getStripeClient } from "@/lib/stripe/client";
-import { CAPTURE_METHOD } from "@/lib/stripe/gateway";
+import { CAPTURE_METHOD, minimumChargeMinor } from "@/lib/stripe/gateway";
 import { addressSchema, checkoutRequestSchema, contactSchema, fieldErrors, postcodeSchema } from "@/lib/validation/checkout";
 import { CouponField } from "./coupon-field";
 import { ExpressCheckout } from "./express-checkout";
@@ -136,6 +136,17 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentLoadError, setPaymentLoadError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  // With cacheComponents, Next.js hides the checkout with <Activity> when the customer goes on
+  // (e.g. to the confirmation after a payment) instead of unmounting it, and state set for that
+  // payment would greet the next visit: a disabled "Behandler betaling…" button. Reset it when
+  // the form is hidden; what the customer typed stays.
+  useLayoutEffect(() => {
+    const payment = inFlight;
+    return () => {
+      payment.current = false;
+      setSubmitting(false);
+    };
+  }, []);
   // The town filled in from the postcode, per address: replaced when the postcode changes, unless the customer edited it.
   // A restored town that is its postcode's own counts as filled in, so a new postcode still replaces it.
   const filledCity = useRef<Record<"shipping" | "billing", string | null>>({ shipping: filledTown(draft?.shipping), billing: filledTown(draft?.billing) });
@@ -145,14 +156,11 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
 
   const postcodeValid = postcodeSchema.safeParse(shipping.postcode).success;
   const emailValid = contactSchema.shape.email.safeParse(contact.email).success;
+  // Shipping rates and VAT depend on the country and postcode only: typing the street or town does
+  // not ask WooCommerce again. POST /api/checkout sends the whole address, and the order is priced anew.
   const { quote, loading: quoteLoading, error: quoteError, retrying: quoteRetrying, setQuote, retry: retryQuote } = useQuote(
     lines,
-    {
-      country: shipping.country,
-      postcode: postcodeValid ? shipping.postcode : undefined,
-      city: postcodeValid ? shipping.city || undefined : undefined,
-      address1: postcodeValid ? shipping.address1 || undefined : undefined,
-    },
+    { country: shipping.country, postcode: postcodeValid ? shipping.postcode : undefined },
     shippingRateId,
     hydrated,
     { codes: couponCodes, email: emailValid ? contact.email.trim() : undefined },
@@ -166,13 +174,26 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
     saveCheckoutDraft({ contact, shipping, billingSame, billing, note });
   }, [contact, shipping, billingSame, billing, note]);
 
+  // Below Stripe's minimum charge the Payment Element would fail to load; "Betal" then tells the
+  // customer to contact the shop (lib/checkout/service.ts).
   const amountMinor = quote ? toMinorUnits(quote.totals.total, stripeCurrencyExponent(quote.currency)) : null;
+  const payableMinor = quote && amountMinor !== null && amountMinor >= minimumChargeMinor(quote.currency) ? amountMinor : null;
   useEffect(() => {
-    if (elements && amountMinor && amountMinor > 0) elements.update({ amount: amountMinor });
-  }, [elements, amountMinor]);
+    if (elements && payableMinor) elements.update({ amount: payableMinor });
+  }, [elements, payableMinor]);
 
   if (!hydrated) {
-    return <div className="mx-auto mt-10 h-96 w-full max-w-[1120px] animate-pulse rounded-[var(--radius-card)] bg-black/5" aria-hidden="true" />;
+    // About as tall as the form, so the footer does not jump when the form replaces it. The outer
+    // element is the form's own root (same place and width, reused by React when the form
+    // replaces the placeholder), so the page does not shift then either.
+    return (
+      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-2">
+        <div
+          className="mx-auto mt-10 h-[1400px] w-full max-w-[1120px] animate-pulse rounded-[var(--radius-card)] bg-black/5 lg:col-span-2 lg:h-[1000px]"
+          aria-hidden="true"
+        />
+      </div>
+    );
   }
 
   if (lines.length === 0) {
@@ -193,6 +214,15 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
   const needsAddressForShipping = quote?.needsShipping && quote.shippingRates.length === 0;
   const payDisabled =
     submitting || !stripe || !elements || !paymentReady || !quote || quoteLoading || quoteErrors.length > 0 || Boolean(needsAddressForShipping && postcodeValid);
+
+  /**
+   * "Reward early": a field that shows an error is checked again on every change, so the message
+   * goes as soon as the value is valid, not first on blur (which moved the page under the
+   * customer's next tap). A new error still waits for the blur.
+   */
+  function recheckField(scope: "contact" | "shipping" | "billing", field: string, value: string) {
+    if (errors[`${scope}.${field}`]) validateField(scope, field, value);
+  }
 
   function validateField(scope: "contact" | "shipping" | "billing", field: string, value: string) {
     const shape: Record<string, ZodType> = scope === "contact" ? contactSchema.shape : addressSchema.shape;
@@ -356,7 +386,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         name={`${scope}.firstName`}
         autoComplete={`${scope} given-name`}
         value={value.firstName}
-        onChange={(e) => set({ ...value, firstName: e.target.value })}
+        onChange={(e) => {
+          set({ ...value, firstName: e.target.value });
+          recheckField(scope, "firstName", e.target.value);
+        }}
         onBlur={(e) => validateField(scope, "firstName", e.target.value)}
         error={errors[`${scope}.firstName`]}
         required
@@ -366,7 +399,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         name={`${scope}.lastName`}
         autoComplete={`${scope} family-name`}
         value={value.lastName}
-        onChange={(e) => set({ ...value, lastName: e.target.value })}
+        onChange={(e) => {
+          set({ ...value, lastName: e.target.value });
+          recheckField(scope, "lastName", e.target.value);
+        }}
         onBlur={(e) => validateField(scope, "lastName", e.target.value)}
         error={errors[`${scope}.lastName`]}
         required
@@ -377,7 +413,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         name={`${scope}.address1`}
         autoComplete={`${scope} address-line1`}
         value={value.address1}
-        onChange={(e) => set({ ...value, address1: e.target.value })}
+        onChange={(e) => {
+          set({ ...value, address1: e.target.value });
+          recheckField(scope, "address1", e.target.value);
+        }}
         onBlur={(e) => validateField(scope, "address1", e.target.value)}
         error={errors[`${scope}.address1`]}
         required
@@ -403,6 +442,9 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           filledCity.current[scope] = next.filled;
           set({ ...value, postcode, city: next.city });
           if (next.city !== value.city) validateField(scope, "city", next.city);
+          // A whole postcode is checked at once (e.g. Greenland's, which are not delivered to).
+          if (postcode.length === 4) validateField(scope, "postcode", postcode);
+          else recheckField(scope, "postcode", postcode);
         }}
         onBlur={(e) => validateField(scope, "postcode", e.target.value)}
         error={errors[`${scope}.postcode`]}
@@ -413,7 +455,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
         name={`${scope}.city`}
         autoComplete={`${scope} address-level2`}
         value={value.city}
-        onChange={(e) => set({ ...value, city: e.target.value })}
+        onChange={(e) => {
+          set({ ...value, city: e.target.value });
+          recheckField(scope, "city", e.target.value);
+        }}
         onBlur={(e) => validateField(scope, "city", e.target.value)}
         error={errors[`${scope}.city`]}
         required
@@ -426,7 +471,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           type="tel"
           autoComplete="tel"
           value={contact.phone}
-          onChange={(e) => setContact({ ...contact, phone: e.target.value })}
+          onChange={(e) => {
+            setContact({ ...contact, phone: e.target.value });
+            recheckField("contact", "phone", e.target.value);
+          }}
           onBlur={(e) => validateField("contact", "phone", e.target.value)}
           error={errors["contact.phone"]}
           hint="Bruges kun af fragtfirmaet ved levering."
@@ -497,7 +545,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
           noValidate
           className="mx-auto max-w-[600px] space-y-9 px-4 py-8 sm:px-6 lg:ml-auto lg:mr-0 lg:px-10 lg:py-10 xl:px-12"
         >
-          {quote && quoteErrors.length === 0 && !stripeFailed && <ExpressCheckout lines={lines} quote={quote} />}
+          {/* Shown from the start, so the fields below never move when the first quote arrives. */}
+          {quoteErrors.length === 0 && !stripeFailed && (
+            <ExpressCheckout lines={lines} quote={quote} email={emailValid ? contact.email.trim() : undefined} />
+          )}
 
           <section aria-labelledby="kontakt">
             <h2 id="kontakt" className="text-[19px] font-semibold">
@@ -510,7 +561,10 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
               type="email"
               autoComplete="email"
               value={contact.email}
-              onChange={(e) => setContact({ ...contact, email: e.target.value })}
+              onChange={(e) => {
+                setContact({ ...contact, email: e.target.value });
+                recheckField("contact", "email", e.target.value);
+              }}
               onBlur={(e) => validateField("contact", "email", e.target.value)}
               error={errors["contact.email"]}
               hint="Ordrebekræftelsen sendes hertil."
@@ -709,19 +763,20 @@ function CheckoutForm({ stripeFailed }: { stripeFailed: boolean }) {
             </button>
             <p id="betal-total" ref={payLine} className="text-center text-xs leading-relaxed text-muted">
               {payTotalLine({ quote, selectedRateId, postcodeValid, loading: quoteLoading, failed: quoteErrorInShipping })}{" "}
-              <TermsNotice action="trykke på Betal nu" />
+              <TermsNotice action="trykke på Betal nu" adult={lines.some((l) => l.adult)} />
             </p>
           </div>
 
-          <nav aria-label="Kundeservice" className="flex flex-wrap gap-x-4 gap-y-2 border-t border-line pt-5 text-xs">
-            <Link href="/kurv" className="text-accent underline underline-offset-4 hover:text-ink">
+          {/* Links at least 24 px tall (WCAG 2.5.8), like the checkout's footer. */}
+          <nav aria-label="Kundeservice" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-5 text-xs">
+            <Link href="/kurv" className="inline-flex min-h-6 items-center text-accent underline underline-offset-4 hover:text-ink">
               Tilbage til kurven
             </Link>
-            <a href={`mailto:${storeConfig.supportEmail}`} className="text-accent underline underline-offset-4 hover:text-ink">
+            <a href={`mailto:${storeConfig.supportEmail}`} className="inline-flex min-h-6 items-center text-accent underline underline-offset-4 hover:text-ink">
               Kontakt kundeservice
             </a>
             {LEGAL_LINKS.map((link) => (
-              <LegalLink key={link.href} href={link.href} className="text-accent underline underline-offset-4 hover:text-ink">
+              <LegalLink key={link.href} href={link.href} className="inline-flex min-h-6 items-center text-accent underline underline-offset-4 hover:text-ink">
                 {link.label}
               </LegalLink>
             ))}

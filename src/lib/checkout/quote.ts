@@ -32,6 +32,18 @@ export type ClientQuote = {
   freeShippingFrom?: string | null;
 };
 
+/**
+ * What the coupon field says about a rejected code. WooCommerce's text for an unknown code says
+ * "Kupon" (the field is called "Rabatkode") and shows the code in lower case, so the shop says it
+ * in its own words, with the code as the customer typed it. Other reasons (a minimum spend, an
+ * expired code …) keep WooCommerce's text.
+ */
+export function couponRejectionMessage(typed: string, message: string | undefined): string {
+  if (!message) return `Rabatkoden "${typed}" kan ikke bruges.`;
+  if (/ikke findes|findes ikke|does not exist/i.test(message)) return `Rabatkoden "${typed}" findes ikke.`;
+  return message;
+}
+
 const EXP = 4; // WooCommerce never returns more than 4 decimals.
 
 function add(a: string, b: string): string {

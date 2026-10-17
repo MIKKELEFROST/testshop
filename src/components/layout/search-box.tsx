@@ -15,7 +15,18 @@ const EMPTY: Suggestions = { products: [], links: [], searched: null };
  * when none is chosen (a combobox: Tab leaves the field and closes the list). Without
  * JavaScript it is a plain form to /soeg.
  */
-export function SearchBox({ defaultValue = "", autoFocus = false, className = "" }: { defaultValue?: string; autoFocus?: boolean; className?: string }) {
+export function SearchBox({
+  defaultValue = "",
+  autoFocus = false,
+  className = "",
+  label = "Søg",
+}: {
+  defaultValue?: string;
+  autoFocus?: boolean;
+  className?: string;
+  /** The search landmark's name: the header's and a page's own search field are told apart. */
+  label?: string;
+}) {
   const router = useRouter();
   const id = useId();
   const [query, setQuery] = useState(defaultValue);
@@ -74,6 +85,7 @@ export function SearchBox({ defaultValue = "", autoFocus = false, className = ""
       <form
         action="/soeg"
         role="search"
+        aria-label={label}
         onSubmit={(event) => {
           event.preventDefault();
           const chosen = options[active];

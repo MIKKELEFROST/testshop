@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatPrice } from "@/lib/money";
 import { quoteSchema } from "@/lib/woocommerce/schemas";
-import { cartShippingLabel, cheapestShipping, includesShipping, payTotalLine, shippingSection, toClientQuote } from "./quote";
+import { cartShippingLabel, cheapestShipping, couponRejectionMessage, includesShipping, payTotalLine, shippingSection, toClientQuote } from "./quote";
 
 const base = {
   currency: "DKK",
@@ -118,5 +118,18 @@ describe("the checkout's delivery methods", () => {
     const line = (failed: boolean) => payTotalLine({ quote: null, selectedRateId: null, postcodeValid: true, loading: false, failed });
     expect(line(true)).toBe("Vi kan ikke beregne priser lige nu – prøv igen under Leveringsmetode.");
     expect(line(false)).toBe("");
+  });
+});
+
+describe("couponRejectionMessage", () => {
+  it("says in the shop's words, with the code as typed, that an unknown code does not exist", () => {
+    expect(couponRejectionMessage("FORKERT2026", 'Kupon "forkert2026" kan ikke anvendes, fordi den ikke findes.')).toBe('Rabatkoden "FORKERT2026" findes ikke.');
+    expect(couponRejectionMessage("Nope", 'Coupon "nope" does not exist!')).toBe('Rabatkoden "Nope" findes ikke.');
+  });
+
+  it("keeps WooCommerce's reason for anything else, e.g. a minimum spend", () => {
+    const minimum = "Minimumsforbruget for denne kupon er 300,00 kr.";
+    expect(couponRejectionMessage("SOMMER10", minimum)).toBe(minimum);
+    expect(couponRejectionMessage("SOMMER10", undefined)).toBe('Rabatkoden "SOMMER10" kan ikke bruges.');
   });
 });

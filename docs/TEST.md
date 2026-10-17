@@ -3,7 +3,7 @@
 ## Automatiserede tests
 
 ```bash
-npm test                                   # unit-tests (ingen eksterne afhængigheder)
+npm test                                   # unit-tests (ingen eksterne afhængigheder; kassens komponenttest kører i jsdom)
 python3 -m unittest discover -s scripts/guirca   # importreglerne for Guircas produktark
 ./scripts/local-woocommerce/setup.sh       # starter WordPress 7.1 + WooCommerce 11.1.2 + plugin i Docker
 npm run test:integration                   # hele ordre-/betalingsflowet mod den rigtige WooCommerce

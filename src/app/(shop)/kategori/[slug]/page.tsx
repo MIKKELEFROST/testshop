@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { NotFoundContent } from "@/components/layout/not-found-content";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { pageHref } from "@/components/ui/pagination";
@@ -88,14 +89,16 @@ async function CategoryContent({
   const [categories, filters] = await Promise.all([getCategories(), resolveFilters(parseFilters(query))]);
   if (!categories.ok) return <CatalogRetry loading="Vi henter varerne …" message={categories.error} />;
 
+  // generateMetadata has called notFound() for these already (see there): a second notFound()
+  // here added a second "noindex" to the page.
   const category = categories.data.find((c) => c.slug === slug);
-  if (!category) notFound();
+  if (!category) return <NotFoundContent />;
 
   const [products, options] = await Promise.all([
     filteredListing(filters, (filtered) => categoryProducts(category, page, sort, filtered)),
     getFilterOptions({ categoryIds: [category.id] }, filters.selection),
   ]);
-  if (products.ok && products.data.products.length === 0 && page > 1) notFound();
+  if (products.ok && products.data.products.length === 0 && page > 1) return <NotFoundContent />;
 
   const path = categoryPath(categories.data, category);
   const parent = path.length > 1 ? path[path.length - 2] : undefined;
@@ -107,7 +110,8 @@ async function CategoryContent({
 
   return (
     <>
-      <JsonLd data={breadcrumbData([...crumbs, { name: category.name, href: `/kategori/${category.slug}` }])} />
+      {/* The page itself is the last crumb, without an address: search engines take its canonical one (maybe the other shop's). */}
+      <JsonLd data={breadcrumbData([...crumbs, { name: category.name }])} />
       <Breadcrumbs items={[...crumbs, { name: category.name }]} />
       <h1 className="heading mt-2 text-[34px] text-ink sm:text-5xl">{category.name}</h1>
       {intro && <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-ink-soft">{intro}</p>}
@@ -150,7 +154,8 @@ function CategoryChips({
   current?: number;
   all?: { name: string; href: string };
 }) {
-  const chip = "inline-flex h-9 items-center rounded-full border px-4 text-sm whitespace-nowrap transition-colors";
+  // 44 px tall on phones, a finger's size.
+  const chip = "inline-flex h-11 items-center rounded-full border px-4 text-sm whitespace-nowrap transition-colors sm:h-9";
   return (
     <nav aria-label="Underkategorier" className="mt-6">
       <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">

@@ -24,10 +24,19 @@ export function LegalLink({ href, className = "underline underline-offset-2 hove
 /** When the customer is charged (capture at shipment, see lib/checkout/settle.ts). */
 export const PAYMENT_TIMING = "Beløbet reserveres nu og trækkes først, når vi sender varerne.";
 
-/** "Ved at trykke på Betal nu accepterer du …", under the pay button and the wallet buttons. */
-export function TermsNotice({ action }: { action: string }) {
+/**
+ * "Ved at trykke på Betal nu accepterer du …", under the pay button and the wallet buttons. With
+ * an 18+ item in the cart it also says that paying confirms the buyer's age, as the terms do.
+ */
+export function TermsNotice({ action, adult = false }: { action: string; adult?: boolean }) {
   return (
     <>
+      {adult && (
+        <>
+          <strong className="font-semibold text-ink-soft">Din kurv indeholder varer for voksne (18+).</strong> Ved at {action} bekræfter du, at du er
+          fyldt 18 år.{" "}
+        </>
+      )}
       {PAYMENT_TIMING} Ved at {action} accepterer du vores <LegalLink href="/handelsbetingelser">handelsbetingelser</LegalLink>. Læs også om{" "}
       <LegalLink href="/fortrydelsesret">fortrydelsesret og 30 dages returret</LegalLink> samt vores{" "}
       <LegalLink href="/privatlivspolitik">privatlivspolitik</LegalLink>.

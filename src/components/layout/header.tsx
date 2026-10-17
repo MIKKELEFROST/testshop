@@ -27,11 +27,12 @@ const EXTRA_LINKS: NavLink[] = [
 export function Header() {
   return (
     <>
-      <div className="bg-bar text-on-bar">
+      {/* A landmark of its own, so screen readers' landmark lists reach the promises too. */}
+      <aside aria-label="Fordele" className="bg-bar text-on-bar">
         <Suspense fallback={<UspBarItems texts={resolveTexts(USP_BAR, null)} />}>
           <UspBar />
         </Suspense>
-      </div>
+      </aside>
       <header className="sticky top-0 z-40 bg-chrome text-chrome-ink shadow-[0_1px_0_var(--color-chrome-line),0_6px_16px_-12px_rgb(0_0_0/0.25)]">
         {storeConfig.season === "fastelavn" && <ConfettiStripe />}
         <div className="container-shop flex h-16 items-center gap-2 sm:gap-5 lg:h-[76px]">
@@ -41,7 +42,7 @@ export function Header() {
           <Link href="/" className="shrink-0" aria-label={`${storeConfig.name} – forside`}>
             <Logo />
           </Link>
-          <SearchBox className="mx-auto hidden w-full max-w-xl md:block" />
+          <SearchBox label="Søg i butikken" className="mx-auto hidden w-full max-w-xl md:block" />
           <div className="ml-auto flex items-center md:ml-0">
             <Link href="/soeg" className="inline-flex size-11 items-center justify-center rounded-full hover:bg-chrome-ink/10 md:hidden" aria-label="Søg">
               <SearchIcon className="size-6" />

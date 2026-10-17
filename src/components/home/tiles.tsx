@@ -65,9 +65,10 @@ export async function ThemeTiles({
                 decorative
                 className="transition-transform duration-500 group-hover:scale-105"
               />
+              {/* Dark enough behind both lines of a two-line label on a white photo: at least about 5:1 for the white text. */}
               <span
-                className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3 pt-12 sm:p-4 sm:pt-16 ${
-                  halloween ? "bg-gradient-to-t from-[#130f19] via-[#130f19]/80 to-transparent text-white" : "bg-gradient-to-t from-ink/85 via-ink/50 to-transparent text-white"
+                className={`absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-3 pt-16 sm:p-4 sm:pt-20 ${
+                  halloween ? "bg-gradient-to-t from-[#130f19] via-[#130f19]/80 to-transparent text-white" : "bg-gradient-to-t from-ink/90 via-ink/70 to-transparent text-white"
                 }`}
               >
                 <span className="heading text-xl leading-tight sm:text-2xl">{theme.title}</span>

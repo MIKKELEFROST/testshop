@@ -37,7 +37,7 @@ function LinkChips({ title, links }: { title: string; links: NavLink[] }) {
       <ul className="mt-3 flex flex-wrap justify-center gap-2">
         {links.map((link) => (
           <li key={link.href}>
-            <Link href={link.href} className="inline-flex h-9 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink">
+            <Link href={link.href} className="inline-flex h-11 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink sm:h-9">
               {link.label}
             </Link>
           </li>

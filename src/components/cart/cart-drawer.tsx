@@ -6,7 +6,7 @@ import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { ButtonLink } from "@/components/ui/button";
 import type { CartLine } from "@/lib/cart/cart";
 import { useCart } from "./cart-provider";
-import { CartLineItem, CartQuoteError, CartTotals, CheckoutButton, EmptyCart, useCartQuote } from "./cart-view";
+import { CartLineItem, CartQuoteError, CartTotals, CheckoutButton, EmptyCart, useCartQuote, useRemoveLine } from "./cart-view";
 
 const DRAWER_ID = "kurv-slider";
 
@@ -37,6 +37,8 @@ export function CartDrawer() {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const pressedBackdrop = useRef(false);
   const [announcement, setAnnouncement] = useState("");
+  // The last line removed: focus goes to the drawer's title.
+  const { announcement: removed, removeLine } = useRemoveLine(titleRef);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -95,7 +97,7 @@ export function CartDrawer() {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between gap-4 border-b border-line py-2 pr-3 pl-5">
-            <h2 id={`${DRAWER_ID}-titel`} ref={titleRef} className="text-lg font-semibold">
+            <h2 id={`${DRAWER_ID}-titel`} ref={titleRef} tabIndex={-1} className="text-lg font-semibold outline-none">
               Kurv
               {count > 0 && <span className="font-normal text-muted"> ({count})</span>}
             </h2>
@@ -114,6 +116,9 @@ export function CartDrawer() {
           <p role="status" className="sr-only">
             {announcement}
           </p>
+          <p role="status" className="sr-only">
+            {removed}
+          </p>
           {lastAdded && <AddedConfirmation line={lastAdded} />}
 
           {lines.length === 0 ? (
@@ -122,7 +127,7 @@ export function CartDrawer() {
             <>
               <ul className="flex-1 divide-y divide-line overflow-y-auto overscroll-contain px-5">
                 {lines.map((line) => (
-                  <CartLineItem key={line.key} line={line} quote={quote} compact onNavigate={closeCart} />
+                  <CartLineItem key={line.key} line={line} quote={quote} compact onNavigate={closeCart} onRemove={removeLine} />
                 ))}
               </ul>
 

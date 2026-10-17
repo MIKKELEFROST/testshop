@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useCart } from "@/components/cart/cart-provider";
 import { QuoteError } from "@/components/checkout/quote-error";
 import { useQuote } from "@/components/checkout/use-quote";
 import { DispatchCountdown } from "@/components/marketing/dispatch-countdown";
 import { TrustBox } from "@/components/marketing/trustbox";
+import { AdultMark } from "@/components/products/adult-mark";
 import { ProductImage } from "@/components/products/product-image";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { Alert } from "@/components/ui/alert";
@@ -31,6 +32,8 @@ export function CartView() {
   const { lines, hydrated } = useCart();
   const { quote, loading, error, retrying, temporary, retry, canCheckout } = useCartQuote(hydrated);
   const heading = useRef<HTMLHeadingElement>(null);
+  const emptyHeading = useRef<HTMLParagraphElement>(null);
+  const { announcement, removeLine } = useRemoveLine(emptyHeading);
 
   if (!hydrated) {
     return (
@@ -43,20 +46,28 @@ export function CartView() {
     );
   }
 
+  const removed = (
+    <p role="status" className="sr-only">
+      {announcement}
+    </p>
+  );
+
   if (lines.length === 0) {
     return (
       <CartArea>
-        <EmptyCart className="rounded-[var(--radius-card)] border border-line bg-surface px-6 py-16 text-center" />
+        {removed}
+        <EmptyCart className="rounded-[var(--radius-card)] border border-line bg-surface px-6 py-16 text-center" headingRef={emptyHeading} />
       </CartArea>
     );
   }
 
   return (
     <CartArea>
+      {removed}
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
         <ul className="divide-y divide-line border-y border-line">
           {lines.map((line) => (
-            <CartLineItem key={line.key} line={line} quote={quote} />
+            <CartLineItem key={line.key} line={line} quote={quote} onRemove={removeLine} />
           ))}
         </ul>
 
@@ -122,10 +133,51 @@ export function CartQuoteError({
   );
 }
 
-export function EmptyCart({ className, onNavigate }: { className: string; onNavigate?: () => void }) {
+/**
+ * Removes a cart line without losing keyboard focus, which went to the top of the page with the
+ * removed "Fjern" button: it moves to the next line's "Fjern", else the previous one's, else to
+ * `fallback` (rendered once the cart is empty). What was removed is said in a polite live region
+ * (`announcement`).
+ */
+export function useRemoveLine(fallback: RefObject<HTMLElement | null>) {
+  const { remove } = useCart();
+  const [announcement, setAnnouncement] = useState("");
+  const focusFallback = useRef(false);
+
+  useEffect(() => {
+    if (!focusFallback.current || !fallback.current) return;
+    focusFallback.current = false;
+    fallback.current.focus();
+  });
+
+  function removeLine(line: CartLine, button: HTMLButtonElement) {
+    const buttons = [...(button.closest("ul")?.querySelectorAll<HTMLButtonElement>("button[data-remove-line]") ?? [])];
+    const index = buttons.indexOf(button);
+    const next = buttons[index + 1] ?? buttons[index - 1] ?? null;
+    remove(line.key);
+    setAnnouncement(`${line.name}${line.variantLabel ? `, ${line.variantLabel}` : ""} er fjernet fra kurven.`);
+    if (next) next.focus();
+    else focusFallback.current = true;
+  }
+
+  return { announcement, removeLine };
+}
+
+export function EmptyCart({
+  className,
+  onNavigate,
+  headingRef,
+}: {
+  className: string;
+  onNavigate?: () => void;
+  /** Where focus goes when the last line was removed. */
+  headingRef?: RefObject<HTMLParagraphElement | null>;
+}) {
   return (
     <div className={className}>
-      <p className="text-lg font-medium">Din kurv er tom</p>
+      <p ref={headingRef} tabIndex={-1} className="text-lg font-medium outline-none">
+        Din kurv er tom
+      </p>
       <p className="mt-2 text-muted">Find noget, du kan lide, og læg det i kurven.</p>
       <div className="mt-6">
         <ButtonLink href="/produkter" onNavigate={onNavigate}>
@@ -145,11 +197,14 @@ export function CartLineItem({
   quote,
   compact = false,
   onNavigate,
+  onRemove,
 }: {
   line: CartLine;
   quote: ClientQuote | null;
   compact?: boolean;
   onNavigate?: () => void;
+  /** "Fjern" (see useRemoveLine); without it the line is just removed. */
+  onRemove?: (line: CartLine, button: HTMLButtonElement) => void;
 }) {
   const { setQuantity, remove } = useCart();
   const quoted = quote?.items.find((i) => i.productId === line.productId && i.variationId === line.variationId);
@@ -174,6 +229,7 @@ export function CartLineItem({
             <Link href={`/produkter/${line.slug}`} onNavigate={onNavigate} className="font-medium hover:underline">
               {line.name}
             </Link>
+            {line.adult && <AdultMark className="ml-2 inline-block align-[1px]" />}
             {line.variantLabel && <p className="text-sm text-muted">{line.variantLabel}</p>}
             {unitPrice && <p className="mt-1 text-sm text-ink-soft">{formatPrice(unitPrice)} pr. stk.</p>}
             {priceChanged && <p className="text-xs text-warning">Prisen er opdateret</p>}
@@ -203,17 +259,17 @@ export function CartLineItem({
         )}
 
         <div className="mt-auto flex items-center justify-between pt-4">
-          <div className="origin-left scale-90">
-            <QuantityStepper
-              value={line.quantity}
-              max={line.maxQuantity ?? 99}
-              onChange={(q) => setQuantity(line.key, q)}
-              label={`Antal af ${line.name}`}
-            />
-          </div>
+          {/* Full size: scaled down, its buttons were smaller than a finger (44 px). */}
+          <QuantityStepper
+            value={line.quantity}
+            max={line.maxQuantity ?? 99}
+            onChange={(q) => setQuantity(line.key, q)}
+            label={`Antal af ${line.name}`}
+          />
           <button
             type="button"
-            onClick={() => remove(line.key)}
+            data-remove-line
+            onClick={(event) => (onRemove ? onRemove(line, event.currentTarget) : remove(line.key))}
             aria-label={`Fjern ${line.name}${line.variantLabel ? `, ${line.variantLabel}` : ""}`}
             className="-mr-2 inline-flex min-h-11 items-center px-2 text-sm text-muted underline underline-offset-4 hover:text-ink"
           >
@@ -233,7 +289,8 @@ export function CartTotals({ quote, loading, className = "" }: { quote: ClientQu
   const shipping = cartShippingLabel(quote);
   return (
     <div className={className}>
-      {quote && <FreeShippingProgress quote={quote} />}
+      {/* Its place is kept while the first quote loads, so the totals and the button do not move down when it arrives. */}
+      {quote ? <FreeShippingProgress quote={quote} /> : loading && <div className="mb-4 h-20 animate-pulse rounded-[var(--radius-control)] bg-accent-soft/40" aria-hidden="true" />}
       <dl className="space-y-3 text-[15px]">
         <div className="flex justify-between">
           <dt className="text-ink-soft">Foreløbig total</dt>
@@ -264,7 +321,7 @@ export function FreeShippingProgress({ quote }: { quote: ClientQuote }) {
   const missing = target - goods;
   const percent = target > 0 ? Math.max(0, Math.min(100, Math.round((goods / target) * 100))) : 100;
   return (
-    <div className="mb-4 rounded-[var(--radius-control)] bg-accent-soft/70 px-4 py-3">
+    <div className="mb-4 min-h-20 rounded-[var(--radius-control)] bg-accent-soft/70 px-4 py-3">
       <p className="text-sm font-semibold text-ink" aria-live="polite">
         {missing > 0
           ? `Køb for ${formatPrice(fromMinorUnits(missing, 2))} mere, så får du fri fragt til pakkeshop.`

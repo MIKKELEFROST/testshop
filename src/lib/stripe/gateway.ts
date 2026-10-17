@@ -21,6 +21,13 @@ export type PaymentIntentStatus =
  */
 export const CAPTURE_METHOD = "manual" as const;
 
+/** Stripe's smallest charge, in minor units (2.50 kr. for DKK): a smaller PaymentIntent is refused. */
+const MINIMUM_CHARGE: Record<string, number> = { dkk: 250, eur: 50, sek: 300, nok: 300, gbp: 30, usd: 50 };
+
+export function minimumChargeMinor(currency: string): number {
+  return MINIMUM_CHARGE[currency.toLowerCase()] ?? 50;
+}
+
 export type PaymentIntentLike = {
   id: string;
   status: PaymentIntentStatus;

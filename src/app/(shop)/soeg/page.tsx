@@ -14,8 +14,16 @@ import { matchingLinks, normalizeQuery, rankProducts, SEARCH_EXAMPLES, searchedO
 import { getSeasonalProducts } from "@/lib/woocommerce/collections";
 import { getCategories, getSearchMatches, parseSort } from "@/lib/woocommerce/products";
 
-// Result pages are not worth indexing.
-export const metadata: Metadata = { title: "Søg", robots: { index: false } };
+// Result pages are not worth indexing. The title names the search (the page reads the query too).
+export async function generateMetadata(props: PageProps<"/soeg">): Promise<Metadata> {
+  const query = await props.searchParams;
+  const q = normalizeQuery(Array.isArray(query.q) ? query.q[0] : query.q);
+  return {
+    title: q ? `Søg: ${q}` : "Søg",
+    description: `Søg blandt kostumer, masker, parykker og tilbehør hos ${storeConfig.name}.`,
+    robots: { index: false },
+  };
+}
 
 /** Categories and themes shown as chips with the results. */
 const LINKS = 6;
@@ -155,7 +163,7 @@ function LinkChips({ links, className = "" }: { links: SuggestedLink[]; classNam
       <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
         {links.map((link) => (
           <li key={link.href} className="shrink-0">
-            <Link href={link.href} className="inline-flex h-9 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink">
+            <Link href={link.href} className="inline-flex h-11 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink sm:h-9">
               {link.label}
               <span className="ml-1.5 text-xs text-muted">{link.kind}</span>
             </Link>

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { CartView } from "@/components/cart/cart-view";
+import { storeConfig } from "@/config/store";
 
-export const metadata: Metadata = { title: "Kurv", robots: { index: false } };
+export const metadata: Metadata = { title: "Kurv", description: `Din indkøbskurv hos ${storeConfig.name}.`, robots: { index: false } };
 
 export default function CartPage() {
   return (

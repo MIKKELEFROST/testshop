@@ -8,7 +8,7 @@ import type {
   StripeExpressCheckoutElementShippingRateChangeEvent,
 } from "@stripe/stripe-js";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@/components/ui/alert";
 import { storeConfig } from "@/config/store";
 import type { CartLine } from "@/lib/cart/cart";
@@ -23,7 +23,7 @@ import {
   type WalletEstimate,
 } from "@/lib/checkout/express";
 import { ESTIMATE_ADDRESS, type ClientQuote } from "@/lib/checkout/quote";
-import { checkoutRequestSchema } from "@/lib/validation/checkout";
+import { checkoutRequestSchema, isGreenlandPostcode } from "@/lib/validation/checkout";
 import { TermsNotice } from "./legal-links";
 import { quotePayload, recentQuote, rememberQuote } from "./use-quote";
 
@@ -43,17 +43,71 @@ type CheckoutResponse =
  * e-mail, address and shipping choice; prices, shipping and coupons are recalculated by
  * WooCommerce for the address the customer picks in the wallet sheet, and the order is
  * created through the same /api/checkout as the form.
+ *
+ * The section keeps its place from the form's first render, with an empty slot for the buttons
+ * until the first quote is here: inserted later, it pushed the contact fields down while the
+ * customer was typing. It is only taken away when Stripe reports that no wallet can be offered.
  */
-export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: ClientQuote }) {
+export function ExpressCheckout({ lines, quote, email }: { lines: CartLine[]; quote: ClientQuote | null; email?: string }) {
+  const [available, setAvailable] = useState<boolean | null>(null);
+
+  if (available === false) return null;
+
+  return (
+    <section aria-labelledby="hurtig-betaling">
+      <h2 id="hurtig-betaling" className="text-center text-sm text-muted">
+        Hurtig betaling
+      </h2>
+      {quote ? (
+        <WalletButtons lines={lines} quote={quote} email={email} available={available} onAvailable={setAvailable} />
+      ) : (
+        <div className="mt-3 h-12 animate-pulse rounded-[var(--radius-control)] bg-black/5" aria-hidden="true" />
+      )}
+      {/* A wallet payment binds the customer without the form's pay button, so the terms are linked here too. */}
+      <p className="mt-3 text-center text-xs leading-relaxed text-muted">
+        <TermsNotice action="betale med Apple Pay eller Google Pay" adult={lines.some((l) => l.adult)} />
+      </p>
+      <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted" aria-hidden="true">
+        <span className="h-px flex-1 bg-line" />
+        eller
+        <span className="h-px flex-1 bg-line" />
+      </div>
+    </section>
+  );
+}
+
+function WalletButtons({
+  lines,
+  quote,
+  email,
+  available,
+  onAvailable,
+}: {
+  lines: CartLine[];
+  quote: ClientQuote;
+  /** The form's e-mail, when valid: some coupons are restricted to certain addresses. */
+  email?: string;
+  available: boolean | null;
+  onAvailable: (available: boolean) => void;
+}) {
   const router = useRouter();
   const stripe = useStripe();
   const elements = useElements();
-  const [available, setAvailable] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The quote currently shown in the wallet sheet (the form's quote until the customer picks an address).
   const sheetQuote = useRef(quote);
   const sheetAddress = useRef<{ country?: string; postcode?: string; city?: string }>({});
   const inFlight = useRef(false);
+  const coupons = { codes: quote.coupons.map((c) => c.code), email };
+
+  // Next.js hides a route with <Activity> instead of unmounting it: after a wallet payment that
+  // went on to the confirmation, the next visit to the checkout must be able to pay again.
+  useLayoutEffect(() => {
+    const payment = inFlight;
+    return () => {
+      payment.current = false;
+    };
+  }, []);
 
   // Before the customer has typed a postcode the form's quote has no shipping rates, but the
   // sheet needs them the moment it opens (within a second): price a sample address in advance,
@@ -61,7 +115,7 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
   // request), so that answer is used.
   const estimateRequest =
     available && quote.needsShipping && quote.shippingRates.length === 0
-      ? quotePayload(lines, ESTIMATE_ADDRESS, null, { codes: quote.coupons.map((c) => c.code) })
+      ? quotePayload(lines, ESTIMATE_ADDRESS, null, coupons)
       : null;
   const estimate = useRef<Estimate | null>(null);
   // Raised by a tap after the estimate failed or could not open the sheet: ask for it again.
@@ -123,16 +177,15 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
     const response = await fetch("/api/checkout/quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: lines.map((l) => ({ productId: l.productId, variationId: l.variationId, quantity: l.quantity })),
-        address: sheetAddress.current,
-        shippingRateId,
-        coupons: quote.coupons.map((c) => c.code),
-      }),
+      // With the form's e-mail, like the form's own quote: an e-mail-restricted coupon is kept.
+      body: quotePayload(lines, sheetAddress.current, shippingRateId, coupons),
     });
     if (!response.ok) throw new Error("quote failed");
     return (await response.json()) as ClientQuote;
   }
+
+  /** A quote the sheet can show: no cart problems, and shipping rates when something is shipped. */
+  const usable = (next: ClientQuote) => next.errors.length === 0 && !(next.needsShipping && next.shippingRates.length === 0);
 
   async function onShippingAddressChange(event: StripeExpressCheckoutElementShippingAddressChangeEvent) {
     // Browsers only reveal country, postcode and city until the payment is approved.
@@ -141,9 +194,14 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
       postcode: walletPostcode(event.address.postal_code) || undefined,
       city: event.address.city || undefined,
     };
+    // Not delivered there (the form's postcode field says so too).
+    if (isGreenlandPostcode(sheetAddress.current.postcode ?? "")) {
+      event.reject();
+      return;
+    }
     try {
       const next = await requestQuote(sheetQuote.current.shippingRateId);
-      if (next.errors.length > 0 || (next.needsShipping && next.shippingRates.length === 0)) {
+      if (!usable(next)) {
         event.reject();
         return;
       }
@@ -158,6 +216,11 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
   async function onShippingRateChange(event: StripeExpressCheckoutElementShippingRateChangeEvent) {
     try {
       const next = await requestQuote(event.shippingRate.id);
+      // As for an address: the sheet keeps the last total that can be paid.
+      if (!usable(next)) {
+        event.reject();
+        return;
+      }
       sheetQuote.current = next;
       elements?.update({ amount: quoteAmount(next) });
       event.resolve();
@@ -248,17 +311,12 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
     }
   }
 
-  if (available === false) return null;
-
   return (
-    <section aria-labelledby="hurtig-betaling">
-      <h2 id="hurtig-betaling" className="text-center text-sm text-muted">
-        Hurtig betaling
-      </h2>
+    <>
       <div className="mt-3 min-h-12">
         <ExpressCheckoutElement
           options={options}
-          onReady={({ availablePaymentMethods }) => setAvailable(Boolean(availablePaymentMethods))}
+          onReady={({ availablePaymentMethods }) => onAvailable(Boolean(availablePaymentMethods))}
           onClick={async (event) => {
             // Must answer within a second: use a quote that is already here, or wait briefly for the estimate.
             setError(null);
@@ -298,15 +356,6 @@ export function ExpressCheckout({ lines, quote }: { lines: CartLine[]; quote: Cl
           <Alert tone={error === ESTIMATE_PENDING ? "info" : "error"}>{error}</Alert>
         </div>
       )}
-      {/* A wallet payment binds the customer without the form's pay button, so the terms are linked here too. */}
-      <p className="mt-3 text-center text-xs leading-relaxed text-muted">
-        <TermsNotice action="betale med Apple Pay eller Google Pay" />
-      </p>
-      <div className="mt-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted" aria-hidden="true">
-        <span className="h-px flex-1 bg-line" />
-        eller
-        <span className="h-px flex-1 bg-line" />
-      </div>
-    </section>
+    </>
   );
 }

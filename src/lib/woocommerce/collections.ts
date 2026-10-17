@@ -72,10 +72,12 @@ function hiddenCategoryIds(categories: ProductCategory[], shown: string): number
 }
 
 /**
- * A page of a listing with the shop's season first (merchandising.seasonFirst): e.g. on the
- * Fastelavn shop's "Pigekostumer" the costumes that are not Halloween or Christmas, then
- * those. Only with the recommended sorting; other sortings, a listing of the season's own
- * categories and an older plugin (no category filters) get the plain listing.
+ * A page of a listing with the shop's season first (merchandising.seasonFirst), and the shop's
+ * hidden categories (merchandising.hidden) last: e.g. on the Fastelavn shop's "Pigekostumer" the
+ * costumes that are not Halloween or Christmas, then those; on the Halloween shop's "Gadgets og
+ * sjov" the Halloween products, then the others, and the Christmas ones only after them. Only
+ * with the recommended sorting; other sortings, a listing of the season's own categories and an
+ * older plugin (no category filters) get the plain listing.
  */
 export async function getSeasonalProducts(query: ProductQuery & { page: number; sort: SortKey }): Promise<Loadable<ProductList>> {
   const { seasonFirst } = merchandising;
@@ -84,28 +86,72 @@ export async function getSeasonalProducts(query: ProductQuery & { page: number; 
   const ownCategory = query.categoryIds?.some((id) => seasonIds.includes(id));
   if (query.sort !== "anbefalet" || !plugin.categoryFilters || seasonIds.length === 0 || ownCategory) return getProducts(query);
 
+  // A hidden category being listed itself (e.g. /kategori/jul-og-nytaar) is not put last.
+  const hiddenIds = categories.ok
+    ? categories.data.filter((c) => merchandising.hidden.includes(c.slug) && !query.categoryIds?.includes(c.id)).map((c) => c.id)
+    : [];
+  const parts = seasonalParts(seasonIds, hiddenIds, seasonFirst.prefer).map((part): ProductQuery => {
+    const notInCategoryIds = union(query.notInCategoryIds, part.notInCategoryIds);
+    return { ...query, ...part, ...(notInCategoryIds ? { notInCategoryIds } : {}) };
+  });
+
   const perPage = query.perPage ?? PAGE_SIZE;
   const start = (query.page - 1) * perPage;
-  const inSeason: ProductQuery = { [seasonFirst.prefer === "in" ? "inAnyCategoryIds" : "notInCategoryIds"]: seasonIds };
-  const rest: ProductQuery = { [seasonFirst.prefer === "in" ? "notInCategoryIds" : "inAnyCategoryIds"]: seasonIds };
-
-  // The season's part by page, not by offset: WooCommerce reports the total (the season's
-  // size) for an empty page past the end, but 0 for an empty offset read.
-  const first = await getProducts({ ...query, ...inSeason, perPage });
+  // The first part by page, not by offset: WooCommerce reports the total (the part's size) for
+  // an empty page past the end, but 0 for an empty offset read.
+  const first = await getProducts({ ...parts[0]!, perPage });
   if (!first.ok) return first;
-  const firstTotal = first.data.total;
-  const missing = perPage - first.data.products.length;
-  const second = await getProducts({ ...query, ...rest, page: 1, perPage: Math.max(missing, 1), offset: Math.max(0, start - firstTotal) });
-  if (!second.ok) return second;
+  const products = [...first.data.products];
+  let before = first.data.total;
+  for (const part of parts.slice(1)) {
+    const missing = perPage - products.length;
+    const offset = Math.max(0, start - before);
+    const read = await getProducts({ ...part, page: 1, perPage: Math.max(missing, 1), offset });
+    if (!read.ok) return read;
+    let size = read.data.total;
+    // Read wholly past its end (its total then says 0): the next part's offset needs its size.
+    if (read.data.products.length === 0 && offset > 0) {
+      const counted = await getProducts({ ...part, page: 1, perPage: 1 });
+      if (!counted.ok) return counted;
+      size = counted.data.total;
+    }
+    if (missing > 0) products.push(...read.data.products.slice(0, missing));
+    before += size;
+  }
 
-  const total = firstTotal + second.data.total;
   return {
     ok: true,
-    data: {
-      products: [...first.data.products, ...(missing > 0 ? second.data.products.slice(0, missing) : [])],
-      total,
-      totalPages: Math.max(1, Math.ceil(total / perPage)),
-      page: query.page,
-    },
+    data: { products, total: before, totalPages: Math.max(1, Math.ceil(before / perPage)), page: query.page },
   };
+}
+
+type Part = Pick<ProductQuery, "inAnyCategoryIds" | "notInCategoryIds">;
+
+/**
+ * The parts of a seasonal listing, in order, each product in exactly one: the season (or
+ * everything outside it, with `prefer: "out"`), the rest except the hidden categories, then the
+ * hidden categories. A part that is empty by definition is left out (no WooCommerce read): for
+ * the Fastelavn shop, whose season categories are its hidden ones, that is the middle part.
+ */
+export function seasonalParts(seasonIds: number[], hiddenIds: number[], prefer: "in" | "out"): Part[] {
+  const hidden = hiddenIds.filter((id) => prefer === "out" || !seasonIds.includes(id));
+  const parts: Part[] =
+    prefer === "in"
+      ? [
+          { inAnyCategoryIds: seasonIds },
+          { notInCategoryIds: union(seasonIds, hidden) },
+          ...(hidden.length > 0 ? [{ inAnyCategoryIds: hidden, notInCategoryIds: seasonIds }] : []),
+        ]
+      : [
+          { notInCategoryIds: union(seasonIds, hidden) },
+          // The season outside the hidden categories: nothing when they cover the season.
+          ...(seasonIds.every((id) => hidden.includes(id)) ? [] : [{ inAnyCategoryIds: seasonIds, ...(hidden.length > 0 ? { notInCategoryIds: hidden } : {}) }]),
+          ...(hidden.length > 0 ? [{ inAnyCategoryIds: hidden }] : []),
+        ];
+  return parts;
+}
+
+function union(a: number[] | undefined, b: number[] | undefined): number[] | undefined {
+  const ids = [...new Set([...(a ?? []), ...(b ?? [])])];
+  return ids.length > 0 ? ids : undefined;
 }

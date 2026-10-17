@@ -26,8 +26,11 @@ export async function POST(request: Request) {
   const signature = request.headers.get("x-wc-webhook-signature") ?? "";
   const expected = createHmac("sha256", secret).update(body, "utf8").digest("base64");
 
-  const valid =
-    signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  // Compared as bytes: a header of the right length in characters but with non-ASCII ones has
+  // more bytes, and timingSafeEqual throws for buffers of different lengths (a 500, not a 401).
+  const given = Buffer.from(signature);
+  const wanted = Buffer.from(expected);
+  const valid = given.length === wanted.length && timingSafeEqual(given, wanted);
   if (!valid) return Response.json({ error: "invalid signature" }, { status: 401 });
 
   // WooCommerce sends a form-encoded "webhook_id=…" ping when a webhook is created.

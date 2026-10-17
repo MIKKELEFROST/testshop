@@ -1,3 +1,4 @@
+import { company } from "@/config/company";
 import { storeConfig } from "@/config/store";
 
 /** Structured data (schema.org JSON-LD) and absolute URLs for search engines. */
@@ -27,12 +28,26 @@ export const SITE_URL = (configuredSiteUrl() || storeConfig.siteUrl).replace(/\/
 
 /**
  * A page's Open Graph data: its address (og:url, the same as its canonical) and the share
- * image, the product's photo or else the shop's (app/opengraph-image.tsx). A page's
- * `openGraph` replaces the whole object, file-based image included, so the shop's image is
- * named here again.
+ * image, the product's photo or else the shop's (app/opengraph-image.tsx), with og:type,
+ * og:site_name and og:locale. A page's `openGraph` replaces the whole object, file-based image
+ * included, so the shop's image is named here again.
  */
 export function openGraphFor(url: string | undefined, images?: { url: string; alt: string }[]) {
-  return { url, images: images ?? [{ url: "/opengraph-image", width: 1200, height: 630, alt: storeConfig.name, type: "image/png" }] };
+  return {
+    type: "website" as const,
+    siteName: storeConfig.name,
+    locale: "da_DK",
+    url,
+    images: images ?? [{ url: "/opengraph-image", width: 1200, height: 630, alt: storeConfig.name, type: "image/png" }],
+  };
+}
+
+/** company.address "Street 1, 2650 Town" as a schema.org PostalAddress. */
+function postalAddress(address: string) {
+  const match = /^(.+),\s*(\d{4})\s+(.+)$/.exec(address.trim());
+  return match
+    ? { "@type": "PostalAddress", streetAddress: match[1], postalCode: match[2], addressLocality: match[3], addressCountry: "DK" }
+    : { "@type": "PostalAddress", streetAddress: address, addressCountry: "DK" };
 }
 
 export function absoluteUrl(path: string): string {
@@ -70,6 +85,11 @@ export function shopData() {
         logo: absoluteUrl("/email-logo.png"),
         description: storeConfig.description,
         email: storeConfig.supportEmail,
+        // The company behind the shop (src/config/company.ts), for search engines' merchant details.
+        legalName: company.name,
+        address: postalAddress(company.address),
+        telephone: `+45 ${company.phone}`,
+        vatID: `DK${company.cvr}`,
         areaServed: "DK",
         currenciesAccepted: storeConfig.currency,
       },

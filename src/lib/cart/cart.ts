@@ -20,6 +20,8 @@ export type CartLine = {
   unitPrice: string | null;
   /** Known stock when added (null = not tracked). Server re-validates. */
   maxQuantity: number | null;
+  /** For adults only (18+): marked in the cart and the checkout, whose terms then ask for the buyer's age. */
+  adult?: boolean;
 };
 
 export type CartAction =
@@ -85,6 +87,7 @@ const storedLineSchema = z.object({
   image: z.object({ src: z.string().max(2000), alt: z.string().max(300) }).nullable().optional(),
   unitPrice: z.string().max(20).nullable(),
   maxQuantity: z.number().int().nullable(),
+  adult: z.boolean().optional(),
 });
 
 const storedCartSchema = z.object({ version: z.literal(1), lines: z.array(storedLineSchema).max(MAX_LINES) });

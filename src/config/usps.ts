@@ -63,6 +63,13 @@ export const DELIVERY_FACTS: string[] = [
   RETURN_PROMISE,
 ];
 
+/**
+ * The cheapest delivery: to a parcel shop with PostNord, GLS or DAO, as /fragt-og-levering says
+ * (src/content/info-pages.ts). Product pages tell search engines it (structured data), free from
+ * the free shipping amount. Keep it in step with WooCommerce's flat rates.
+ */
+export const PARCEL_SHOP_SHIPPING = "39.00";
+
 /** The bar above the header. */
 export const USP_BAR: string[] = ["Fri fragt til pakkeshop v/ {fri_fragt}", "1-dags levering", "Gratis retur i 30 dage"];
 

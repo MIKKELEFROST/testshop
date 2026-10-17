@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { FavoritesView } from "@/components/favorites/favorites-view";
 import { CardBand } from "@/components/products/product-card";
+import { storeConfig } from "@/config/store";
 
-export const metadata: Metadata = { title: "Favoritter", robots: { index: false } };
+export const metadata: Metadata = { title: "Favoritter", description: `Dine gemte favoritter hos ${storeConfig.name}.`, robots: { index: false } };
 
 export default function FavoritesPage() {
   return (

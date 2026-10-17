@@ -57,7 +57,7 @@ Se [WOOCOMMERCE.md](WOOCOMMERCE.md#1-installér-pluginet-headless-checkout-bridg
 
 ## 3. Stripe-webhook
 
-Opret endpointet `https://<projekt>.vercel.app/api/stripe/webhook` som beskrevet i [STRIPE.md](STRIPE.md#webhook-påkrævet). Indsæt derefter signing secret'en i Vercel, og redeploy.
+Opret endpointet `https://<webshoppens primære domæne>/api/stripe/webhook` (fx `https://fastelavnskostumer.dk/api/stripe/webhook`, ikke `*.vercel.app`) som beskrevet i [STRIPE.md](STRIPE.md#webhook-påkrævet). Indsæt derefter signing secret'en i Vercel, og redeploy.
 
 ## 4. Før go-live
 

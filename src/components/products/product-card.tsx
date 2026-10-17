@@ -3,6 +3,7 @@ import Link from "next/link";
 import { FavoriteButton } from "@/components/favorites/favorite-button";
 import { formatAmount } from "@/lib/money";
 import type { ProductSummary } from "@/types/commerce";
+import { AdultMark } from "./adult-mark";
 import { ProductImage } from "./product-image";
 import { stockLabel } from "./stock-badge";
 
@@ -62,16 +63,6 @@ export function ProductCard({ product, priority = false }: { product: ProductSum
         <FavoriteButton productId={product.id} name={product.name} />
       </div>
     </div>
-  );
-}
-
-/** "18+" on products for adults only. */
-export function AdultMark({ className = "" }: { className?: string }) {
-  return (
-    <span className={`rounded-md bg-ink px-1.5 py-1 text-xs leading-none font-extrabold text-white ${className}`} title="Kun for voksne over 18 år">
-      18+
-      <span className="sr-only"> – kun for voksne</span>
-    </span>
   );
 }
 

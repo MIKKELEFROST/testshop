@@ -1,6 +1,14 @@
+import { createHash } from "node:crypto";
 import { storeConfig } from "@/config/store";
 import { stripeCurrencyExponent, toMinorUnits } from "@/lib/money";
-import { CAPTURE_METHOD, PAYABLE_STATUSES, type PaymentGateway, type PaymentIntentLike } from "@/lib/stripe/gateway";
+import {
+  CAPTURE_METHOD,
+  minimumChargeMinor,
+  PAYABLE_STATUSES,
+  type CreatePaymentIntentParams,
+  type PaymentGateway,
+  type PaymentIntentLike,
+} from "@/lib/stripe/gateway";
 import { paymentMethodTitle } from "@/lib/stripe/payment-method";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
 import type {
@@ -124,6 +132,12 @@ async function ensurePaymentIntent(
   const currency = order.currency.toLowerCase();
   const previous = order.payment_intent_id;
 
+  // Stripe refuses a smaller charge (e.g. a 100 % coupon with free shipping). Retrying cannot
+  // help, so the customer is told to contact the shop instead of "Prøv igen om lidt".
+  if (amount < minimumChargeMinor(currency)) {
+    return { type: "cart_invalid", message: BELOW_MINIMUM_MESSAGE };
+  }
+
   if (previous) {
     const existing = await deps.gateway.retrieve(previous);
     if (paidOrReserved(existing)) return { type: "already_paid", order: ref(order) };
@@ -136,35 +150,31 @@ async function ensurePaymentIntent(
     if (paidOrReserved(cancelled)) return { type: "already_paid", order: ref(order) };
   }
 
-  const created = await deps.gateway.create(
-    {
-      amount,
-      currency,
-      captureMethod: CAPTURE_METHOD,
-      description: `${storeConfig.name} ordre #${order.number}`,
-      statementDescriptorSuffix: storeConfig.statementDescriptorSuffix,
-      metadata: {
-        wc_order_id: String(order.id),
-        wc_order_key: order.order_key,
-        wc_order_number: order.number,
-        store_id: storeConfig.id,
-      },
-      shipping: {
-        name: `${request.shipping.firstName} ${request.shipping.lastName}`,
-        phone: request.contact.phone || undefined,
-        address: {
-          line1: request.shipping.address1,
-          line2: request.shipping.address2 || undefined,
-          postal_code: request.shipping.postcode,
-          city: request.shipping.city,
-          country: request.shipping.country,
-        },
+  const params: CreatePaymentIntentParams = {
+    amount,
+    currency,
+    captureMethod: CAPTURE_METHOD,
+    description: `${storeConfig.name} ordre #${order.number}`,
+    statementDescriptorSuffix: storeConfig.statementDescriptorSuffix,
+    metadata: {
+      wc_order_id: String(order.id),
+      wc_order_key: order.order_key,
+      wc_order_number: order.number,
+      store_id: storeConfig.id,
+    },
+    shipping: {
+      name: `${request.shipping.firstName} ${request.shipping.lastName}`,
+      phone: request.contact.phone || undefined,
+      address: {
+        line1: request.shipping.address1,
+        line2: request.shipping.address2 || undefined,
+        postal_code: request.shipping.postcode,
+        city: request.shipping.city,
+        country: request.shipping.country,
       },
     },
-    // Same order + amount + predecessor => Stripe returns the same PaymentIntent (no duplicates on retries).
-    // The capture method keeps keys used before capture at shipment (other parameters) from clashing.
-    `wchc:${order.id}:${order.order_key}:${amount}:${previous ?? "none"}:${CAPTURE_METHOD}`,
-  );
+  };
+  const created = await deps.gateway.create(params, paymentIntentKey(order, amount, previous, params));
 
   const attached = await deps.backend.attachPaymentIntent(order.id, order.order_key, created.id, previous);
   if (attached.status === 200) return ready(order, created);
@@ -206,6 +216,22 @@ async function updateAmountOrNull(pi: PaymentIntentLike, amount: number, deps: C
     return null;
   }
 }
+
+/**
+ * The idempotency key of a new PaymentIntent. The same order, amount and predecessor sent with
+ * the same parameters gives the same key, so Stripe returns the same PaymentIntent on retries (no
+ * duplicates). The parameters' hash gives a changed name or address (the customer corrected it
+ * after a failed attempt, on the same pending order) its own key: Stripe refuses a key sent again
+ * with other parameters for 24 hours. The capture method keeps keys used before capture at
+ * shipment from clashing.
+ */
+export function paymentIntentKey(order: Pick<WcOrderSummary, "id" | "order_key">, amount: number, previous: string | null, params: CreatePaymentIntentParams): string {
+  const hash = createHash("sha256").update(JSON.stringify(params)).digest("base64url").slice(0, 16);
+  return `wchc:${order.id}:${order.order_key}:${amount}:${previous ?? "none"}:${params.captureMethod ?? "automatic"}:${hash}`;
+}
+
+/** A total below Stripe's minimum charge (see ensurePaymentIntent). */
+export const BELOW_MINIMUM_MESSAGE = `Ordren kan ikke betales online. Kontakt kundeservice på ${storeConfig.supportEmail}.`;
 
 function ready(order: WcOrderSummary, pi: PaymentIntentLike): StartCheckoutOutcome {
   if (!pi.client_secret) throw new CheckoutError("PaymentIntent without client secret");

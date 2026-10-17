@@ -81,7 +81,7 @@ export type Product = ProductSummary & {
   purchasable: boolean;
   attributes: ProductAttribute[];
   variations: ProductVariation[];
-  /** Link to the supplier's size chart (image), if any. */
+  /** Link to the supplier's size chart (image), if any. The product page then links the shop's own size guide (/stoerrelsesguide). */
   sizeChart: string | null;
   /** Link to the supplier's product safety label with warnings (EU GPSR), if any. */
   safetyInfo: string | null;

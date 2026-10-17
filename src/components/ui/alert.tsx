@@ -16,7 +16,8 @@ export function Alert({ tone = "info", title, children }: { tone?: Tone; title?:
       className={`animate-fade-in rounded-[var(--radius-control)] border px-4 py-3 text-sm ${tones[tone]}`}
     >
       {title && <p className="font-medium">{title}</p>}
-      {children && <div className={title ? "mt-1 opacity-90" : ""}>{children}</div>}
+      {/* Full strength: dimmed, the body text fell below 4.5:1 on the tint. */}
+      {children && <div className={title ? "mt-1" : ""}>{children}</div>}
     </div>
   );
 }

@@ -51,8 +51,9 @@
   --color-canvas: #f3f1ee;
   /* The "has video" mark on product cards. */
   --color-video: #0284c7;
-  --color-success: #2f7a4f;
-  --color-warning: #9a6a12;
+  /* Dark enough for 14 px text on their own 5 % tint (alerts): about 6:1 on both shops' paper. */
+  --color-success: #256340;
+  --color-warning: #7a520a;
   --color-danger: #b42318;
 
   --radius-card: 1rem;

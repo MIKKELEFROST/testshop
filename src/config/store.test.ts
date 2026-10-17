@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brands, brandStyle, isDark, resolveStoreConfig, themeStyle } from "./store";
+import { brands, brandStyle, isDark, resolveStoreConfig, sellsAdultProducts, themeStyle } from "./store";
 
 /** WCAG contrast ratio of two "#rrggbb" colours. */
 function contrast(a: string, b: string): number {
@@ -33,8 +33,20 @@ describe("store config", () => {
   it("sets the brand's heading font next to its colours", () => {
     const style = brandStyle(brands["halloween-kostumer-dk"]!);
     expect(style).toMatchObject({ "--color-chrome": "#130f19", "--display-case": "uppercase", "--display-weight": "400" });
-    expect(style["--font-display"]).toBe('"Bebas Neue", var(--font-sans)');
+    expect(style["--font-display"]).toBe("var(--font-bebas-neue), var(--font-sans)");
     expect(brandStyle(brands["piece-dk"]!)["--display-case"]).toBe("none");
+  });
+
+  it("gives each brand a front page title that search results show in full, with the shop's name", () => {
+    for (const brand of Object.values(brands)) {
+      expect(brand.homeTitle.length, brand.homeTitle).toBeLessThanOrEqual(60);
+      expect(brand.homeTitle).toContain(brand.name);
+    }
+  });
+
+  it("tells which shops sell products for adults only", () => {
+    expect(sellsAdultProducts(brands["halloween-kostumer-dk"]!)).toBe(true);
+    expect(sellsAdultProducts(brands["piece-dk"]!)).toBe(false);
   });
 
   it("gives each brand a card statement suffix Stripe accepts", () => {

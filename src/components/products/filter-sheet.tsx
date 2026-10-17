@@ -71,7 +71,7 @@ export function FilterSheet({ path, params, options, selection }: ListingFilters
         type="button"
         onClick={show}
         aria-haspopup="dialog"
-        className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-control)] border border-field bg-surface px-3.5 text-[15px] font-semibold text-ink hover:border-ink lg:hidden"
+        className="inline-flex h-11 items-center gap-2 rounded-[var(--radius-control)] border border-field bg-surface px-3.5 text-[15px] font-semibold text-ink hover:border-ink lg:hidden"
       >
         <SlidersHorizontal className="size-4" aria-hidden="true" />
         Filtrér

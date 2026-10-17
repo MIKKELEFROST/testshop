@@ -17,10 +17,13 @@ export function CheckoutFooter() {
           </a>
         </p>
         <nav aria-label="Vilkår">
-          <ul className="flex flex-wrap gap-x-4 gap-y-1">
+          {/* At least 24 px tall, with room between the rows on a phone (WCAG 2.5.8). */}
+          <ul className="flex flex-wrap gap-x-4 gap-y-2">
             {LEGAL_LINKS.map((link) => (
               <li key={link.href}>
-                <LegalLink href={link.href}>{link.label}</LegalLink>
+                <LegalLink href={link.href} className="inline-flex min-h-6 items-center underline underline-offset-2 hover:text-ink">
+                  {link.label}
+                </LegalLink>
               </li>
             ))}
           </ul>

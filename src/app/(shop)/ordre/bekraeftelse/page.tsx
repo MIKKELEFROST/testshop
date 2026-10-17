@@ -23,7 +23,8 @@ export default function ConfirmationPage(props: PageProps<"/ordre/bekraeftelse">
     <div className="container-shop max-w-3xl pt-10">
       <Suspense
         fallback={
-          <div className="flex items-center gap-3 py-24 text-muted">
+          // About as tall as the shortest answer (NotFound), so the footer does not jump to it.
+          <div className="flex min-h-56 items-center gap-3 text-muted">
             <Spinner /> Henter din ordre…
           </div>
         }
@@ -78,7 +79,7 @@ async function Confirmation({ searchParams }: { searchParams: Promise<Record<str
 
   return (
     <div>
-      <ConfirmationEffects completed={paid || reserved || sent || processing} pending={order.status === "pending" && !failedRedirect} />
+      <ConfirmationEffects orderId={order.id} completed={paid || reserved || sent || processing} pending={order.status === "pending" && !failedRedirect} />
 
       {paid && (
         <Header icon="success" eyebrow={`Ordre #${order.number}`} title="Tak for din ordre!">
@@ -202,7 +203,7 @@ function Header({
   children,
 }: {
   icon: "success" | "pending" | "error";
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   children: React.ReactNode;
 }) {
@@ -213,7 +214,7 @@ function Header({
         {icon === "success" ? "✓" : icon === "pending" ? <Spinner /> : "!"}
       </span>
       <div>
-        <p className="text-sm text-muted">{eyebrow}</p>
+        {eyebrow && <p className="text-sm text-muted">{eyebrow}</p>}
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
         <div className="mt-2 text-ink-soft">{children}</div>
       </div>
@@ -221,11 +222,20 @@ function Header({
   );
 }
 
+/** An invalid or expired link: laid out like the other states, with a way on. */
 function NotFound() {
   return (
-    <Alert tone="warning" title="Ordren blev ikke fundet">
-      Linket er ugyldigt eller udløbet.
-    </Alert>
+    <div className="min-h-56">
+      <Header icon="error" title="Vi kan ikke finde ordren">
+        Linket er ugyldigt eller udløbet. Har du betalt, får du en ordrebekræftelse på e-mail.
+        <div className="mt-5 flex flex-wrap gap-3">
+          <ButtonLink href="/kontakt">Kontakt kundeservice</ButtonLink>
+          <ButtonLink href="/" variant="secondary">
+            Til forsiden
+          </ButtonLink>
+        </div>
+      </Header>
+    </div>
   );
 }
 

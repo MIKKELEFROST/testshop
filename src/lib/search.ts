@@ -92,6 +92,28 @@ const SYNONYMS: Record<Season | "both", Record<string, string>> = {
     teaterblod: "blod",
     "falske tænder": "tænder",
     udklædningstøj: "kostume",
+    // Common misspellings and English words (the catalogue is in Danish).
+    vampir: "vampyr",
+    vampire: "vampyr",
+    witch: "heks",
+    pirate: "pirat",
+    zombi: "zombie",
+    skeleton: "skelet",
+    ghost: "spøgelse",
+    princess: "prinsesse",
+    superhero: "superhelt",
+    clown: "klovn",
+    knight: "ridder",
+    costume: "kostume",
+    mask: "maske",
+    wig: "paryk",
+    cape: "kappe",
+    dress: "kjole",
+    crown: "krone",
+    wings: "vinge",
+    tail: "hale",
+    blood: "blod",
+    teeth: "tænder",
   },
   fastelavn: {
     fastelavn: "kostume",
@@ -176,6 +198,29 @@ function withSynonyms(words: string[], season: Season): string {
 
 const queryWords = (query: string) => fold(normalizeQuery(query)).split(" ").filter(Boolean);
 
+/** Whether two words differ by one letter: one added, left out, changed, or two neighbours swapped. */
+export function oneEditApart(a: string, b: string): boolean {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  if (a.length === b.length) {
+    const diff = [...a].flatMap((char, i) => (char === b[i] ? [] : [i]));
+    return diff.length === 1 || (diff.length === 2 && diff[1] === diff[0]! + 1 && a[diff[0]!] === b[diff[1]!] && a[diff[1]!] === b[diff[0]!]);
+  }
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  let i = 0;
+  while (i < short.length && short[i] === long[i]) i++;
+  return short.slice(i) === long.slice(i + 1);
+}
+
+/**
+ * A catalogue word the word is a typo of ("piraat" → "pirat", "vampir" → "vampyr"), as its base
+ * form; null when it is a known word, too short to tell (under 5 letters) or close to several.
+ */
+export function spellingFix(word: string): string | null {
+  if (word.length < 5 || BASE.has(word) || !/^\p{L}+$/u.test(word)) return null;
+  const bases = new Set([...BASE.keys()].filter((known) => oneEditApart(word, known)).map((known) => BASE.get(known)!));
+  return bases.size === 1 ? [...bases][0]! : null;
+}
+
 /**
  * The words without the shop's own holiday: "halloween paryk" → "paryk" and "halloweenmaske" →
  * "maske" in the Halloween shop, "fastelavnskostume" → "kostume" in the Fastelavn shop. Kept
@@ -194,14 +239,16 @@ function withoutSeason(words: string[], season: Season): string[] {
 
 /**
  * Other ways to search for the same thing, best first, for when a search finds nothing:
- * the shop's synonyms ("kattekonge" → "konge krone"), compounds split ("zombiemaske" →
- * "zombie maske"), then the words without their endings ("vampyrerne" → "vampyre", "vampyr").
+ * the shop's synonyms ("kattekonge" → "konge krone", "witch" → "heks"), typos of catalogue
+ * words fixed ("piraat" → "pirat"), compounds split ("zombiemaske" → "zombie maske"), then the
+ * words without their endings ("vampyrerne" → "vampyre", "vampyr").
  */
 export function searchVariants(query: string, season: Season = storeConfig.season): string[] {
   const words = queryWords(query);
   const stemmed = (pick: (found: string[]) => string | undefined) => words.map((w) => (BASE.has(w) ? w : (pick(stems(w)) ?? w))).join(" ");
   const variants = [
     withSynonyms(words, season),
+    words.map((w) => spellingFix(w) ?? w).join(" "),
     words.map((w) => splitCompound(w) ?? w).join(" "),
     stemmed((found) => found[0]),
     stemmed((found) => found.at(-1)),

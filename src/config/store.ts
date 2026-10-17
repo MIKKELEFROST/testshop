@@ -1,3 +1,5 @@
+import { ADULT_CATEGORY_SLUGS } from "./catalog";
+
 /**
  * Store (brand) configuration.
  *
@@ -49,7 +51,10 @@ export type StoreTheme = Partial<
 /** The holiday a shop is built around: its front page counts down to it all year. */
 export type Season = "fastelavn" | "halloween";
 
-/** Heading font: family, weight, letter spacing and case (see the `heading` utility). */
+/**
+ * Heading font: family, weight, letter spacing and case (see the `heading` utility). `family` is
+ * the CSS variable src/app/fonts.ts loads the font into (next/font, with a size-matched fallback).
+ */
 export type DisplayFont = { family: string; weight: number; tracking: string; uppercase: boolean };
 
 export type StoreBrand = {
@@ -74,6 +79,8 @@ export type StoreBrand = {
   /** The logo: a drawn mark and the name in two lines ("Halloween" over "kostumer.dk"). */
   logo: { mark: "barrel-cat" | "pumpkin"; word: string; suffix: string };
   tagline: string;
+  /** The front page's title in search results: about 60 characters at most, or it is cut off. */
+  homeTitle: string;
   description: string;
   season: Season;
   font: DisplayFont;
@@ -113,11 +120,12 @@ export const brands: Record<string, StoreBrand> = {
     email: "hej@fastelavnskostumer.dk",
     logo: { mark: "barrel-cat", word: "Fastelavns", suffix: "kostumer.dk" },
     tagline: "Kostumer til fastelavn – til hele familien",
+    homeTitle: "Fastelavnskostumer til hele familien · Fastelavnskostumer.dk",
     description:
       "Fastelavnskostumer til børn og voksne: prinsesser, superhelte, dyr og alt det sjove tilbehør. Hurtig levering fra dansk webshop.",
     season: "fastelavn",
     statementDescriptorSuffix: "FASTELAVN",
-    font: { family: '"Fredoka Variable"', weight: 650, tracking: "-0.01em", uppercase: false },
+    font: { family: "var(--font-fredoka)", weight: 650, tracking: "-0.01em", uppercase: false },
     theme: {
       paper: "#fffaf2",
       ink: "#1d2246",
@@ -163,11 +171,12 @@ export const brands: Record<string, StoreBrand> = {
     email: "hej@halloweenkostumer.dk",
     logo: { mark: "pumpkin", word: "Halloween", suffix: "kostumer.dk" },
     tagline: "Halloweenkostumer, masker og alt det uhyggelige",
+    homeTitle: "Halloweenkostumer, masker og blod · Halloweenkostumer.dk",
     description:
       "Halloweenkostumer til voksne og børn, masker, blod og effekter, make-up og pynt til huset. Hurtig levering fra dansk webshop.",
     season: "halloween",
     statementDescriptorSuffix: "HALLOWEEN",
-    font: { family: '"Bebas Neue"', weight: 400, tracking: "0.02em", uppercase: true },
+    font: { family: "var(--font-bebas-neue)", weight: 400, tracking: "0.02em", uppercase: true },
     theme: {
       paper: "#f8f6f3",
       ink: "#17131c",
@@ -236,6 +245,11 @@ export const storeConfig: StoreConfig = resolveStoreConfig({
 /** The brand's colours as CSS custom properties, for the root element. */
 export function themeStyle(theme: StoreTheme): Record<string, string> {
   return Object.fromEntries(Object.entries(theme).map(([token, value]) => [`--color-${token}`, value]));
+}
+
+/** Whether the shop sells products for adults only (18+): they are only at home in a shop that names their category. */
+export function sellsAdultProducts(brand: Pick<StoreBrand, "homeCategories"> = storeConfig): boolean {
+  return (brand.homeCategories ?? []).some((slug) => ADULT_CATEGORY_SLUGS.includes(slug));
 }
 
 /** Colours and heading font of a brand as CSS custom properties, for the root element. */

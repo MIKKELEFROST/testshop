@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { NotFoundContent } from "@/components/layout/not-found-content";
 import { ProductListing } from "@/components/products/listing";
 import { CardBand, ProductGridSkeleton } from "@/components/products/product-card";
 import { CatalogRetry } from "@/components/ui/catalog-retry";
@@ -34,7 +35,8 @@ export async function generateMetadata(props: PageProps<"/tema/[slug]">): Promis
   const result = await filteredListing(filters, (filtered) => getCollectionProducts(slug, { page, sort: parseSort(query.sorter), ...filtered }));
   if (result === null) notFound();
   if (result.ok && result.data.products.length === 0 && page > 1) notFound();
-  const canonical = collection.canonical ?? pageHref(`/tema/${collection.slug}`, page);
+  // A theme that stands in for a category points at the category's page with the same number.
+  const canonical = pageHref(collection.canonical ?? `/tema/${collection.slug}`, page);
   return {
     title: page > 1 ? `${collection.title} – side ${page}` : collection.title,
     description: pageDescription(collection.intro, page),
@@ -76,8 +78,10 @@ async function ThemeContent({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
+  // generateMetadata has called notFound() for these already (see there): a second notFound()
+  // here added a second "noindex" to the page.
   const collection = findCollection(slug);
-  if (!collection) notFound();
+  if (!collection) return <NotFoundContent />;
   const page = parsePage(query.side);
   const sort = parseSort(query.sorter);
   const filters = await resolveFilters(parseFilters(query));
@@ -85,8 +89,8 @@ async function ThemeContent({
     filteredListing(filters, (filtered) => getCollectionProducts(slug, { page, sort, ...filtered })),
     getCollectionScope(slug).then((scope) => getFilterOptions(scope, filters.selection)),
   ]);
-  if (result === null) notFound();
-  if (result.ok && result.data.products.length === 0 && page > 1) notFound();
+  if (result === null) return <NotFoundContent />;
+  if (result.ok && result.data.products.length === 0 && page > 1) return <NotFoundContent />;
 
   // Other themes to explore: the front page's, then the rest.
   const others = [...new Set([...merchandising.home.themes.collections, ...merchandising.collections.map((c) => c.slug)])]
@@ -101,7 +105,8 @@ async function ThemeContent({
         data={breadcrumbData([
           { name: "Forside", href: "/" },
           { name: "Temaer", href: "/tema" },
-          { name: collection.title, href: `/tema/${collection.slug}` },
+          // The page itself, without an address: search engines take its canonical one.
+          { name: collection.title },
         ])}
       />
       <Breadcrumbs items={[{ name: "Forside", href: "/" }, { name: "Temaer", href: "/tema" }, { name: collection.title }]} />
@@ -112,7 +117,7 @@ async function ThemeContent({
           <ul className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
             {others.map((c) => (
               <li key={c.slug} className="shrink-0">
-                <Link href={`/tema/${c.slug}`} className="inline-flex h-9 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink">
+                <Link href={`/tema/${c.slug}`} className="inline-flex h-11 items-center rounded-full border border-line-strong bg-surface px-4 text-sm whitespace-nowrap hover:border-ink sm:h-9">
                   {c.title}
                 </Link>
               </li>

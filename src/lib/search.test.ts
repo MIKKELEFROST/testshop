@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ProductCategory, ProductSummary } from "@/types/commerce";
-import { buildSuggestions, matchingLinks, normalizeQuery, rankProducts, SEARCH_EXAMPLES, searchedOtherWords, searchPlan, searchProducts, searchVariants, stems, SUGGESTED_PRODUCTS } from "./search";
+import {
+  buildSuggestions,
+  matchingLinks,
+  normalizeQuery,
+  oneEditApart,
+  rankProducts,
+  SEARCH_EXAMPLES,
+  searchedOtherWords,
+  searchPlan,
+  searchProducts,
+  searchVariants,
+  spellingFix,
+  stems,
+  SUGGESTED_PRODUCTS,
+} from "./search";
 
 function product(id: number, name: string, extra: Partial<ProductSummary> = {}): ProductSummary {
   return {
@@ -114,6 +128,28 @@ describe("Danish search words", () => {
     expect(searchVariants("kattekostume", "fastelavn")[0]).toBe("kat kostume");
     expect(searchVariants("zombiemasker", "halloween")[0]).toBe("zombie maske");
     expect(searchVariants("piratkostume til drenge", "fastelavn")[0]).toBe("pirat kostume til drenge");
+  });
+
+  it("finds Danish products for common misspellings and English words", () => {
+    expect(searchVariants("vampir", "halloween")[0]).toBe("vampyr");
+    expect(searchVariants("vampire", "halloween")[0]).toBe("vampyr");
+    expect(searchVariants("Witch", "halloween")[0]).toBe("heks");
+    expect(searchVariants("pirate", "fastelavn")[0]).toBe("pirat");
+    expect(searchVariants("piraat", "fastelavn")[0]).toBe("pirat");
+    expect(searchVariants("prinsese", "fastelavn")[0]).toBe("prinsesse");
+    expect(searchVariants("zombi maske", "halloween")[0]).toBe("zombie maske");
+  });
+
+  it("fixes a typo only when it is one letter from exactly one catalogue word", () => {
+    expect(oneEditApart("piraat", "pirat")).toBe(true);
+    expect(oneEditApart("vampir", "vampyr")).toBe(true);
+    expect(oneEditApart("sekelt", "skelet")).toBe(false);
+    expect(oneEditApart("skelte", "skelet")).toBe(true);
+    expect(oneEditApart("pirat", "pirat")).toBe(false);
+    expect(spellingFix("klovne")).toBeNull(); // a known word
+    expect(spellingFix("hekz")).toBeNull(); // too short to tell
+    expect(spellingFix("skeltet")).toBe("skelet");
+    expect(spellingFix("børnene")).toBeNull();
   });
 
   it("tries the shop's own synonyms first", () => {

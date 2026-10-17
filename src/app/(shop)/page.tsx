@@ -12,8 +12,9 @@ import { JsonLd, openGraphFor, shopData } from "@/lib/seo";
 import type { ProductPhoto } from "@/lib/woocommerce/products";
 import { getCollectionProducts, getProductPhotos } from "@/lib/woocommerce/collections";
 
-// One address for the front page, also when it is opened with e.g. "?utm_source=…".
-export const metadata: Metadata = { alternates: { canonical: "/" }, openGraph: openGraphFor("/") };
+// One address for the front page, also when it is opened with e.g. "?utm_source=…". Its own
+// title, short enough for search results (the default, name and tagline, is about 70 characters).
+export const metadata: Metadata = { title: { absolute: storeConfig.homeTitle }, alternates: { canonical: "/" }, openGraph: openGraphFor("/") };
 
 /**
  * The shop's front page (src/config/merchandising.ts): hero with the countdown to its holiday,

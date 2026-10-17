@@ -37,8 +37,12 @@ export function safeHref(href: string): string | null {
   }
 }
 
-/** The page as the shop shows it: the sections and blocks for whether it shows TrustBoxes (`trustbox` in the content). */
-export function shownPage(page: InfoPage, trustbox: boolean): InfoPage {
-  const shown = (item: { trustbox?: boolean }) => item.trustbox === undefined || item.trustbox === trustbox;
+/**
+ * The page as the shop shows it: the sections and blocks for whether it shows TrustBoxes
+ * (`trustbox` in the content) and whether it sells products for adults only (`adult`).
+ */
+export function shownPage(page: InfoPage, trustbox: boolean, adult = true): InfoPage {
+  const shown = (item: { trustbox?: boolean; adult?: boolean }) =>
+    (item.trustbox === undefined || item.trustbox === trustbox) && (item.adult === undefined || item.adult === adult);
   return { ...page, sections: page.sections.filter(shown).map((section) => ({ ...section, blocks: section.blocks.filter(shown) })) };
 }

@@ -3,7 +3,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
-import type { ClientQuote } from "@/lib/checkout/quote";
+import { couponRejectionMessage, type ClientQuote } from "@/lib/checkout/quote";
 import { formatPrice } from "@/lib/money";
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -11,6 +11,7 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 /**
  * Coupon codes for the checkout. WooCommerce decides whether a code applies: a requested
  * code that is missing from the latest quote is shown as rejected, with WooCommerce's reason.
+ * The code stays in the field until WooCommerce has applied it, so a typo can be seen and fixed.
  * Lives inside the payment form, so Enter applies the code instead of submitting the payment.
  * `id` keeps the input unique when the field appears in two places (summary and mobile form).
  */
@@ -36,9 +37,17 @@ export function CouponField({
   const checking = loading && unresolved.length > 0;
   const rejected = !loading && quote ? unresolved : [];
   const rejection = rejected[0]
-    ? (quote?.couponErrors.find((e) => same(e.code, rejected[0]!))?.message ?? `Rabatkoden "${rejected[0]}" kan ikke bruges.`)
+    ? couponRejectionMessage(rejected[0], quote?.couponErrors.find((e) => same(e.code, rejected[0]!))?.message)
     : null;
   const error = inputError ?? rejection ?? undefined;
+
+  // Once the typed code is among the applied ones, the field is emptied for the next code.
+  const appliedKey = applied.map((c) => c.code.toLowerCase()).join(",");
+  const [seenApplied, setSeenApplied] = useState(appliedKey);
+  if (seenApplied !== appliedKey) {
+    setSeenApplied(appliedKey);
+    if (input.trim() !== "" && isApplied(input.trim())) setInput("");
+  }
 
   function apply() {
     const code = input.trim();
@@ -47,7 +56,6 @@ export function CouponField({
       return;
     }
     setInputError(null);
-    setInput("");
     // A new code replaces earlier rejected ones.
     if (!requested.some((c) => same(c, code))) onChange([...requested.filter(isApplied), code]);
   }

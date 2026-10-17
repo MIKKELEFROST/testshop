@@ -24,10 +24,19 @@ const text = (max: number, label: string) =>
     .min(1, { error: `${label} skal udfyldes.` })
     .max(max, { error: `${label} er for lang.` });
 
+/** Greenland's postcodes (3900–3992) are Danish four-digit ones, but the shops do not deliver there. */
+export function isGreenlandPostcode(postcode: string): boolean {
+  return /^39\d\d$/.test(postcode.trim());
+}
+
+export const NOT_DELIVERED_MESSAGE = "Vi leverer ikke til Grønland og Færøerne.";
+
 export const postcodeSchema = z
   .string()
   .trim()
-  .regex(/^\d{4}$/, { error: "Postnummeret skal være 4 cifre." });
+  .regex(/^\d{4}$/, { error: "Postnummeret skal være 4 cifre." })
+  // The Faroe Islands' three-digit postcodes are refused by the pattern already.
+  .refine((postcode) => !isGreenlandPostcode(postcode), { error: NOT_DELIVERED_MESSAGE });
 
 export const addressSchema = z.object({
   firstName: text(100, "Fornavn"),

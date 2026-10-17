@@ -3,7 +3,7 @@ import { FakeStripe } from "../../../tests/support/fake-stripe";
 import type { CheckoutRequest } from "@/lib/validation/checkout";
 import { storeBranding } from "./branding";
 import type { CommerceBackend } from "./service";
-import { finalizePayment, paymentEventFor, startCheckout, toCreateOrderInput } from "./service";
+import { BELOW_MINIMUM_MESSAGE, finalizePayment, paymentEventFor, startCheckout, toCreateOrderInput } from "./service";
 import type { PluginResult } from "@/lib/woocommerce/checkout-api";
 import type { WcOrderSummary, WcQuote } from "@/lib/woocommerce/schemas";
 
@@ -158,6 +158,69 @@ describe("startCheckout", () => {
 
     expect(first.type === "ready" && second.type === "ready" && first.paymentIntentId === second.paymentIntentId).toBe(true);
     expect(stripe.calls.create).toBe(1);
+  });
+
+  it("lets the customer pay with a corrected address after attaching the payment failed", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    // WordPress is busy (508) or times out once: the route answers "Prøv igen om lidt".
+    let attachFails = true;
+    const backend: CommerceBackend = {
+      ...woo.backend,
+      async attachPaymentIntent(...args) {
+        if (attachFails) {
+          attachFails = false;
+          throw new Error("HTTP 508 Loop Detected");
+        }
+        return woo.backend.attachPaymentIntent(...args);
+      },
+    };
+    const deps = { backend, gateway: stripe };
+    await expect(startCheckout(request, ctx, deps)).rejects.toThrow("508");
+
+    // The plugin resumes the same pending order (same id, key and total, no PaymentIntent yet).
+    const corrected = { ...request, shipping: { ...request.shipping, address1: "Testvej 2" } };
+    const outcome = await startCheckout(corrected, ctx, deps);
+
+    if (outcome.type !== "ready") throw new Error(`expected ready, got ${outcome.type}`);
+    expect(stripe.createParams.get(outcome.paymentIntentId)?.shipping?.address.line1).toBe("Testvej 2");
+    expect(woo.order.payment_intent_id).toBe(outcome.paymentIntentId);
+    expect(stripe.calls.create).toBe(2);
+  });
+
+  it("gets the same PaymentIntent back when the same request is sent again after a failed attach", async () => {
+    const woo = fakeBackend();
+    const stripe = new FakeStripe();
+    let attachFails = true;
+    const backend: CommerceBackend = {
+      ...woo.backend,
+      async attachPaymentIntent(...args) {
+        if (attachFails) {
+          attachFails = false;
+          throw new Error("timeout");
+        }
+        return woo.backend.attachPaymentIntent(...args);
+      },
+    };
+    const deps = { backend, gateway: stripe };
+    await expect(startCheckout(request, ctx, deps)).rejects.toThrow("timeout");
+    const outcome = await startCheckout(request, ctx, deps);
+    expect(outcome.type).toBe("ready");
+    expect(stripe.calls.create).toBe(1);
+  });
+
+  it("does not ask Stripe for a payment below its minimum charge (e.g. a 100 % coupon)", async () => {
+    for (const total of ["0.00", "2.49"]) {
+      const woo = fakeBackend();
+      woo.order = order({ total });
+      const stripe = new FakeStripe();
+      const outcome = await startCheckout(request, ctx, { backend: woo.backend, gateway: stripe });
+      expect(outcome).toEqual({ type: "cart_invalid", message: BELOW_MINIMUM_MESSAGE });
+      expect(stripe.calls.create).toBe(0);
+    }
+    const woo = fakeBackend();
+    woo.order = order({ total: "2.50" });
+    expect((await startCheckout(request, ctx, { backend: woo.backend, gateway: new FakeStripe() })).type).toBe("ready");
   });
 
   it("updates the amount of an unpaid PaymentIntent when the order total changed", async () => {

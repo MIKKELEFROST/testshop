@@ -38,6 +38,14 @@ describe("POST /api/revalidate", () => {
     expect(revalidateTag).not.toHaveBeenCalled();
   });
 
+  it("answers 401, not 500, for a signature of the right length with non-ASCII characters", async () => {
+    const valid = delivery("product.updated", { id: 5, status: "publish" });
+    const signature = valid.headers.get("x-wc-webhook-signature")!;
+    const odd = new Request(valid, { headers: { "x-wc-webhook-signature": "é".repeat(signature.length), "x-wc-webhook-topic": "product.updated" } });
+    expect((await POST(odd)).status).toBe(401);
+    expect(revalidateTag).not.toHaveBeenCalled();
+  });
+
   it("marks only the changed product stale when it is updated (price, stock, text)", async () => {
     const response = await POST(delivery("product.updated", { id: 5, status: "publish" }));
     expect(await response.json()).toEqual({ ok: true, product: 5, catalog: false });

@@ -38,8 +38,12 @@
  */
 import type { Season } from "@/config/store";
 
-/** Only with Trustpilot TrustBoxes (true) or only without them (false); always when left out. */
-type Shown = { trustbox?: boolean };
+/**
+ * Only with Trustpilot TrustBoxes (`trustbox: true`) or only without them (false); `adult: true`
+ * only in a shop that sells products for adults only (18+, see sellsAdultProducts in
+ * src/config/store.ts). Always shown when left out.
+ */
+type Shown = { trustbox?: boolean; adult?: boolean };
 
 export type InfoBlock = (
   | { type: "p"; text: string }
@@ -49,7 +53,8 @@ export type InfoBlock = (
 ) &
   Shown;
 
-export type InfoSection = { heading: string; blocks: InfoBlock[] } & Shown;
+/** `id`: the section's anchor, for links to it (e.g. /stoerrelsesguide#boern). */
+export type InfoSection = { heading: string; id?: string; blocks: InfoBlock[] } & Shown;
 
 export type InfoPage = {
   slug: string;
@@ -866,10 +871,22 @@ export const INFO_PAGES: InfoPage[] = [
                 "Til betalingen er gennemført, eller du lukker fanen",
               ],
               [
-                "Betalingscookies, fx __stripe_mid og __stripe_sid",
-                "Sikker betaling og forebyggelse af svindel. Sættes først, når du går til kassen",
-                "Stripe",
-                "__stripe_mid: 1 år. __stripe_sid: 30 minutter",
+                "Seneste ordre (localStorage)",
+                "Husker, hvilken ordre der sidst tømte kurven, så en gammel ordrebekræftelse ikke tømmer en ny kurv",
+                "{shop}",
+                "Til du sletter dine browserdata",
+              ],
+              [
+                "Kassesession (__Host-checkout, cookie)",
+                "Sikrer, at din betaling kun registreres én gang – også hvis du trykker på Betal to gange. Sættes først, når du betaler",
+                "{shop}",
+                "2 døgn",
+              ],
+              [
+                "Betalingscookies, fx __stripe_mid og __stripe_sid, og __cf_bm fra hCaptcha",
+                "Sikker betaling og forebyggelse af svindel: Stripes betalingsformular bruger også hCaptcha til at skelne mennesker fra robotter. Sættes først, når du går til kassen",
+                "Stripe og hCaptcha",
+                "__stripe_mid: 1 år. __stripe_sid: 30 minutter. __cf_bm: ca. 30 minutter",
               ],
               [
                 "YouTube – kun hvis du afspiller en video",
@@ -1254,6 +1271,8 @@ export const INFO_PAGES: InfoPage[] = [
       },
       {
         heading: "Hvad betyder 18+ ved en vare?",
+        // Only the shop that sells them (the Halloween shop) explains them.
+        adult: true,
         blocks: [
           {
             type: "p",
@@ -1306,6 +1325,7 @@ export const INFO_PAGES: InfoPage[] = [
       },
       {
         heading: "Børnestørrelser",
+        id: "boern",
         blocks: [
           {
             type: "p",
@@ -1334,6 +1354,7 @@ export const INFO_PAGES: InfoPage[] = [
       },
       {
         heading: "Voksenstørrelser",
+        id: "voksne",
         blocks: [
           {
             type: "p",
@@ -1349,6 +1370,10 @@ export const INFO_PAGES: InfoPage[] = [
               ["XL", "XL (44-46)", "XL (54-56)"],
               ["XXL", "–", "XXL (56-58)"],
             ],
+          },
+          {
+            type: "p",
+            text: "Damestørrelserne er leverandørens egne: M (38-40) og L (42-44) dækker ikke str. 40-42. Bruger du str. 40-42, er du mellem to størrelser, så vælg L – og se også målene på produktsiden.",
           },
           {
             type: "p",
@@ -1411,7 +1436,7 @@ export const OM_OS: Record<string, InfoPage> = {
     slug: "om-os",
     title: "Om os",
     description:
-      "{shop} er en dansk webshop med kostumer til børn og voksne – fastelavn hele året. Ca. 8.600 varer og lynhurtig levering.",
+      "{shop} er en dansk webshop med kostumer til børn og voksne – fastelavn hele året. Ca. 8.500 varer og lynhurtig levering.",
     intro: "Hos {shop} er det fastelavn hele året. Vi elsker at klæde ud – og vi hjælper dig med at finde kostumet, der får både store og små til at stråle.",
     sections: [
       {
@@ -1462,7 +1487,7 @@ export const OM_OS: Record<string, InfoPage> = {
         blocks: [
           {
             type: "p",
-            text: "Vi har ca. 8.600 varer: kostumer til damer, herrer, piger, drenge og babyer – og alt det, der gør udklædningen komplet. Parykker, hatte, masker, sværd og rekvisitter, make-up og ansigtsmaling og pynt til festen.",
+            text: "Vi har ca. 8.500 varer: kostumer til damer, herrer, piger, drenge og babyer – og alt det, der gør udklædningen komplet. Parykker, hatte, masker, sværd og rekvisitter, make-up og ansigtsmaling og pynt til festen.",
           },
         ],
       },
@@ -1508,7 +1533,7 @@ export const OM_OS: Record<string, InfoPage> = {
         blocks: [
           {
             type: "p",
-            text: "Et rigtig godt kostume kræver de rigtige detaljer. Vi har masker, parykker, hatte, falske hugtænder, våben og rekvisitter – og blod og effektmake-up til sår, ar og et ligbleg ansigt.",
+            text: "Et rigtig godt kostume kræver de rigtige detaljer. Vi har masker, parykker, hatte, falske hugtænder, våben og rekvisitter – og blod og effektmake-up til sår, ar og et ligblegt ansigt.",
           },
           { type: "p", text: "Med lidt teaterblod og den rette maske bliver selv den sødeste nabo til et monster." },
         ],

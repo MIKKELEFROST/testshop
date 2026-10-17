@@ -1,7 +1,9 @@
 import { ChevronDown } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { DELIVERY_FACTS, RETURN_PROMISE, resolveTexts } from "@/config/usps";
 import type { ProductText } from "@/lib/product-text";
+import { sizeGuideHref } from "@/lib/listing-filters";
 import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 import type { Product } from "@/types/commerce";
 import { HygieneReturn } from "./hygiene-return";
@@ -23,9 +25,9 @@ export async function ProductInfo({ product, text }: { product: Product; text: P
           {text.sizes && <p>{text.sizes}</p>}
           {product.sizeChart && (
             <p>
-              <a href={product.sizeChart} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-4 hover:text-ink">
+              <Link href={sizeGuideHref(product.attributes[0]?.options ?? [])} className="font-medium underline underline-offset-4 hover:text-ink">
                 Se størrelsesguiden
-              </a>
+              </Link>
             </p>
           )}
         </Section>

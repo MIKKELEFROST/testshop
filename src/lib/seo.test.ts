@@ -38,4 +38,25 @@ describe("openGraphFor", () => {
     expect(openGraphFor("/faq")).toMatchObject({ url: "/faq", images: [{ url: "/opengraph-image", width: 1200, height: 630 }] });
     expect(openGraphFor("https://x.dk/produkter/a", [{ url: "https://img/a.jpg", alt: "A" }]).images).toEqual([{ url: "https://img/a.jpg", alt: "A" }]);
   });
+
+  it("names the type, the shop and the language on every page", async () => {
+    vi.resetModules();
+    const { openGraphFor } = await import("./seo");
+    expect(openGraphFor("/faq")).toMatchObject({ type: "website", siteName: "Fastelavnskostumer.dk", locale: "da_DK" });
+  });
+});
+
+describe("shopData", () => {
+  it("gives search engines the company's name, address, phone and VAT number", async () => {
+    vi.resetModules();
+    const { shopData } = await import("./seo");
+    const store = shopData()["@graph"][0]!;
+    expect(store).toMatchObject({
+      "@type": "OnlineStore",
+      legalName: "Frost Digital ApS",
+      address: { "@type": "PostalAddress", streetAddress: "Arnold Nielsens Boulevard 62 B", postalCode: "2650", addressLocality: "Hvidovre", addressCountry: "DK" },
+      telephone: "+45 41 82 67 99",
+      vatID: "DK45737632",
+    });
+  });
 });

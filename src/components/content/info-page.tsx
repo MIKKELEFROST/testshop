@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { company } from "@/config/company";
-import { storeConfig } from "@/config/store";
+import { sellsAdultProducts, storeConfig } from "@/config/store";
 import { trustBoxesShown } from "@/config/trustpilot";
 import { formatThreshold } from "@/config/usps";
 import { INFO_PAGES, OM_OS, SEASON_WORDS, type InfoBlock, type InfoPage } from "@/content/info-pages";
@@ -14,7 +14,7 @@ import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 
 export function findInfoPage(slug: string): InfoPage | undefined {
   const page = slug === "om-os" ? (OM_OS[storeConfig.id] ?? Object.values(OM_OS)[0]) : INFO_PAGES.find((p) => p.slug === slug);
-  return page && shownPage(page, trustBoxesShown);
+  return page && shownPage(page, trustBoxesShown, sellsAdultProducts());
 }
 
 async function tokenValues(): Promise<Record<string, string>> {
@@ -65,11 +65,11 @@ export async function InfoPageView({ slug }: { slug: string }) {
             <RichText text={fill(page.intro)} />
           </p>
           {page.sections.map((section) => (
-            <section key={section.heading} className="mt-10">
+            <section key={section.heading} id={section.id} className="mt-10 scroll-mt-36">
               <h2 className="text-xl font-extrabold tracking-tight text-ink sm:text-2xl">{fill(section.heading)}</h2>
               <div className="mt-3 space-y-4 text-[16px] leading-relaxed text-ink-soft">
                 {section.blocks.map((block, i) => (
-                  <Block key={i} block={block} fill={fill} />
+                  <Block key={i} block={block} fill={fill} label={fill(section.heading)} />
                 ))}
               </div>
             </section>
@@ -118,7 +118,8 @@ export const INFO_LINKS = [
   { label: "Om os", href: "/om-os" },
 ];
 
-function Block({ block, fill }: { block: InfoBlock; fill: (text: string) => string }) {
+/** `label`: the section's heading, which names a table's scroll box. */
+function Block({ block, fill, label }: { block: InfoBlock; fill: (text: string) => string; label: string }) {
   switch (block.type) {
     case "p":
       return (
@@ -141,7 +142,9 @@ function Block({ block, fill }: { block: InfoBlock; fill: (text: string) => stri
     }
     case "table":
       return (
-        <div className="overflow-x-auto rounded-xl ring-1 ring-line">
+        // On a phone the table scrolls sideways in its box: focusable, so the keyboard can scroll it too
+        // (the global :focus-visible ring shows where focus is).
+        <div className="overflow-x-auto rounded-xl ring-1 ring-line" tabIndex={0} role="region" aria-label={label}>
           <table className="w-full min-w-[480px] border-collapse bg-surface text-left text-[15px]">
             <thead className="bg-tint text-ink">
               <tr>

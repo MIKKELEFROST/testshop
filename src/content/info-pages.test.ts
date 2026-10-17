@@ -109,6 +109,14 @@ describe("information pages", () => {
     expect(section("cookiepolitik", "Det gemmes i din browser").some((t) => t.includes("sessionStorage"))).toBe(true);
   });
 
+  it("lists the shop's own checkout cookie, the last cleared order and hCaptcha's cookie in the cookie policy", () => {
+    const stored = section("cookiepolitik", "Det gemmes i din browser").join(" ");
+    expect(stored).toContain("__Host-checkout");
+    expect(stored).toContain("2 døgn");
+    expect(stored).toContain("Seneste ordre (localStorage)");
+    expect(stored).toContain("__cf_bm");
+  });
+
   it("mentions 18+ only as a rule for the products marked so, as the shops share most texts and only the Halloween shop sells them", () => {
     for (const p of pages) {
       for (const text of texts(p).filter((t) => t?.includes("18+"))) expect(text, p.slug).toMatch(/^(Varer|Hvad betyder 18\+)/);
@@ -135,5 +143,18 @@ describe("information pages", () => {
     expect(shown("cookiepolitik", false)).toContain("Derfor skal vi ikke bede om dit samtykke");
     // Every page mentions Trustpilot only in TrustBox-only text.
     for (const p of pages) expect(texts(shownPage(p, false)).join(" "), p.slug).not.toContain("Trustpilot");
+  });
+
+  it("explains 18+ products in the FAQ only in a shop that sells them, while the terms keep their rule everywhere", () => {
+    const faq = (adult: boolean) => texts(shownPage(page("faq"), false, adult)).join(" ");
+    expect(faq(true)).toContain("Hvad betyder 18+ ved en vare?");
+    expect(faq(false)).not.toContain("18+");
+    expect(texts(shownPage(page("handelsbetingelser"), false, false)).join(" ")).toContain("Varer mærket 18+");
+  });
+
+  it("gives the size guide's children's and adults' sections the anchors the product pages link to", () => {
+    const ids = page("stoerrelsesguide").sections.map((s) => s.id);
+    expect(ids).toContain("boern");
+    expect(ids).toContain("voksne");
   });
 });

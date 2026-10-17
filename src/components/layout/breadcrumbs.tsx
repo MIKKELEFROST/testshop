@@ -9,7 +9,8 @@ export function Breadcrumbs({ items, className = "" }: { items: { name: string; 
           <li key={`${item.name}-${index}`} className="flex items-center gap-x-1.5">
             {index > 0 && <span aria-hidden="true">/</span>}
             {item.href ? (
-              <Link href={item.href} className="hover:text-ink">
+              // 44 px tall to tap on phones, without making the row taller.
+              <Link href={item.href} className="-my-3 inline-block py-3 hover:text-ink sm:my-0 sm:py-0">
                 {item.name}
               </Link>
             ) : (

@@ -35,7 +35,8 @@ export function ProductRow({ id, title, intro, href, products }: { id: string; t
           {intro && <p className="mt-1 text-muted">{intro}</p>}
         </div>
         {href && (
-          <Link href={href} className="shrink-0 text-sm font-bold text-accent underline underline-offset-4">
+          // 44 px tall to tap on phones, without moving the heading.
+          <Link href={href} className="-my-3 shrink-0 py-3 text-sm font-bold text-accent underline underline-offset-4 sm:my-0 sm:py-0">
             Se alle
           </Link>
         )}

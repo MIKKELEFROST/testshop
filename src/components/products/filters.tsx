@@ -13,7 +13,8 @@ export function hasFilterChoices(options: FilterOptions): boolean {
 
 // Filter links are left to search engines' discretion (rel="nofollow"): filtered pages are not
 // indexed, and every combination would be another page for the WordPress host to serve.
-const chip = "inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm whitespace-nowrap transition-colors";
+// 44 px tall below the large screens, a finger's size (WCAG's touch guideline).
+const chip = "inline-flex h-11 items-center gap-1.5 rounded-full border px-3.5 text-sm whitespace-nowrap transition-colors lg:h-9";
 
 /** Larger screens: the filters as rows of choices above the products; a click applies one. */
 export function FilterBar({ path, params, options, selection }: ListingFiltersProps) {

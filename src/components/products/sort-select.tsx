@@ -21,7 +21,8 @@ export function SortSelect({ value, options }: { value: SortKey; options: { key:
           const search = next.toString();
           router.push(search ? `${pathname}?${search}` : pathname, { scroll: false });
         }}
-        className="h-10 rounded-[var(--radius-control)] border border-field bg-surface pr-8 pl-3 text-base font-semibold text-ink focus:border-ink focus:outline-none sm:text-sm"
+        // The site's own focus ring (:focus-visible); 44 px tall on phones, a finger's size.
+        className="h-11 rounded-[var(--radius-control)] border border-field bg-surface pr-8 pl-3 text-base font-semibold text-ink focus:border-ink sm:h-10 sm:text-sm"
       >
         {options.map((option) => (
           <option key={option.key} value={option.key}>

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
+import { NotFoundContent } from "@/components/layout/not-found-content";
 import { ProductUsps } from "@/components/marketing/usps";
 import { CardBand } from "@/components/products/product-card";
 import { ProductDetail } from "@/components/products/product-detail";
@@ -10,12 +11,14 @@ import { RelatedProducts, RelatedProductsSkeleton } from "@/components/products/
 import { CatalogRetry } from "@/components/ui/catalog-retry";
 import { company, isPlaceholder } from "@/config/company";
 import { storeConfig } from "@/config/store";
+import { PARCEL_SHOP_SHIPPING } from "@/config/usps";
 import { homeSeasonFor, homeStoreFor, storeName, storeUrl } from "@/lib/home-store";
 import { productDescription } from "@/lib/meta-description";
 import { splitProductText } from "@/lib/product-text";
 import { breadcrumbData, JsonLd, openGraphFor } from "@/lib/seo";
 import { categoryPath, primaryCategory } from "@/lib/woocommerce/category-tree";
 import { getCategories, getProductBySlug } from "@/lib/woocommerce/products";
+import { getFreeShippingFrom } from "@/lib/woocommerce/shipping";
 import type { Product, ProductCategory } from "@/types/commerce";
 
 /*
@@ -91,7 +94,9 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
     );
   }
   const product = result.data;
-  if (!product) notFound();
+  // generateMetadata has called notFound() already (a 404 for search engines, the not-found
+  // page for visitors): a second notFound() here added a second "noindex" to the page.
+  if (!product) return <NotFoundContent />;
 
   // File the product under its most specific category, with that category's parents.
   const primary = categories.ok ? primaryCategory(categories.data, product.categories) : undefined;
@@ -103,8 +108,17 @@ async function ProductContent({ params }: { params: Promise<{ slug: string }> })
   return (
     <>
       <div className="container-shop pt-5 pb-16 sm:pt-8">
-        <JsonLd data={categories.ok ? productData(product, productUrl(product, tree), productSeller(product, tree)) : productData(product, ownProductUrl(product))} />
-        <JsonLd data={breadcrumbData([...crumbs, { name: product.name, href: `/produkter/${product.slug}` }])} />
+        {/* Streamed: the free shipping amount is a read of its own (cached), which the page need not wait for. */}
+        <Suspense fallback={null}>
+          <ProductStructuredData
+            product={product}
+            url={categories.ok ? productUrl(product, tree) : ownProductUrl(product)}
+            seller={categories.ok ? productSeller(product, tree) : undefined}
+            category={path.at(-1)?.name}
+          />
+        </Suspense>
+        {/* The product itself is the last crumb, without an address: search engines take the page's (canonical) one. */}
+        <JsonLd data={breadcrumbData([...crumbs, { name: product.name }])} />
         <Breadcrumbs className="mb-5" items={crumbs} />
         <ProductDetail
           product={product}
@@ -151,11 +165,20 @@ function ProductSkeleton() {
   );
 }
 
+async function ProductStructuredData({ product, url, seller, category }: { product: Product; url: string; seller?: Record<string, string>; category?: string }) {
+  const freeShippingFrom = await getFreeShippingFrom();
+  return <JsonLd data={productData(product, url, { seller, category, freeShippingFrom })} />;
+}
+
 /**
- * schema.org Product with its price(s), stock and barcode, for search results; `url` is its
- * canonical address and `seller` the shop there.
+ * schema.org Product with its price(s), stock, barcode and delivery, for search results; `url` is
+ * its canonical address, `seller` the shop there and `category` the one the breadcrumbs show.
  */
-function productData(product: Product, url: string, seller?: Record<string, string>) {
+function productData(
+  product: Product,
+  url: string,
+  { seller, category, freeShippingFrom }: { seller?: Record<string, string>; category?: string; freeShippingFrom: string | null },
+) {
   const availability = (status: string, quantity: number | null) =>
     status === "outofstock" || quantity === 0
       ? "https://schema.org/OutOfStock"
@@ -202,8 +225,39 @@ function productData(product: Product, url: string, seller?: Record<string, stri
     image: product.images.slice(0, 8).map((i) => i.src),
     description: [...product.shortDescription, ...product.description].join(" ").slice(0, 5000) || undefined,
     brand: { "@type": "Brand", name: "Guirca" },
-    category: product.categories[0]?.name,
-    ...(offers ? { offers: { ...offers, ...(seller ? { seller } : {}), ...returnPolicyData() } } : {}),
+    // The category the page files it under (its breadcrumbs), not WooCommerce's first (often a season's).
+    category: category ?? product.categories[0]?.name,
+    ...(offers
+      ? { offers: { ...offers, ...(seller ? { seller } : {}), ...returnPolicyData(), ...shippingData(lowestPrice(offers), freeShippingFrom) } }
+      : {}),
+  };
+}
+
+/** The price the cheapest offer starts at. */
+function lowestPrice(offers: { price?: string; lowPrice?: string }): number {
+  return Number(offers.price ?? offers.lowPrice ?? 0);
+}
+
+/**
+ * Delivery in Denmark as the shop promises it (src/config/usps.ts, lib/delivery.ts), never a
+ * date: to a parcel shop for PARCEL_SHOP_SHIPPING, free from the free shipping amount; sent the
+ * same or the next weekday, normally delivered the weekday after.
+ */
+function shippingData(price: number, freeShippingFrom: string | null) {
+  const free = freeShippingFrom !== null && price >= Number(freeShippingFrom);
+  const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((day) => `https://schema.org/${day}`);
+  return {
+    shippingDetails: {
+      "@type": "OfferShippingDetails",
+      shippingRate: { "@type": "MonetaryAmount", value: free ? "0.00" : PARCEL_SHOP_SHIPPING, currency: storeConfig.currency },
+      shippingDestination: { "@type": "DefinedRegion", addressCountry: storeConfig.defaultCountry },
+      deliveryTime: {
+        "@type": "ShippingDeliveryTime",
+        businessDays: { "@type": "OpeningHoursSpecification", dayOfWeek: weekdays },
+        handlingTime: { "@type": "QuantitativeValue", minValue: 0, maxValue: 1, unitCode: "DAY" },
+        transitTime: { "@type": "QuantitativeValue", minValue: 1, maxValue: 1, unitCode: "DAY" },
+      },
+    },
   };
 }
 

@@ -124,6 +124,17 @@ function letters(name: string): string[] {
   return found.every((letter) => LETTERS.includes(letter)) ? found : [];
 }
 
+/**
+ * The shop's size guide for a product's sizes: its children's section for ages ("5-6 år"), its
+ * adults' for letters ("L (42-44)"), the whole guide for both or neither.
+ */
+export function sizeGuideHref(sizes: string[]): string {
+  const children = sizes.some((size) => childAges(size) !== null);
+  const adults = sizes.some((size) => letters(size).length > 0);
+  if (children === adults) return "/stoerrelsesguide";
+  return children ? "/stoerrelsesguide#boern" : "/stoerrelsesguide#voksne";
+}
+
 /** A shoe size range, as the Guirca import names them: "37-41". */
 function isShoeSize(name: string): boolean {
   return /^\d+-\d+$/.test(name);

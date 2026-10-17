@@ -23,7 +23,7 @@ export function FavoriteButton({ productId, name, variant = "card" }: { productI
       title={saved ? "Fjern fra favoritter" : "Gem som favorit"}
       className={
         variant === "card"
-          ? "flex size-10 items-center justify-center rounded-full bg-white/90 text-ink-soft shadow-sm ring-1 ring-black/5 transition hover:scale-105 hover:text-sale"
+          ? "flex size-11 items-center justify-center rounded-full bg-white/90 text-ink-soft shadow-sm ring-1 ring-black/5 transition hover:scale-105 hover:text-sale"
           : "flex size-12 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-line-strong bg-surface text-ink-soft transition-colors hover:border-ink hover:text-sale"
       }
     >

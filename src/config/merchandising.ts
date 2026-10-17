@@ -285,7 +285,7 @@ const fastelavn: Merchandising = {
     {
       slug: "pirater",
       title: "Pirater",
-      intro: "Piratkostumer, hatte, klapper og sabler til hele besætningen.",
+      intro: "Piratkostumer, hatte, klapper og sabler til hele besætningen – til børn og voksne. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Pirater"],
     },
     {
@@ -318,7 +318,7 @@ const fastelavn: Merchandising = {
     {
       slug: "riddere-og-vikinger",
       title: "Riddere og vikinger",
-      intro: "Riddere, vikinger, romere og hulemænd med hjelme, skjolde og sværd.",
+      intro: "Riddere, vikinger, romere og hulemænd med hjelme, skjolde og sværd – til børn og voksne. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Vikinger", "Romere og grækere", "Hulemænd", "Middelalder og prinsesser"],
     },
     {
@@ -358,7 +358,7 @@ const fastelavn: Merchandising = {
     tilbehoer: "Gør kostumet komplet med parykker, hatte, masker, briller, våben og alt det andet tilbehør.",
     "make-up": "Ansigtsmaling, sminke og glimmer til fastelavn – til kattemasker, tigerstriber og superheltemasker.",
     "sminke-og-ansigtsmaling": "Ansigtsmaling og sminke, der er let at påføre og fjerne. Perfekt til kattemaske, tigerstriber og sommerfugle.",
-    "pynt-og-fest": "Pynt, konfetti og bordpynt til fastelavnsfesten.",
+    "pynt-og-fest": "Pynt, konfetti og bordpynt til fastelavnsfesten – til huset, klassen og børnefødselsdagen. Med 1-dags levering og gratis retur i 30 dage.",
   },
 };
 
@@ -555,7 +555,7 @@ const halloween: Merchandising = {
     {
       slug: "hekse",
       title: "Hekse",
-      intro: "Heksekostumer, heksehatte, koste og parykker til små og store hekse.",
+      intro: "Heksekostumer, heksehatte, koste og parykker til små og store hekse – klar til halloween. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Hekse"],
       tileProduct: "fantasiheks-kostume-til-damer-sort",
     },
@@ -569,7 +569,7 @@ const halloween: Merchandising = {
     {
       slug: "zombier",
       title: "Zombier",
-      intro: "Zombiekostumer, sår og blod til dem, der vil gå igen.",
+      intro: "Zombiekostumer, sår og blod til dem, der vil gå igen – til damer, herrer og børn. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Zombie"],
       tileProduct: "zombie-studerende-kostume-til-damer",
     },
@@ -583,14 +583,14 @@ const halloween: Merchandising = {
     {
       slug: "djaevle-og-daemoner",
       title: "Djævle og dæmoner",
-      intro: "Djævlehorn, haler, treforke og dæmonmasker.",
+      intro: "Djævlekostumer, djævlehorn, haler, treforke og dæmonmasker – alt til en rigtig djævelsk halloween. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Djævle og dæmoner"],
       tileProduct: "daemon-kostume-til-herrer",
     },
     {
       slug: "spoegelser",
       title: "Spøgelser",
-      intro: "Spøgelseskostumer og uhyggelig pynt, der går igen.",
+      intro: "Spøgelseskostumer og uhyggelig pynt, der går igen – til halloweenfesten og spøgelseshuset. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Spøgelser"],
       tileProduct: "haarspoegelse-kostume-til-damer",
     },
@@ -604,13 +604,13 @@ const halloween: Merchandising = {
     {
       slug: "horror-klovne",
       title: "Horror-klovne",
-      intro: "Klovne, der ikke er sjove: horror-klovnekostumer, masker og parykker.",
+      intro: "Klovne, der ikke er sjove: horror-klovnekostumer, masker og parykker til halloween. Med 1-dags levering og gratis retur i 30 dage.",
       themes: ["Klovne"],
       alsoIn: ["halloween"],
       alsoInFallbackThemes: HALLOWEEN_THEMES,
       tileProduct: "ond-klovn-kostume-til-herrer",
     },
-    { slug: "varulve", title: "Varulve", intro: "Varulvekostumer, masker og klør til fuldmånen.", themes: ["Varulv"] },
+    { slug: "varulve", title: "Varulve", intro: "Varulvekostumer, varulvemasker og klør til fuldmånen – så du kan hyle med til halloween. Med 1-dags levering og gratis retur i 30 dage.", themes: ["Varulv"] },
   ],
   categoryIntros: {
     halloween: "Alt til halloween: kostumer, masker, blod og effekter, make-up og pynt til huset.",
@@ -624,8 +624,8 @@ const halloween: Merchandising = {
     "blod-og-effekter": "Kunstigt blod, sår, ar, latex og falske tænder, der gør kostumet rigtig uhyggeligt.",
     halloweenpynt: "Halloweenpynt til huset: græskar, kranier, gravsten, spindelvæv og uhyggelige rekvisitter.",
     "figurer-og-animatronics": "Figurer, der bevæger sig, lyser og laver lyde – det store trick til halloweenfesten.",
-    "pynt-og-fest": "Pynt til halloweenfesten – til huset, haven og bordet.",
-    "polterabend-18": "Kostumer og tilbehør for voksne. Kun for kunder over 18 år.",
+    "pynt-og-fest": "Pynt til halloweenfesten – til huset, haven og bordet, med alle de uhyggelige detaljer. Med 1-dags levering og gratis retur i 30 dage.",
+    "polterabend-18": "Kostumer og tilbehør for voksne til polterabenden og festen. Kun for kunder, der er fyldt 18 år. Med 1-dags levering og gratis retur i 30 dage.",
   },
 };
 

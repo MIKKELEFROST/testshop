@@ -13,10 +13,12 @@ const FONT_FILES = { fredoka: "fredoka-latin-700-normal.woff", bebas: "bebas-neu
 
 const halloween = storeConfig.logo.mark === "pumpkin";
 
+// Read once, when the module is loaded (as in Next.js's opengraph-image docs). Read inside the
+// image function, it made /opengraph-image render on every request instead of being prerendered.
+const fontData = await readFile(join(process.cwd(), "assets/fonts", halloween ? FONT_FILES.bebas : FONT_FILES.fredoka));
+
 export async function brandFonts() {
-  const file = halloween ? FONT_FILES.bebas : FONT_FILES.fredoka;
-  const data = await readFile(join(process.cwd(), "assets/fonts", file));
-  return [{ name: "Brand", data, weight: (halloween ? 400 : 700) as 400 | 700, style: "normal" as const }];
+  return [{ name: "Brand", data: fontData, weight: (halloween ? 400 : 700) as 400 | 700, style: "normal" as const }];
 }
 
 /** The logo as it stands on a light background (e-mails) or a dark one (share image). */
